@@ -1,0 +1,44 @@
+// Single source of truth for "what hours is this day open, if any" — used by
+// both the engine (slot-finding) and the calendar UI (before/after-hours
+// dimming, STARTS EARLY/LATE labels). Having two hand-rolled copies of this
+// logic is exactly how the STARTS EARLY/LATE label bug happened — the UI's
+// copy never compared against the real per-weekday default.
+
+import type { DayOverrides, GDay, MinuteOfDay, WeeklyHours } from "./types";
+
+export interface DayWindow {
+  start: MinuteOfDay;
+  end: MinuteOfDay;
+}
+
+const FALLBACK_WINDOW: DayWindow = { start: 9 * 60, end: 17 * 60 };
+
+/** Resolves the effective working window for a given grid day, or null if
+ * the day is off (no window at all — nothing gets scheduled, nothing
+ * renders as "hours"). */
+export function resolveDayWindow(
+  gday: GDay,
+  weeklyHours: WeeklyHours,
+  dayOverrides: DayOverrides,
+): DayWindow | null {
+  const dow = gday % 7;
+  const defaultWindow = weeklyHours[dow] ?? null;
+  const override = dayOverrides[gday];
+
+  if (override && (override.start != null || override.end != null || override.allowWeekend)) {
+    const base = defaultWindow ?? FALLBACK_WINDOW;
+    return {
+      start: override.start ?? base.start,
+      end: override.end ?? base.end,
+    };
+  }
+
+  return defaultWindow;
+}
+
+/** The day's *default* window (ignoring any override) — used to tell
+ * "starts early" from "starts late" against the account's normal hours for
+ * that weekday, not just against the calendar's 7am-7pm render span. */
+export function defaultDayWindow(gday: GDay, weeklyHours: WeeklyHours): DayWindow | null {
+  return weeklyHours[gday % 7] ?? null;
+}

@@ -1,26 +1,111 @@
 @import "tailwindcss";
 
+/* Nocturne design tokens — source of truth: design_handoff_schedule_manager/nocturne-styles.css.
+   Dark theme only, per the handoff spec. */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --color-bg: #161826;
+  --color-panel: #232532;
+  --color-surface: #292b31;
+  --color-surface-alt: #1d1f2b;
+  --color-text: #e9e9ed;
+  --color-muted: #9397ab;
+  --color-muted-2: #75798c;
+  --color-accent: #9184d9;
+  --color-accent-text: #d2cefd;
+
+  --color-accent-100: #f5f4ff;
+  --color-accent-200: #e7e5fe;
+  --color-accent-300: #d2cefd;
+  --color-accent-500: #968ae0;
+  --color-accent-600: #796cbf;
+  --color-accent-700: #5d5294;
+  --color-accent-800: #423a6a;
+
+  --color-neutral-200: #e4e7f5;
+  --color-neutral-300: #cfd3e5;
+  --color-neutral-600: #75798c;
+  --color-neutral-800: #3f424d;
+  --color-neutral-900: #292b31;
+
+  --color-border: rgba(233, 233, 237, 0.16);
+  --color-border-grid: rgba(233, 233, 237, 0.1);
+  --color-border-subtle: rgba(233, 233, 237, 0.14);
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 14px;
+
+  --font-body: "Inter", system-ui, sans-serif;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-bg: var(--color-bg);
+  --color-panel: var(--color-panel);
+  --color-surface: var(--color-surface);
+  --color-surface-alt: var(--color-surface-alt);
+  --color-text: var(--color-text);
+  --color-muted: var(--color-muted);
+  --color-muted-2: var(--color-muted-2);
+  --color-accent: var(--color-accent);
+  --color-accent-text: var(--color-accent-text);
+  --color-accent-100: var(--color-accent-100);
+  --color-accent-200: var(--color-accent-200);
+  --color-accent-300: var(--color-accent-300);
+  --color-accent-500: var(--color-accent-500);
+  --color-accent-600: var(--color-accent-600);
+  --color-accent-700: var(--color-accent-700);
+  --color-accent-800: var(--color-accent-800);
+  --color-neutral-200: var(--color-neutral-200);
+  --color-neutral-300: var(--color-neutral-300);
+  --color-neutral-600: var(--color-neutral-600);
+  --color-neutral-800: var(--color-neutral-800);
+  --color-neutral-900: var(--color-neutral-900);
+  --color-border: var(--color-border);
+  --color-border-grid: var(--color-border-grid);
+  --color-border-subtle: var(--color-border-subtle);
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --font-sans: var(--font-body);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  box-sizing: border-box;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: 15px;
+}
+
+:focus {
+  outline: none;
+}
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+::selection {
+  background: color-mix(in srgb, var(--color-accent) 30%, transparent);
+}
+
+.schedule-menu-item {
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgba(233, 233, 237, 0.08);
+  color: var(--color-text);
+  font-size: 11px;
+  padding: 7px 11px;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+}
+.schedule-menu-item:last-child {
+  border-bottom: none;
+}
+.schedule-menu-item:hover {
+  background: #2e3040;
 }

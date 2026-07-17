@@ -463,9 +463,10 @@ export default function SettingsPage() {
 
               <div className="rounded bg-surface px-2.5 py-2">
                 <p className="text-[10.5px] tracking-wide uppercase text-muted-2 mb-1.5">
-                  How to get your {PROVIDER_LABELS[newConnProvider]} link
+                  Steps to connect {PROVIDER_LABELS[newConnProvider]}
                 </p>
                 <ol className="text-[11px] text-muted leading-relaxed list-decimal list-inside space-y-0.5">
+                  <li>Pick a name for this connection above (anything you want, e.g. &quot;Work Outlook&quot;) — it&apos;s just for you to tell calendars apart, not something from {PROVIDER_LABELS[newConnProvider]}.</li>
                   {PROVIDER_INSTRUCTIONS[newConnProvider].map((step, i) => (
                     <li key={i}>{step}</li>
                   ))}

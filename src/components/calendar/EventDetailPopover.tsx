@@ -1,5 +1,6 @@
 "use client";
 
+import { Fragment } from "react";
 import { minToLabel, WEEKDAY_LABELS } from "@/lib/scheduling/time";
 import type { ScheduleBlock } from "@/lib/scheduling/types";
 
@@ -7,6 +8,35 @@ interface EventDetailPopoverProps {
   block: ScheduleBlock;
   top: number;
   onClose: () => void;
+}
+
+const URL_PATTERN = /https?:\/\/[^\s<>"']+/g;
+
+/** Splits text on URLs and renders the matched spans as real links —
+ * everything else stays as plain, auto-escaped text (never
+ * dangerouslySetInnerHTML), since feed content is third-party/untrusted. */
+function linkify(text: string): React.ReactNode[] {
+  const parts = text.split(URL_PATTERN);
+  const urls = text.match(URL_PATTERN) ?? [];
+  const out: React.ReactNode[] = [];
+  parts.forEach((part, i) => {
+    if (part) out.push(<Fragment key={`t${i}`}>{part}</Fragment>);
+    if (urls[i]) {
+      out.push(
+        <a
+          key={`u${i}`}
+          href={urls[i]}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-accent-text underline underline-offset-2 break-all"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {urls[i]}
+        </a>,
+      );
+    }
+  });
+  return out;
 }
 
 /** Detail popover for a synced meeting block — shows what came in from the
@@ -39,7 +69,7 @@ export function EventDetailPopover({ block, top, onClose }: EventDetailPopoverPr
         {block.location && <div className="mt-1 text-[10.5px] text-muted">📍 {block.location}</div>}
         {block.description && (
           <div className="mt-1.5 text-[10.5px] text-muted whitespace-pre-wrap leading-relaxed max-h-32 overflow-y-auto">
-            {block.description}
+            {linkify(block.description)}
           </div>
         )}
       </div>

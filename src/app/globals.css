@@ -80,6 +80,33 @@ body {
   font-size: 15px;
 }
 
+/* Dark-theme scrollbars — browsers default to a light/white overlay
+   scrollbar unless told otherwise, which stands out harshly against this
+   theme's dark surfaces. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(233, 233, 237, 0.22) transparent;
+}
+*::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background-color: rgba(233, 233, 237, 0.18);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(233, 233, 237, 0.32);
+}
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 :focus {
   outline: none;
 }

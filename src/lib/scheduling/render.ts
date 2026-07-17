@@ -7,8 +7,12 @@
 import { fmtMin, minToLabel } from "./time";
 import type { Category, ScheduleBlock } from "./types";
 
-export const DAY_START_MIN = 420; // 7:00am
-export const DAY_END_MIN = 1140; // 7:00pm
+// The grid renders the full day so scrolling can reach any hour even when
+// nothing's scheduled there — WeekGrid scrolls to DEFAULT_SCROLL_MIN on
+// mount so the typical working window is what's visible by default.
+export const DAY_START_MIN = 0; // midnight
+export const DAY_END_MIN = 1440; // midnight next day
+export const DEFAULT_SCROLL_MIN = 420; // 7:00am
 export const PX_PER_MIN = 1; // 60px/hour
 
 export type ContentDensity = "compact" | "medium" | "full";

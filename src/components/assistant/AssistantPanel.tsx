@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { PaperPlaneRightIcon } from "@phosphor-icons/react";
+import { CaretLeftIcon, CaretRightIcon, PaperPlaneRightIcon } from "@phosphor-icons/react";
 import { useChat } from "@/hooks/useChat";
 import { computeTrackableChips } from "./trackables";
 import type { UseScheduleDataResult } from "@/hooks/useScheduleData";
@@ -14,6 +14,7 @@ export function AssistantPanel({ scheduleData }: AssistantPanelProps) {
   const { data, schedule, refresh } = scheduleData;
   const { messages, send } = useChat(refresh);
   const [input, setInput] = useState("");
+  const [collapsed, setCollapsed] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -39,11 +40,34 @@ export function AssistantPanel({ scheduleData }: AssistantPanelProps) {
     void send(text);
   }
 
+  if (collapsed) {
+    return (
+      <div className="flex-none w-9 border-l border-border flex flex-col items-center pt-3">
+        <button
+          onClick={() => setCollapsed(false)}
+          title="Expand assistant"
+          className="inline-flex items-center justify-center w-7 h-7 rounded-md hover:bg-white/5 text-muted"
+        >
+          <CaretLeftIcon size={13} weight="bold" />
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="flex-none w-[400px] border-l border-border flex flex-col min-h-0">
-      <div className="flex-none px-4 py-3.5 border-b border-border">
-        <div className="font-medium text-[13px]">Assistant</div>
-        <div className="mt-0.5 text-[11px] text-muted">Tell me a task. I&apos;ll fit it around your rules.</div>
+      <div className="flex-none px-4 py-3.5 border-b border-border flex items-start justify-between gap-2">
+        <div>
+          <div className="font-medium text-[13px]">Assistant</div>
+          <div className="mt-0.5 text-[11px] text-muted">Tell me a task. I&apos;ll fit it around your rules.</div>
+        </div>
+        <button
+          onClick={() => setCollapsed(true)}
+          title="Collapse assistant"
+          className="flex-none inline-flex items-center justify-center w-6 h-6 rounded-md hover:bg-white/5 text-muted"
+        >
+          <CaretRightIcon size={12} weight="bold" />
+        </button>
       </div>
 
       {chips.length > 0 && (

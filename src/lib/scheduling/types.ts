@@ -182,6 +182,11 @@ export interface ScheduleBlock {
   meetingUrl?: string | null;
   connectionColor?: string | null;
   connectionLabel?: string | null;
+  /** UI-only: set when adjacent same-task chunks are visually merged into
+   * one display block (see WeekGrid's mergeAdjacentTaskBlocks) — the
+   * original chunks, needed to log progress against each one's own
+   * progress_log key rather than the merged span. */
+  mergedChunks?: ScheduleBlock[];
 }
 
 export interface ComputeScheduleResult {

@@ -229,6 +229,9 @@ export interface Database {
           source: EventSource;
           external_id: string | null;
           connection_id: string | null;
+          description: string | null;
+          location: string | null;
+          meeting_url: string | null;
           created_at: string;
         },
         {
@@ -240,6 +243,9 @@ export interface Database {
           source?: EventSource;
           external_id?: string | null;
           connection_id?: string | null;
+          description?: string | null;
+          location?: string | null;
+          meeting_url?: string | null;
         },
         Partial<{ title: string; starts_at: string; ends_at: string }>
       >;

@@ -19,6 +19,56 @@ export interface SyncedEvent {
   title: string;
   startsAt: Date;
   endsAt: Date;
+  description: string | null;
+  location: string | null;
+  meetingUrl: string | null;
+}
+
+const URL_PATTERN = /https?:\/\/[^\s<>"']+/gi;
+const MEETING_HOSTS = [
+  "zoom.us",
+  "meet.google.com",
+  "teams.microsoft.com",
+  "teams.live.com",
+  "webex.com",
+  "gotomeeting.com",
+  "bluejeans.com",
+  "whereby.com",
+];
+
+/** Best-effort join-link detection — these providers don't put the link in
+ * a single standard field, so scan the ones that usually carry it, in
+ * order of reliability: the VEVENT's own URL property first, then
+ * description/location text. */
+function extractMeetingUrl(...texts: (string | undefined)[]): string | null {
+  for (const text of texts) {
+    if (!text) continue;
+    const matches = text.match(URL_PATTERN);
+    if (!matches) continue;
+    const hit = matches.find((u) => MEETING_HOSTS.some((h) => u.toLowerCase().includes(h)));
+    if (hit) return hit.replace(/[.,;)]+$/, "");
+  }
+  return null;
+}
+
+function buildEvent(
+  uid: string,
+  title: string,
+  startsAt: Date,
+  endsAt: Date,
+  description?: string,
+  location?: string,
+  url?: string,
+): SyncedEvent {
+  return {
+    uid,
+    title,
+    startsAt,
+    endsAt,
+    description: description || null,
+    location: location || null,
+    meetingUrl: extractMeetingUrl(url, description, location),
+  };
 }
 
 export async function fetchIcsEvents(
@@ -53,18 +103,23 @@ export async function fetchIcsEvents(
         const start = override?.start ?? occStart;
         const end = override?.end ?? new Date(occStart.getTime() + durationMs);
         if (override?.status === "CANCELLED") return;
-        out.push({
-          uid: `${ev.uid}-${occStart.toISOString()}`,
-          title: override?.summary || title,
-          startsAt: start,
-          endsAt: end,
-        });
+        out.push(
+          buildEvent(
+            `${ev.uid}-${occStart.toISOString()}`,
+            override?.summary || title,
+            start,
+            end,
+            override?.description ?? ev.description,
+            override?.location ?? ev.location,
+            override?.url ?? ev.url,
+          ),
+        );
       });
       continue;
     }
 
     if (ev.end < horizonStart || ev.start > horizonEnd) continue;
-    out.push({ uid: ev.uid, title, startsAt: ev.start, endsAt: ev.end });
+    out.push(buildEvent(ev.uid, title, ev.start, ev.end, ev.description, ev.location, ev.url));
   }
 
   return out;

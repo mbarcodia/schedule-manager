@@ -31,6 +31,7 @@ export function Block({
   const compact = visual.density === "compact";
   const checkSize = compact ? 12 : 18;
   const futureTask = visual.isTask && !block.status;
+  const clickable = visual.isTask || block.type === "synced";
 
   function handleCheckClick(e: React.MouseEvent) {
     e.stopPropagation();
@@ -42,7 +43,7 @@ export function Block({
   return (
     <div
       onClick={(e) => {
-        if (visual!.isTask) {
+        if (clickable) {
           e.stopPropagation();
           onBodyClick();
         }
@@ -61,7 +62,7 @@ export function Block({
         overflow: "hidden",
         boxSizing: "border-box",
         opacity: visual.opacity,
-        cursor: visual.isTask ? "pointer" : "default",
+        cursor: clickable ? "pointer" : "default",
       }}
     >
       {visual.canComplete && (

@@ -47,6 +47,9 @@ export async function syncConnection(
           source,
           external_id: e.uid,
           connection_id: connection.id,
+          description: e.description,
+          location: e.location,
+          meeting_url: e.meetingUrl,
         })),
       );
       if (insertError) throw insertError;

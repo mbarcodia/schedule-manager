@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Block } from "./Block";
 import { TaskDetailPopover } from "./TaskDetailPopover";
+import { EventDetailPopover } from "./EventDetailPopover";
 import { defaultDayWindow, resolveDayWindow } from "@/lib/scheduling/day-window";
 import { DAY_END_MIN, DAY_START_MIN } from "@/lib/scheduling/render";
 import { dateForGday, minToLabel, nowAbsMinute, WEEKDAY_LABELS } from "@/lib/scheduling/time";
@@ -178,7 +179,9 @@ export function WeekGrid({
                 (() => {
                   const clampStart = Math.max(openBlock.start, DAY_START_MIN);
                   const popoverTop = Math.min(clampStart - DAY_START_MIN + 22, VIEW_HEIGHT - 180);
-                  return (
+                  return openBlock.type === "synced" ? (
+                    <EventDetailPopover block={openBlock} top={popoverTop} onClose={() => setOpenKey(null)} />
+                  ) : (
                     <TaskDetailPopover
                       block={openBlock}
                       top={popoverTop}

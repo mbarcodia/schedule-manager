@@ -289,6 +289,10 @@ export function computeSchedule(
       start: e.start,
       end: e.end,
       priority: null,
+      key: `event-${e.id}`,
+      description: e.description,
+      location: e.location,
+      meetingUrl: e.meetingUrl,
     });
   });
 

@@ -164,6 +164,9 @@ export function buildScheduleInputs(
       start: s.minuteOfDay,
       end: en.minuteOfDay,
       source: e.source,
+      description: e.description,
+      location: e.location,
+      meetingUrl: e.meeting_url,
     };
   });
 

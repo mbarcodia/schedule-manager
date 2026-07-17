@@ -93,6 +93,9 @@ export interface CalendarEvent {
   start: MinuteOfDay;
   end: MinuteOfDay;
   source?: "manual" | "google" | "icloud" | "outlook";
+  description?: string | null;
+  location?: string | null;
+  meetingUrl?: string | null;
 }
 
 export interface RecurringRule {
@@ -168,6 +171,10 @@ export interface ScheduleBlock {
   status?: ProgressStatus;
   partMin?: number | null;
   pinned?: boolean;
+  /** Present on synced meeting blocks only. */
+  description?: string | null;
+  location?: string | null;
+  meetingUrl?: string | null;
 }
 
 export interface ComputeScheduleResult {

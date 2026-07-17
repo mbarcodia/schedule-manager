@@ -5,9 +5,10 @@
 export type PreferredModel = "claude-haiku-4-5" | "claude-sonnet-5" | "claude-opus-4-8";
 export type Priority = "high" | "medium" | "low";
 export type TaskTag = "deep-focus" | "research";
-export type EventSource = "manual" | "google" | "icloud";
+export type EventSource = "manual" | "google" | "icloud" | "outlook";
 export type SubjectType = "task" | "research";
 export type ChatRole = "user" | "assistant";
+export type CalendarProvider = "outlook_ics" | "icloud_ics" | "google_ics";
 
 /** Keys are "0".."6" (0=Mon..6=Sun). null = day off by default. */
 export type WeeklyHoursJson = Record<string, { start: number; end: number } | null>;
@@ -227,6 +228,7 @@ export interface Database {
           ends_at: string;
           source: EventSource;
           external_id: string | null;
+          connection_id: string | null;
           created_at: string;
         },
         {
@@ -237,8 +239,39 @@ export interface Database {
           ends_at: string;
           source?: EventSource;
           external_id?: string | null;
+          connection_id?: string | null;
         },
         Partial<{ title: string; starts_at: string; ends_at: string }>
+      >;
+      calendar_connections: Table<
+        {
+          id: string;
+          user_id: string;
+          provider: CalendarProvider;
+          label: string;
+          ics_url: string;
+          last_synced_at: string | null;
+          last_sync_error: string | null;
+          last_sync_event_count: number | null;
+          created_at: string;
+        },
+        {
+          id?: string;
+          user_id: string;
+          provider: CalendarProvider;
+          label: string;
+          ics_url: string;
+          last_synced_at?: string | null;
+          last_sync_error?: string | null;
+          last_sync_event_count?: number | null;
+        },
+        Partial<{
+          label: string;
+          ics_url: string;
+          last_synced_at: string | null;
+          last_sync_error: string | null;
+          last_sync_event_count: number | null;
+        }>
       >;
       progress_log: Table<
         {

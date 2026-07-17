@@ -5,11 +5,40 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CaretLeftIcon, CheckIcon } from "@phosphor-icons/react";
 import { createClient } from "@/lib/supabase/client";
-import type { Database, PreferredModel, WeeklyHoursJson } from "@/lib/supabase/database.types";
+import type { CalendarProvider, Database, PreferredModel, WeeklyHoursJson } from "@/lib/supabase/database.types";
 
 type CategoryRow = Database["public"]["Tables"]["categories"]["Row"];
+type ConnectionRow = Database["public"]["Tables"]["calendar_connections"]["Row"];
 
 const DAY_LABELS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+
+const PROVIDER_LABELS: Record<CalendarProvider, string> = {
+  outlook_ics: "Outlook",
+  icloud_ics: "iCloud",
+  google_ics: "Google",
+};
+
+const PROVIDER_INSTRUCTIONS: Record<CalendarProvider, string[]> = {
+  outlook_ics: [
+    "Go to outlook.office.com (or outlook.com) and sign in.",
+    'Click the gear icon (Settings) in the top right, then find "Shared calendars" under Calendar.',
+    'Under "Publish a calendar," pick the calendar you want to connect and set permissions to "Can view all details."',
+    'Click "Publish," then copy the ICS link (not the HTML link).',
+    "Paste that link below.",
+  ],
+  icloud_ics: [
+    "Open the Calendar app (or go to icloud.com/calendar) and sign in.",
+    "Hover over the calendar you want to share in the sidebar, click the share icon, and turn on \"Public Calendar.\"",
+    'Copy the link it gives you — it starts with "webcal://", which is fine, paste it as-is.',
+    "Paste that link below.",
+  ],
+  google_ics: [
+    "Go to calendar.google.com on desktop and sign in.",
+    'Find the calendar in the left sidebar, click the three-dot menu, then "Settings and sharing."',
+    'Scroll to "Integrate calendar" and copy the "Secret address in iCal format" (not the public address — the secret one works without making your whole calendar public).',
+    "Paste that link below.",
+  ],
+};
 
 function minutesToTimeInput(min: number): string {
   return `${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`;
@@ -54,6 +83,11 @@ export default function SettingsPage() {
   const [categories, setCategories] = useState<CategoryRow[]>([]);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [newCategoryColor, setNewCategoryColor] = useState("#9184d9");
+  const [connections, setConnections] = useState<ConnectionRow[]>([]);
+  const [newConnLabel, setNewConnLabel] = useState("");
+  const [newConnUrl, setNewConnUrl] = useState("");
+  const [newConnProvider, setNewConnProvider] = useState<CalendarProvider>("outlook_ics");
+  const [syncing, setSyncing] = useState(false);
 
   useEffect(() => {
     let ignore = false;
@@ -63,9 +97,10 @@ export default function SettingsPage() {
         data: { user },
       } = await supabase.auth.getUser();
       if (!user) return;
-      const [{ data }, { data: cats }] = await Promise.all([
+      const [{ data }, { data: cats }, { data: conns }] = await Promise.all([
         supabase.from("profiles").select("preferred_model,weekly_hours").eq("id", user.id).single(),
         supabase.from("categories").select("*").order("sort_order"),
+        supabase.from("calendar_connections").select("*").order("created_at"),
       ]);
       if (ignore) return;
       if (data) {
@@ -73,6 +108,7 @@ export default function SettingsPage() {
         setHours(data.weekly_hours);
       }
       setCategories(cats ?? []);
+      setConnections(conns ?? []);
       setLoading(false);
     }
     void load();
@@ -80,6 +116,48 @@ export default function SettingsPage() {
       ignore = true;
     };
   }, []);
+
+  async function addConnection() {
+    const label = newConnLabel.trim();
+    // webcal:// is the same feed as https://, just a different scheme some
+    // calendar apps use for their "subscribe" links — normalize so fetch()
+    // (used by the sync job) can actually request it.
+    const ics_url = newConnUrl.trim().replace(/^webcal:\/\//i, "https://");
+    if (!label || !ics_url) return;
+    const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return;
+    const { data, error } = await supabase
+      .from("calendar_connections")
+      .insert({ user_id: user.id, provider: newConnProvider, label, ics_url })
+      .select()
+      .single();
+    if (!error && data) {
+      setConnections((prev) => [...prev, data]);
+      setNewConnLabel("");
+      setNewConnUrl("");
+    }
+  }
+
+  async function deleteConnection(id: string) {
+    setConnections((prev) => prev.filter((c) => c.id !== id));
+    const supabase = createClient();
+    await supabase.from("calendar_connections").delete().eq("id", id);
+  }
+
+  async function syncNow() {
+    setSyncing(true);
+    try {
+      await fetch("/api/calendar/sync", { method: "POST" });
+      const supabase = createClient();
+      const { data: conns } = await supabase.from("calendar_connections").select("*").order("created_at");
+      setConnections(conns ?? []);
+    } finally {
+      setSyncing(false);
+    }
+  }
 
   async function addCategory() {
     const name = newCategoryName.trim();
@@ -314,6 +392,95 @@ export default function SettingsPage() {
               />
               <button onClick={addCategory} className="text-xs text-accent hover:underline">
                 Add
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-8 pt-5 border-t border-border">
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <h2 className="text-base font-medium">Connected calendars</h2>
+            <button
+              onClick={syncNow}
+              disabled={syncing || connections.length === 0}
+              className="text-xs text-accent hover:underline disabled:opacity-50 disabled:no-underline flex-none"
+            >
+              {syncing ? "Syncing…" : "Sync now"}
+            </button>
+          </div>
+          <p className="text-xs text-muted mb-4">
+            Read-only — meetings show up as fixed time on your calendar and your tasks reschedule around them, but
+            nothing is ever written back. Syncs automatically every hour, or click &quot;Sync now&quot; anytime.
+          </p>
+
+          <div className="flex flex-col gap-2">
+            {connections.map((c) => (
+              <div key={c.id} className="flex items-center gap-2.5 rounded-md border border-border bg-panel px-3 py-2">
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm text-text truncate">
+                    {c.label} <span className="text-muted">· {PROVIDER_LABELS[c.provider]}</span>
+                  </div>
+                  <div className="text-[10.5px] text-muted mt-0.5">
+                    {c.last_sync_error
+                      ? `Sync failed: ${c.last_sync_error}`
+                      : c.last_synced_at
+                        ? `Last synced ${new Date(c.last_synced_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })} · ${c.last_sync_event_count ?? 0} events`
+                        : "Not synced yet"}
+                  </div>
+                </div>
+                <button
+                  onClick={() => deleteConnection(c.id)}
+                  title="Disconnect"
+                  className="text-xs text-muted hover:text-accent-text flex-none"
+                >
+                  Disconnect
+                </button>
+              </div>
+            ))}
+
+            <div className="flex flex-col gap-2 rounded-md border border-dashed border-border px-3 py-2.5">
+              <div className="flex items-center gap-2">
+                <select
+                  value={newConnProvider}
+                  onChange={(e) => setNewConnProvider(e.target.value as CalendarProvider)}
+                  className="rounded border border-border bg-surface px-1.5 py-1 text-text text-xs outline-none focus-visible:border-accent"
+                >
+                  <option value="outlook_ics">Outlook</option>
+                  <option value="icloud_ics">iCloud</option>
+                  <option value="google_ics">Google</option>
+                </select>
+                <input
+                  value={newConnLabel}
+                  onChange={(e) => setNewConnLabel(e.target.value)}
+                  placeholder="Label, e.g. Work Outlook"
+                  className="flex-1 bg-transparent text-sm text-text outline-none placeholder:text-muted border-b border-transparent focus-visible:border-accent"
+                />
+              </div>
+
+              <div className="rounded bg-surface px-2.5 py-2">
+                <p className="text-[10.5px] tracking-wide uppercase text-muted-2 mb-1.5">
+                  How to get your {PROVIDER_LABELS[newConnProvider]} link
+                </p>
+                <ol className="text-[11px] text-muted leading-relaxed list-decimal list-inside space-y-0.5">
+                  {PROVIDER_INSTRUCTIONS[newConnProvider].map((step, i) => (
+                    <li key={i}>{step}</li>
+                  ))}
+                </ol>
+                <p className="text-[10.5px] text-muted-2 mt-1.5">
+                  This link works like a password — anyone who has it can view your event times and titles (not edit
+                  anything). Keep it private, and you can revoke/regenerate it from your calendar&apos;s sharing
+                  settings anytime.
+                </p>
+              </div>
+
+              <input
+                value={newConnUrl}
+                onChange={(e) => setNewConnUrl(e.target.value)}
+                placeholder="Paste the calendar's ICS feed URL"
+                className="bg-transparent text-xs text-text outline-none placeholder:text-muted border-b border-border focus-visible:border-accent pb-1"
+              />
+              <button onClick={addConnection} className="self-start text-xs text-accent hover:underline">
+                Connect
               </button>
             </div>
           </div>

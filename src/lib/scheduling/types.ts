@@ -92,7 +92,7 @@ export interface CalendarEvent {
   gday: GDay;
   start: MinuteOfDay;
   end: MinuteOfDay;
-  source?: "manual" | "google" | "icloud";
+  source?: "manual" | "google" | "icloud" | "outlook";
 }
 
 export interface RecurringRule {

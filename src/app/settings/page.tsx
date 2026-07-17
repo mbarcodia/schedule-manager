@@ -88,6 +88,7 @@ export default function SettingsPage() {
   const [newConnUrl, setNewConnUrl] = useState("");
   const [newConnProvider, setNewConnProvider] = useState<CalendarProvider>("outlook_ics");
   const [syncing, setSyncing] = useState(false);
+  const [connError, setConnError] = useState<string | null>(null);
 
   useEffect(() => {
     let ignore = false;
@@ -118,23 +119,26 @@ export default function SettingsPage() {
   }, []);
 
   async function addConnection() {
+    setConnError(null);
     const label = newConnLabel.trim();
     // webcal:// is the same feed as https://, just a different scheme some
     // calendar apps use for their "subscribe" links — normalize so fetch()
     // (used by the sync job) can actually request it.
     const ics_url = newConnUrl.trim().replace(/^webcal:\/\//i, "https://");
-    if (!label || !ics_url) return;
+    if (!label) return setConnError("Give this connection a label first.");
+    if (!ics_url) return setConnError("Paste the calendar's ICS feed URL first.");
     const supabase = createClient();
     const {
       data: { user },
     } = await supabase.auth.getUser();
-    if (!user) return;
+    if (!user) return setConnError("Not signed in — try refreshing the page.");
     const { data, error } = await supabase
       .from("calendar_connections")
       .insert({ user_id: user.id, provider: newConnProvider, label, ics_url })
       .select()
       .single();
-    if (!error && data) {
+    if (error) return setConnError(error.message);
+    if (data) {
       setConnections((prev) => [...prev, data]);
       setNewConnLabel("");
       setNewConnUrl("");
@@ -479,6 +483,7 @@ export default function SettingsPage() {
                 placeholder="Paste the calendar's ICS feed URL"
                 className="bg-transparent text-xs text-text outline-none placeholder:text-muted border-b border-border focus-visible:border-accent pb-1"
               />
+              {connError && <p className="text-[11px] text-accent-text">{connError}</p>}
               <button onClick={addConnection} className="self-start text-xs text-accent hover:underline">
                 Connect
               </button>

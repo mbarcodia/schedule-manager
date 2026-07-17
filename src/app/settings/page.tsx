@@ -151,6 +151,12 @@ export default function SettingsPage() {
     await supabase.from("calendar_connections").delete().eq("id", id);
   }
 
+  async function renameConnection(id: string, label: string) {
+    setConnections((prev) => prev.map((c) => (c.id === id ? { ...c, label } : c)));
+    const supabase = createClient();
+    await supabase.from("calendar_connections").update({ label }).eq("id", id);
+  }
+
   async function syncNow() {
     setSyncing(true);
     try {
@@ -421,8 +427,17 @@ export default function SettingsPage() {
             {connections.map((c) => (
               <div key={c.id} className="flex items-center gap-2.5 rounded-md border border-border bg-panel px-3 py-2">
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm text-text truncate">
-                    {c.label} <span className="text-muted">· {PROVIDER_LABELS[c.provider]}</span>
+                  <div className="flex items-center gap-1">
+                    <input
+                      defaultValue={c.label}
+                      onBlur={(e) => {
+                        const next = e.target.value.trim();
+                        if (next && next !== c.label) renameConnection(c.id, next);
+                        else e.target.value = c.label;
+                      }}
+                      className="min-w-0 flex-1 bg-transparent text-sm text-text outline-none border-b border-transparent focus-visible:border-accent"
+                    />
+                    <span className="text-muted text-xs flex-none">· {PROVIDER_LABELS[c.provider]}</span>
                   </div>
                   <div className="text-[10.5px] text-muted mt-0.5">
                     {c.last_sync_error

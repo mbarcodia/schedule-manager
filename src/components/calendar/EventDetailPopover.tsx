@@ -63,8 +63,19 @@ export function EventDetailPopover({ block, top, onClose }: EventDetailPopoverPr
     >
       <div className="px-2.5 py-2 border-b border-white/10">
         <div className="text-[11.5px] font-medium text-text">{block.title}</div>
-        <div className="mt-1 text-[10.5px] text-muted">
-          {WEEKDAY_LABELS[block.gday % 7]} {minToLabel(block.start)}–{minToLabel(block.end)}
+        <div className="mt-1 flex items-center gap-1.5 text-[10.5px] text-muted">
+          <span>
+            {WEEKDAY_LABELS[block.gday % 7]} {minToLabel(block.start)}–{minToLabel(block.end)}
+          </span>
+          {block.connectionLabel && (
+            <span className="inline-flex items-center gap-1">
+              <span
+                className="inline-block rounded-full flex-none"
+                style={{ width: 6, height: 6, background: block.connectionColor ?? "#75798c" }}
+              />
+              {block.connectionLabel}
+            </span>
+          )}
         </div>
         {block.location && <div className="mt-1 text-[10.5px] text-muted">📍 {block.location}</div>}
         {block.description && (

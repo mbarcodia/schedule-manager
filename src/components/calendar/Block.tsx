@@ -63,6 +63,12 @@ export function Block({
         boxSizing: "border-box",
         opacity: visual.opacity,
         cursor: clickable ? "pointer" : "default",
+        // Overrides just the left edge, applied after the shorthand border
+        // above — distinguishes which connected calendar a meeting came
+        // from without recoloring the whole block.
+        ...(visual.accentColor
+          ? { borderLeftWidth: 3, borderLeftColor: visual.accentColor, borderLeftStyle: "solid" as const }
+          : {}),
       }}
     >
       {visual.canComplete && (

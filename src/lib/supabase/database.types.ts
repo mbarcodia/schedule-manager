@@ -256,6 +256,7 @@ export interface Database {
           provider: CalendarProvider;
           label: string;
           ics_url: string;
+          color: string;
           last_synced_at: string | null;
           last_sync_error: string | null;
           last_sync_event_count: number | null;
@@ -267,6 +268,7 @@ export interface Database {
           provider: CalendarProvider;
           label: string;
           ics_url: string;
+          color?: string;
           last_synced_at?: string | null;
           last_sync_error?: string | null;
           last_sync_event_count?: number | null;
@@ -274,6 +276,7 @@ export interface Database {
         Partial<{
           label: string;
           ics_url: string;
+          color: string;
           last_synced_at: string | null;
           last_sync_error: string | null;
           last_sync_event_count: number | null;

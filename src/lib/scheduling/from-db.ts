@@ -36,6 +36,7 @@ export interface RawScheduleRows {
   events: Row<"events">[];
   progressLog: Row<"progress_log">[];
   pinnedChunks: Row<"pinned_chunks">[];
+  calendarConnections: Row<"calendar_connections">[];
 }
 
 function dateParts(iso: string): { year: number; month: number; day: number } {
@@ -153,10 +154,13 @@ export function buildScheduleInputs(
     };
   }
 
+  const connectionById = new Map(rows.calendarConnections.map((c) => [c.id, c]));
+
   const events: CalendarEvent[] = rows.events.map((e) => {
     const s = timestampToParts(e.starts_at, timezone);
     const en = timestampToParts(e.ends_at, timezone);
     const gday = gdayForDate(timezone, s, now);
+    const connection = e.connection_id ? connectionById.get(e.connection_id) : null;
     return {
       id: e.id,
       title: e.title,
@@ -167,6 +171,8 @@ export function buildScheduleInputs(
       description: e.description,
       location: e.location,
       meetingUrl: e.meeting_url,
+      connectionColor: connection?.color ?? null,
+      connectionLabel: connection?.label ?? null,
     };
   });
 

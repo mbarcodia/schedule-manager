@@ -96,6 +96,11 @@ export interface CalendarEvent {
   description?: string | null;
   location?: string | null;
   meetingUrl?: string | null;
+  /** Accent color of the calendar connection this was synced from — used
+   * for the left-edge bar so multiple connected calendars are
+   * distinguishable at a glance. Null for manually-added events. */
+  connectionColor?: string | null;
+  connectionLabel?: string | null;
 }
 
 export interface RecurringRule {
@@ -175,6 +180,8 @@ export interface ScheduleBlock {
   description?: string | null;
   location?: string | null;
   meetingUrl?: string | null;
+  connectionColor?: string | null;
+  connectionLabel?: string | null;
 }
 
 export interface ComputeScheduleResult {

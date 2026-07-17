@@ -293,6 +293,8 @@ export function computeSchedule(
       description: e.description,
       location: e.location,
       meetingUrl: e.meetingUrl,
+      connectionColor: e.connectionColor,
+      connectionLabel: e.connectionLabel,
     });
   });
 

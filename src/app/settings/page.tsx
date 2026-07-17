@@ -18,6 +18,12 @@ const PROVIDER_LABELS: Record<CalendarProvider, string> = {
   google_ics: "Google",
 };
 
+const PROVIDER_DEFAULT_COLORS: Record<CalendarProvider, string> = {
+  outlook_ics: "#5b8def",
+  icloud_ics: "#46c2c2",
+  google_ics: "#e8935c",
+};
+
 const PROVIDER_INSTRUCTIONS: Record<CalendarProvider, string[]> = {
   outlook_ics: [
     "Go to outlook.office.com (or outlook.com) and sign in.",
@@ -87,6 +93,7 @@ export default function SettingsPage() {
   const [newConnLabel, setNewConnLabel] = useState("");
   const [newConnUrl, setNewConnUrl] = useState("");
   const [newConnProvider, setNewConnProvider] = useState<CalendarProvider>("outlook_ics");
+  const [newConnColor, setNewConnColor] = useState(PROVIDER_DEFAULT_COLORS.outlook_ics);
   const [syncing, setSyncing] = useState(false);
   const [connError, setConnError] = useState<string | null>(null);
 
@@ -134,7 +141,7 @@ export default function SettingsPage() {
     if (!user) return setConnError("Not signed in — try refreshing the page.");
     const { data, error } = await supabase
       .from("calendar_connections")
-      .insert({ user_id: user.id, provider: newConnProvider, label, ics_url })
+      .insert({ user_id: user.id, provider: newConnProvider, label, ics_url, color: newConnColor })
       .select()
       .single();
     if (error) return setConnError(error.message);
@@ -143,6 +150,12 @@ export default function SettingsPage() {
       setNewConnLabel("");
       setNewConnUrl("");
     }
+  }
+
+  async function recolorConnection(id: string, color: string) {
+    setConnections((prev) => prev.map((c) => (c.id === id ? { ...c, color } : c)));
+    const supabase = createClient();
+    await supabase.from("calendar_connections").update({ color }).eq("id", id);
   }
 
   async function deleteConnection(id: string) {
@@ -426,6 +439,13 @@ export default function SettingsPage() {
           <div className="flex flex-col gap-2">
             {connections.map((c) => (
               <div key={c.id} className="flex items-center gap-2.5 rounded-md border border-border bg-panel px-3 py-2">
+                <input
+                  type="color"
+                  value={c.color}
+                  onChange={(e) => recolorConnection(c.id, e.target.value)}
+                  className="w-6 h-6 flex-none rounded border border-border bg-transparent p-0 cursor-pointer"
+                  title="Accent color on the calendar"
+                />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1">
                     <input
@@ -459,9 +479,20 @@ export default function SettingsPage() {
 
             <div className="flex flex-col gap-2 rounded-md border border-dashed border-border px-3 py-2.5">
               <div className="flex items-center gap-2">
+                <input
+                  type="color"
+                  value={newConnColor}
+                  onChange={(e) => setNewConnColor(e.target.value)}
+                  className="w-6 h-6 flex-none rounded border border-border bg-transparent p-0 cursor-pointer"
+                  title="Accent color on the calendar"
+                />
                 <select
                   value={newConnProvider}
-                  onChange={(e) => setNewConnProvider(e.target.value as CalendarProvider)}
+                  onChange={(e) => {
+                    const provider = e.target.value as CalendarProvider;
+                    setNewConnProvider(provider);
+                    setNewConnColor(PROVIDER_DEFAULT_COLORS[provider]);
+                  }}
                   className="rounded border border-border bg-surface px-1.5 py-1 text-text text-xs outline-none focus-visible:border-accent"
                 >
                   <option value="outlook_ics">Outlook</option>

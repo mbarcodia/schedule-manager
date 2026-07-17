@@ -34,6 +34,10 @@ export interface BlockVisual {
   isPastDeadline: boolean;
   isNearDeadline: boolean;
   tooltip: string;
+  /** Which connected calendar a synced meeting came from — rendered as a
+   * left edge accent bar rather than recoloring the whole block (that
+   * treatment is reserved for task categories). Null/undefined = no bar. */
+  accentColor?: string | null;
 }
 
 /** Derives a bg/border/text triplet from a single stored category color via
@@ -154,5 +158,6 @@ export function computeBlockVisual(
     isPastDeadline,
     isNearDeadline,
     tooltip,
+    accentColor: block.type === "synced" ? block.connectionColor : null,
   };
 }

@@ -1,0 +1,21 @@
+# Planner subscription-token relay — runs the Claude Agent SDK (and its
+# bundled CLI binary, ~250-270MB) outside Vercel's serverless function size
+# limit. Deployed to Fly.io, separate from the Next.js app on Vercel.
+#
+# node_modules is excluded from the Docker build context (.dockerignore) so
+# `npm ci` here resolves this container's OWN platform-specific Agent SDK
+# binary package (e.g. -linux-x64) rather than copying in whatever platform
+# binary happens to be installed on the machine that built this image.
+
+FROM node:22-slim
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+RUN npm ci
+
+COPY tsconfig.json ./
+COPY src ./src
+
+EXPOSE 8080
+CMD ["npx", "tsx", "src/relay/server.ts"]

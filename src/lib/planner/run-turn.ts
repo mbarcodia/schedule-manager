@@ -1,9 +1,16 @@
-// One interface, multiple backends. The route only ever calls
-// runPlannerTurn; which Claude runtime executes the turn is decided here.
-// Stage 1 ships the Anthropic-SDK path (shared env key). Stage 2 adds
-// per-user API keys (same backend, different secret). Stage 3 adds the
-// Claude Agent SDK backend for subscription OAuth tokens, which only work
-// through Claude Code-shaped traffic.
+// One interface, two in-process backends (both riding the Anthropic SDK's
+// tool runner — env key vs. per-user key is just a different secret). The
+// route only ever calls runPlannerTurn for these two.
+//
+// The third provider, subscription_oauth, is deliberately NOT handled
+// here: the Claude Agent SDK it requires bundles a ~250-270MB native CLI
+// binary that doesn't fit in a Vercel serverless function (confirmed by
+// measuring the traced bundle size). That path runs on a separate relay
+// service instead (src/relay/server.ts, called via relay-runner.ts) —
+// api/planner/route.ts branches to it BEFORE reaching this file, so
+// agent-runner.ts is intentionally never imported here. Keeping that
+// import out of this file is what keeps the Agent SDK out of every
+// Vercel function's dependency graph.
 
 import { runAnthropicTurn } from "./anthropic-runner";
 import type { buildPlannerTools } from "./tools";
@@ -27,6 +34,10 @@ export async function runPlannerTurn(input: PlannerTurnInput): Promise<{ reply: 
     case "user_api_key":
       return runAnthropicTurn(input);
     case "subscription_oauth":
-      throw new Error("Subscription-token planning is not enabled on this deployment yet — use an API key.");
+      // Should be unreachable — api/planner/route.ts intercepts this
+      // provider before calling runPlannerTurn. Throwing here (rather than
+      // importing agent-runner.ts to handle it) is what keeps the Agent
+      // SDK out of this route's bundle.
+      throw new Error("subscription_oauth must be routed through relay-runner.ts, not runPlannerTurn.");
   }
 }

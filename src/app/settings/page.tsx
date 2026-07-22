@@ -416,7 +416,7 @@ export default function SettingsPage() {
     setPlannerModelSaving(null);
   }
 
-  async function savePlannerKey() {
+  async function savePlannerKey(provider: PlannerCredentialProvider) {
     const secret = plannerKeyInput.trim();
     if (!secret) return;
     setPlannerCredBusy(true);
@@ -424,13 +424,13 @@ export default function SettingsPage() {
     const res = await fetch("/api/planner/credentials", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ provider: "api_key", secret }),
+      body: JSON.stringify({ provider, secret }),
     });
     if (res.ok) {
       setPlannerCred(await res.json());
       setPlannerKeyInput("");
     } else {
-      setPlannerCredError("Couldn't save that key — please try again.");
+      setPlannerCredError("Couldn't save that — please try again.");
     }
     setPlannerCredBusy(false);
   }
@@ -506,7 +506,9 @@ export default function SettingsPage() {
             <p className="text-xs text-muted">Loading…</p>
           ) : (
             <div className="flex flex-col gap-2.5 mb-5">
-              {PLANNER_MODEL_OPTIONS.map((opt) => {
+              {PLANNER_MODEL_OPTIONS.filter(
+                (opt) => !(opt.id === "claude-fable-5" && plannerCred.provider === "oauth_token"),
+              ).map((opt) => {
                 const selected = plannerModel === opt.id;
                 return (
                   <button
@@ -560,7 +562,7 @@ export default function SettingsPage() {
                   className="flex-1 rounded-md border border-border bg-surface px-2.5 py-1.5 text-xs text-text outline-none focus-visible:border-accent"
                 />
                 <button
-                  onClick={savePlannerKey}
+                  onClick={() => savePlannerKey("api_key")}
                   disabled={plannerCredBusy || !plannerKeyInput.trim()}
                   className="rounded-md border border-accent text-accent px-3 py-1.5 text-xs font-medium hover:bg-accent/10 disabled:opacity-60"
                 >

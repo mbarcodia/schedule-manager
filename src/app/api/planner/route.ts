@@ -6,6 +6,7 @@ import { computeSchedule } from "@/lib/scheduling/engine";
 import { buildPlannerSystemPrompt } from "@/lib/planner/system-prompt";
 import { buildPlannerTools } from "@/lib/planner/tools";
 import { runPlannerTurn, type PlannerProvider } from "@/lib/planner/run-turn";
+import { runRelayTurn } from "@/lib/planner/relay-runner";
 import { zonedNow } from "@/lib/scheduling/time";
 
 /** Resolves which Claude credential this turn runs on: the user's own
@@ -37,52 +38,64 @@ export async function POST(request: Request) {
   // Persist the user's message immediately (planner history survives reloads).
   await supabase.from("planner_messages").insert({ user_id: user.id, role: "user", content: message });
 
-  const [rows, { data: noteRows }] = await Promise.all([
-    queryScheduleRows(supabase, user.id),
-    supabase.from("notes").select("*").eq("user_id", user.id).order("updated_at", { ascending: false }),
-  ]);
-  const { inputs } = buildScheduleInputs(rows);
-  const schedule = computeSchedule(inputs);
-  const systemPrompt = buildPlannerSystemPrompt(rows, inputs, schedule, noteRows ?? []);
-
-  const z = zonedNow(rows.profile.timezone);
-  const today = new Date(z.year, z.month - 1, z.day);
-
-  const tools = buildPlannerTools({
-    supabase,
-    userId: user.id,
-    timezone: rows.profile.timezone,
-    weeklyHours: inputs.weeklyHours,
-    horizonWeeks: inputs.horizonWeeks,
-    today,
-    rows,
-    inputs,
-  });
-
-  const { data: historyRows } = await supabase
-    .from("planner_messages")
-    .select("role,content")
-    .eq("user_id", user.id)
-    .order("created_at", { ascending: false })
-    .limit(40);
-  const history = (historyRows ?? [])
-    .slice()
-    .reverse()
-    .map((m) => ({ role: m.role, content: m.content }));
-
   const credential = await resolveCredential(user.id);
 
   let reply: string;
   try {
-    ({ reply } = await runPlannerTurn({
-      provider: credential.provider,
-      secret: credential.secret,
-      model: rows.profile.planner_model,
-      system: systemPrompt,
-      history,
-      tools,
-      maxIterations: 12,
-    }));
+    if (credential.provider === "subscription_oauth") {
+      // The relay does everything itself (fetch rows/notes/history, build
+      // the prompt and tools) using its own admin client — see
+      // src/relay/server.ts. Vercel only needs the model choice here.
+      const { data: profile } = await supabase.from("profiles").select("planner_model").eq("id", user.id).single();
+      ({ reply } = await runRelayTurn({
+        userId: user.id,
+        secret: credential.secret,
+        model: profile?.planner_model ?? "claude-opus-4-8",
+      }));
+    } else {
+      const [rows, { data: noteRows }] = await Promise.all([
+        queryScheduleRows(supabase, user.id),
+        supabase.from("notes").select("*").eq("user_id", user.id).order("updated_at", { ascending: false }),
+      ]);
+      const { inputs } = buildScheduleInputs(rows);
+      const schedule = computeSchedule(inputs);
+      const systemPrompt = buildPlannerSystemPrompt(rows, inputs, schedule, noteRows ?? []);
+
+      const z = zonedNow(rows.profile.timezone);
+      const today = new Date(z.year, z.month - 1, z.day);
+
+      const tools = buildPlannerTools({
+        supabase,
+        userId: user.id,
+        timezone: rows.profile.timezone,
+        weeklyHours: inputs.weeklyHours,
+        horizonWeeks: inputs.horizonWeeks,
+        today,
+        rows,
+        inputs,
+      });
+
+      const { data: historyRows } = await supabase
+        .from("planner_messages")
+        .select("role,content")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(40);
+      const history = (historyRows ?? [])
+        .slice()
+        .reverse()
+        .map((m) => ({ role: m.role, content: m.content }));
+
+      ({ reply } = await runPlannerTurn({
+        provider: credential.provider,
+        secret: credential.secret,
+        model: rows.profile.planner_model,
+        system: systemPrompt,
+        history,
+        tools,
+        maxIterations: 12,
+      }));
+    }
   } catch (err) {
     console.error("planner route error", err);
     reply = "I couldn't reach the planner just now — nothing was changed. Please send that again.";

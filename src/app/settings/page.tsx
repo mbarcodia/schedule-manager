@@ -502,6 +502,19 @@ export default function SettingsPage() {
             own model choice and, optionally, its own API key.
           </p>
 
+          <div className="rounded-lg border border-border bg-panel p-3.5 mb-5 text-xs text-muted leading-relaxed">
+            <div className="text-sm font-medium text-text mb-1.5">How the Planner works</div>
+            <p className="mb-2">
+              Open it from the calendar via the <span className="text-text">Planner</span> link. It has everything
+              the quick assistant has, plus notes: each note has a kind (idea, todo, paper, update, other) and can be
+              linked to a project/proposal/task or left unlinked. Create and edit notes either by asking the planner
+              in chat (&quot;add a note to ACE2 about…&quot;) or directly in the sidebar. The sidebar groups notes
+              under their linked project; &quot;Export notes&quot; in the sidebar header downloads everything as one
+              Markdown file.
+            </p>
+            <p>The planner reads your existing notes when relevant, so you don&apos;t need to repeat context.</p>
+          </div>
+
           {loading ? (
             <p className="text-xs text-muted">Loading…</p>
           ) : (
@@ -537,7 +550,21 @@ export default function SettingsPage() {
             <p className="text-xs text-muted mb-3 leading-relaxed">
               Optional. Without one, planner conversations run on this app&apos;s shared key. Add your own to bill
               usage directly to your Anthropic account instead — useful if you want Claude Fable 5, or just your
-              own usage tracking.
+              own usage tracking. This is a separate thing from a claude.ai subscription: it&apos;s billed per-token,
+              not a flat monthly fee.
+            </p>
+            <p className="text-xs text-muted mb-3 leading-relaxed">
+              To get one: go to{" "}
+              <a
+                href="https://console.anthropic.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-accent-text hover:underline"
+              >
+                console.anthropic.com
+              </a>
+              , sign in or create an account, add a payment method under Billing, then open{" "}
+              <span className="text-text">API Keys</span> and create a new key. Paste it below.
             </p>
             {plannerCred.hasSecret ? (
               <div className="flex items-center gap-2.5 text-xs">

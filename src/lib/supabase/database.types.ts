@@ -3,6 +3,8 @@
 // `supabase gen types typescript` once the project is linked via the CLI).
 
 export type PreferredModel = "claude-haiku-4-5" | "claude-sonnet-5" | "claude-opus-4-8";
+export type PlannerModel = "claude-sonnet-5" | "claude-opus-4-8" | "claude-fable-5";
+export type NoteKind = "idea" | "todo" | "paper" | "update" | "other";
 export type Priority = "high" | "medium" | "low";
 export type TaskTag = "deep-focus" | "research";
 export type EventSource = "manual" | "google" | "icloud" | "outlook";
@@ -32,6 +34,7 @@ export interface Database {
         {
           id: string;
           preferred_model: PreferredModel;
+          planner_model: PlannerModel;
           timezone: string;
           weekly_hours: WeeklyHoursJson;
           eod_checkin_enabled: boolean;
@@ -43,6 +46,7 @@ export interface Database {
         },
         { id: string } & Partial<{
           preferred_model: PreferredModel;
+          planner_model: PlannerModel;
           timezone: string;
           weekly_hours: WeeklyHoursJson;
           eod_checkin_enabled: boolean;
@@ -53,6 +57,7 @@ export interface Database {
         }>,
         Partial<{
           preferred_model: PreferredModel;
+          planner_model: PlannerModel;
           timezone: string;
           weekly_hours: WeeklyHoursJson;
           eod_checkin_enabled: boolean;
@@ -213,6 +218,44 @@ export interface Database {
         { id: string; user_id: string; note: string; created_at: string },
         { id?: string; user_id: string; note: string },
         Partial<{ note: string }>
+      >;
+      notes: Table<
+        {
+          id: string;
+          user_id: string;
+          project_id: string | null;
+          proposal_id: string | null;
+          task_id: string | null;
+          title: string;
+          content: string;
+          kind: NoteKind;
+          created_at: string;
+          updated_at: string;
+        },
+        {
+          id?: string;
+          user_id: string;
+          project_id?: string | null;
+          proposal_id?: string | null;
+          task_id?: string | null;
+          title: string;
+          content?: string;
+          kind?: NoteKind;
+        },
+        Partial<{
+          project_id: string | null;
+          proposal_id: string | null;
+          task_id: string | null;
+          title: string;
+          content: string;
+          kind: NoteKind;
+          updated_at: string;
+        }>
+      >;
+      planner_messages: Table<
+        { id: string; user_id: string; role: ChatRole; content: string; created_at: string },
+        { id?: string; user_id: string; role: ChatRole; content: string },
+        Partial<{ content: string }>
       >;
       day_overrides: Table<
         {

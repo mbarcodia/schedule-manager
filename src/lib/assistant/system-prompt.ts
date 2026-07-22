@@ -10,12 +10,10 @@ import type { ComputeScheduleResult, DayOverrides } from "@/lib/scheduling/types
 import type { RawScheduleRows } from "@/lib/scheduling/from-db";
 import type { ScheduleInputs } from "@/lib/scheduling/types";
 
-export function buildSystemPrompt(
-  rows: RawScheduleRows,
-  inputs: ScheduleInputs,
-  schedule: ComputeScheduleResult,
-  now: Date = new Date(),
-): string {
+/** The schedule-state sections shared by the assistant and planner prompts —
+ * extracted so the planner can compose its own behavioral text around the
+ * same fresh per-turn snapshot. */
+export function buildPromptContext(rows: RawScheduleRows, inputs: ScheduleInputs, schedule: ComputeScheduleResult) {
   const weeklyHoursDescription = WEEKDAY_LABELS.map((label, dow) => {
     const w = inputs.weeklyHours[dow];
     return `${label}: ${w ? `${minToLabel(w.start)}-${minToLabel(w.end)}` : "off"}`;
@@ -80,6 +78,21 @@ export function buildSystemPrompt(
   }));
 
   const notes = rows.preferenceNotes.map((n) => n.note);
+
+  return { weeklyHoursDescription, snapshot, researchPriorityNote, recurringDescription, notes };
+}
+
+export function buildSystemPrompt(
+  rows: RawScheduleRows,
+  inputs: ScheduleInputs,
+  schedule: ComputeScheduleResult,
+  now: Date = new Date(),
+): string {
+  const { weeklyHoursDescription, snapshot, researchPriorityNote, recurringDescription, notes } = buildPromptContext(
+    rows,
+    inputs,
+    schedule,
+  );
 
   return `You are the scheduling assistant inside a personal schedule manager. Current local time: ${now.toLocaleString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", timeZone: inputs.timezone })}. Standard hours per day (adjust_day_hours can change any specific day; the account's overall weekly hours are a settings-page preference): ${weeklyHoursDescription}.
 Scheduling rules the engine enforces: research and deep-focus work is placed in mornings (before noon) first; recurring blocks are standing rules that slide within their windows around meetings (window null = wherever it fits): ${JSON.stringify(recurringDescription)}

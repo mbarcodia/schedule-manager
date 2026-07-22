@@ -41,7 +41,7 @@ function titleToDeadlineAt(ctx: ToolContext, dueLower: string): string | null {
   return zonedTimeToUtc(d.getFullYear(), d.getMonth() + 1, d.getDate(), 17, 0, ctx.timezone).toISOString();
 }
 
-async function findTrackableId(
+export async function findTrackableId(
   ctx: ToolContext,
   needle: string,
 ): Promise<{ projectId: string | null; proposalId: string | null; title: string } | null> {

@@ -108,6 +108,13 @@ export function CalendarPanel({ scheduleData }: CalendarPanelProps) {
             Will miss
           </span>
           <Link
+            href="/planner"
+            title="Planner"
+            className="inline-flex items-center border border-border rounded-md h-[30px] px-2.5 hover:bg-white/5 text-muted text-[12px] font-medium"
+          >
+            Planner
+          </Link>
+          <Link
             href="/settings"
             title="Settings"
             className="inline-flex items-center justify-center border border-border rounded-md w-[30px] h-[30px] hover:bg-white/5 text-muted"

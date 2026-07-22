@@ -4,6 +4,7 @@
 
 export type PreferredModel = "claude-haiku-4-5" | "claude-sonnet-5" | "claude-opus-4-8";
 export type PlannerModel = "claude-sonnet-5" | "claude-opus-4-8" | "claude-fable-5";
+export type PlannerCredentialProvider = "api_key" | "oauth_token";
 export type NoteKind = "idea" | "todo" | "paper" | "update" | "other";
 export type Priority = "high" | "medium" | "low";
 export type TaskTag = "deep-focus" | "research";
@@ -256,6 +257,13 @@ export interface Database {
         { id: string; user_id: string; role: ChatRole; content: string; created_at: string },
         { id?: string; user_id: string; role: ChatRole; content: string },
         Partial<{ content: string }>
+      >;
+      // RLS-locked to the service role only (see 0011 migration) — never
+      // queried from a browser/user-scoped client, only createAdminClient().
+      planner_credentials: Table<
+        { user_id: string; provider: PlannerCredentialProvider; secret: string; created_at: string },
+        { user_id: string; provider: PlannerCredentialProvider; secret: string },
+        Partial<{ provider: PlannerCredentialProvider; secret: string }>
       >;
       day_overrides: Table<
         {

@@ -5,7 +5,14 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CaretLeftIcon, CheckIcon } from "@phosphor-icons/react";
 import { createClient } from "@/lib/supabase/client";
-import type { CalendarProvider, Database, PreferredModel, WeeklyHoursJson } from "@/lib/supabase/database.types";
+import type {
+  CalendarProvider,
+  Database,
+  PlannerCredentialProvider,
+  PlannerModel,
+  PreferredModel,
+  WeeklyHoursJson,
+} from "@/lib/supabase/database.types";
 import { getPushSubscriptionStatus, subscribeToPush, unsubscribeFromPush } from "@/lib/push/subscribe";
 
 type CategoryRow = Database["public"]["Tables"]["categories"]["Row"];
@@ -98,6 +105,28 @@ const MODEL_OPTIONS: {
   },
 ];
 
+const PLANNER_MODEL_OPTIONS: {
+  id: PlannerModel;
+  label: string;
+  description: string;
+}[] = [
+  {
+    id: "claude-sonnet-5",
+    label: "Claude Sonnet 5",
+    description: "Cheaper — reliable on planning conversations and multi-step tool use.",
+  },
+  {
+    id: "claude-opus-4-8",
+    label: "Claude Opus 4.8",
+    description: "Recommended default — strongest at long-horizon planning, pushback, and realism checks.",
+  },
+  {
+    id: "claude-fable-5",
+    label: "Claude Fable 5",
+    description: "Most capable overall. Premium pricing; requires an API key (not available on subscription plans).",
+  },
+];
+
 export default function SettingsPage() {
   const router = useRouter();
   const [current, setCurrent] = useState<PreferredModel | null>(null);
@@ -118,6 +147,14 @@ export default function SettingsPage() {
   const [pushEnabled, setPushEnabled] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
   const [pushError, setPushError] = useState<string | null>(null);
+  const [plannerModel, setPlannerModel] = useState<PlannerModel | null>(null);
+  const [plannerModelSaving, setPlannerModelSaving] = useState<PlannerModel | null>(null);
+  const [plannerCred, setPlannerCred] = useState<{ hasSecret: boolean; provider?: PlannerCredentialProvider; last4?: string }>(
+    { hasSecret: false },
+  );
+  const [plannerKeyInput, setPlannerKeyInput] = useState("");
+  const [plannerCredBusy, setPlannerCredBusy] = useState(false);
+  const [plannerCredError, setPlannerCredError] = useState<string | null>(null);
 
   useEffect(() => {
     let ignore = false;
@@ -131,7 +168,7 @@ export default function SettingsPage() {
         supabase
           .from("profiles")
           .select(
-            "preferred_model,weekly_hours,eod_checkin_enabled,eod_checkin_time,weekly_summary_enabled,weekly_summary_dow,weekly_summary_time",
+            "preferred_model,planner_model,weekly_hours,eod_checkin_enabled,eod_checkin_time,weekly_summary_enabled,weekly_summary_dow,weekly_summary_time",
           )
           .eq("id", user.id)
           .single(),
@@ -142,6 +179,7 @@ export default function SettingsPage() {
       if (ignore) return;
       if (data) {
         setCurrent(data.preferred_model);
+        setPlannerModel(data.planner_model);
         setHours(data.weekly_hours);
         setNotif({
           eodEnabled: data.eod_checkin_enabled,
@@ -157,6 +195,20 @@ export default function SettingsPage() {
       setLoading(false);
     }
     void load();
+    return () => {
+      ignore = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let ignore = false;
+    async function loadCredential() {
+      const res = await fetch("/api/planner/credentials");
+      if (ignore || !res.ok) return;
+      const data = await res.json();
+      setPlannerCred(data);
+    }
+    void loadCredential();
     return () => {
       ignore = true;
     };
@@ -351,6 +403,46 @@ export default function SettingsPage() {
     setSaving(null);
   }
 
+  async function choosePlannerModel(model: PlannerModel) {
+    setPlannerModelSaving(model);
+    const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (user) {
+      await supabase.from("profiles").update({ planner_model: model }).eq("id", user.id);
+      setPlannerModel(model);
+    }
+    setPlannerModelSaving(null);
+  }
+
+  async function savePlannerKey() {
+    const secret = plannerKeyInput.trim();
+    if (!secret) return;
+    setPlannerCredBusy(true);
+    setPlannerCredError(null);
+    const res = await fetch("/api/planner/credentials", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ provider: "api_key", secret }),
+    });
+    if (res.ok) {
+      setPlannerCred(await res.json());
+      setPlannerKeyInput("");
+    } else {
+      setPlannerCredError("Couldn't save that key — please try again.");
+    }
+    setPlannerCredBusy(false);
+  }
+
+  async function removePlannerKey() {
+    setPlannerCredBusy(true);
+    setPlannerCredError(null);
+    const res = await fetch("/api/planner/credentials", { method: "DELETE" });
+    if (res.ok) setPlannerCred(await res.json());
+    setPlannerCredBusy(false);
+  }
+
   async function signOut() {
     const supabase = createClient();
     await supabase.auth.signOut();
@@ -402,6 +494,83 @@ export default function SettingsPage() {
             })}
           </div>
         )}
+
+        <div className="mt-8 pt-5 border-t border-border">
+          <h2 className="text-base font-medium mb-1">Planner AI</h2>
+          <p className="text-xs text-muted mb-4">
+            The Planner is a separate, longer-horizon chat for discussing projects and keeping notes — it uses its
+            own model choice and, optionally, its own API key.
+          </p>
+
+          {loading ? (
+            <p className="text-xs text-muted">Loading…</p>
+          ) : (
+            <div className="flex flex-col gap-2.5 mb-5">
+              {PLANNER_MODEL_OPTIONS.map((opt) => {
+                const selected = plannerModel === opt.id;
+                return (
+                  <button
+                    key={opt.id}
+                    onClick={() => choosePlannerModel(opt.id)}
+                    disabled={plannerModelSaving != null}
+                    className="text-left rounded-lg border p-3.5 transition-colors disabled:opacity-70"
+                    style={{
+                      borderColor: selected ? "var(--color-accent)" : "var(--color-border)",
+                      background: selected ? "rgba(145,132,217,0.08)" : "var(--color-panel)",
+                    }}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium">{opt.label}</span>
+                      {selected && <CheckIcon size={14} weight="bold" className="text-accent" />}
+                    </div>
+                    <p className="mt-1.5 text-xs text-muted leading-relaxed">{opt.description}</p>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          <div className="rounded-lg border border-border bg-panel p-3.5">
+            <div className="text-sm font-medium mb-1">Your own Anthropic API key</div>
+            <p className="text-xs text-muted mb-3 leading-relaxed">
+              Optional. Without one, planner conversations run on this app&apos;s shared key. Add your own to bill
+              usage directly to your Anthropic account instead — useful if you want Claude Fable 5, or just your
+              own usage tracking.
+            </p>
+            {plannerCred.hasSecret ? (
+              <div className="flex items-center gap-2.5 text-xs">
+                <span className="text-text">
+                  Using your API key (ending <span className="font-mono">{plannerCred.last4}</span>)
+                </span>
+                <button
+                  onClick={removePlannerKey}
+                  disabled={plannerCredBusy}
+                  className="text-accent-text hover:underline disabled:opacity-60"
+                >
+                  Remove
+                </button>
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  value={plannerKeyInput}
+                  onChange={(e) => setPlannerKeyInput(e.target.value)}
+                  placeholder="sk-ant-…"
+                  className="flex-1 rounded-md border border-border bg-surface px-2.5 py-1.5 text-xs text-text outline-none focus-visible:border-accent"
+                />
+                <button
+                  onClick={savePlannerKey}
+                  disabled={plannerCredBusy || !plannerKeyInput.trim()}
+                  className="rounded-md border border-accent text-accent px-3 py-1.5 text-xs font-medium hover:bg-accent/10 disabled:opacity-60"
+                >
+                  Save
+                </button>
+              </div>
+            )}
+            {plannerCredError && <p className="mt-2 text-xs text-red-300">{plannerCredError}</p>}
+          </div>
+        </div>
 
         <div className="mt-8 pt-5 border-t border-border">
           <h2 className="text-base font-medium mb-1">Standard hours</h2>

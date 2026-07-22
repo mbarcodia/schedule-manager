@@ -7,6 +7,7 @@ import { computeSchedule } from "@/lib/scheduling/engine";
 import { buildSystemPrompt } from "@/lib/assistant/system-prompt";
 import { buildTools } from "@/lib/assistant/tools";
 import { resolveAssistantCredential, NO_CREDENTIAL_MESSAGE } from "@/lib/ai/credentials";
+import { describeAnthropicError } from "@/lib/ai/errors";
 import { zonedNow } from "@/lib/scheduling/time";
 
 export async function POST(request: Request) {
@@ -78,7 +79,9 @@ export async function POST(request: Request) {
         .trim() || "Done.";
   } catch (err) {
     console.error("chat route error", err);
-    reply = "I couldn't reach the assistant just now — nothing was changed. Please send that again.";
+    reply =
+      describeAnthropicError(err) ??
+      "I couldn't reach the assistant just now — nothing was changed. Please send that again.";
   }
 
   await supabase.from("chat_messages").insert({ user_id: user.id, role: "assistant", content: reply });

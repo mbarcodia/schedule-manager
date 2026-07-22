@@ -8,6 +8,7 @@ import { buildPlannerTools } from "@/lib/planner/tools";
 import { runPlannerTurnStream } from "@/lib/planner/run-turn";
 import { runRelayTurn } from "@/lib/planner/relay-runner";
 import { resolvePlannerCredential, NO_CREDENTIAL_MESSAGE } from "@/lib/ai/credentials";
+import { describeAnthropicError } from "@/lib/ai/errors";
 import { zonedNow } from "@/lib/scheduling/time";
 
 // Planning turns run a strong model over a large snapshot with up to 12 tool
@@ -101,7 +102,9 @@ export async function POST(request: Request) {
         }
       } catch (err) {
         console.error("planner route error", err);
-        reply = "I couldn't reach the planner just now — nothing was changed. Please send that again.";
+        reply =
+          describeAnthropicError(err) ??
+          "I couldn't reach the planner just now — nothing was changed. Please send that again.";
         controller.enqueue(encoder.encode(reply));
       }
 

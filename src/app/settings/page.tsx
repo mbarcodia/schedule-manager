@@ -149,9 +149,12 @@ export default function SettingsPage() {
   const [pushError, setPushError] = useState<string | null>(null);
   const [plannerModel, setPlannerModel] = useState<PlannerModel | null>(null);
   const [plannerModelSaving, setPlannerModelSaving] = useState<PlannerModel | null>(null);
-  const [plannerCred, setPlannerCred] = useState<{ hasSecret: boolean; provider?: PlannerCredentialProvider; last4?: string }>(
-    { hasSecret: false },
-  );
+  const [plannerCred, setPlannerCred] = useState<{
+    hasSecret: boolean;
+    provider?: PlannerCredentialProvider;
+    last4?: string;
+    isOwner?: boolean;
+  }>({ hasSecret: false });
   const [plannerKeyInput, setPlannerKeyInput] = useState("");
   const [plannerCredBusy, setPlannerCredBusy] = useState(false);
   const [plannerCredError, setPlannerCredError] = useState<string | null>(null);
@@ -548,10 +551,11 @@ export default function SettingsPage() {
           <div className="rounded-lg border border-border bg-panel p-3.5">
             <div className="text-sm font-medium mb-1">Your own Anthropic API key</div>
             <p className="text-xs text-muted mb-3 leading-relaxed">
-              Optional. Without one, planner conversations run on this app&apos;s shared key. Add your own to bill
-              usage directly to your Anthropic account instead — useful if you want Claude Fable 5, or just your
-              own usage tracking. This is a separate thing from a claude.ai subscription: it&apos;s billed per-token,
-              not a flat monthly fee.
+              {plannerCred.isOwner
+                ? "Optional — as this deployment's owner, the assistant and planner already run on the shared key from your environment config. Add your own here only if you want to bill usage separately (e.g. for Claude Fable 5) or track it apart from the deployment's overall usage."
+                : "Required to use the assistant or planner. This deployment's shared key is reserved for its owner only — everyone else must add their own Anthropic API key here; there's no fallback."}{" "}
+              This is a separate thing from a claude.ai subscription: it&apos;s billed per-token, not a flat monthly
+              fee.
             </p>
             <p className="text-xs text-muted mb-3 leading-relaxed">
               To get one: go to{" "}

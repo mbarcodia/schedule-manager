@@ -15,6 +15,9 @@ export async function GET() {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
 
+  const ownerEmail = process.env.OWNER_EMAIL;
+  const isOwner = !!ownerEmail && !!user.email && user.email.toLowerCase() === ownerEmail.toLowerCase();
+
   const admin = createAdminClient();
   const { data } = await admin
     .from("planner_credentials")
@@ -22,8 +25,8 @@ export async function GET() {
     .eq("user_id", user.id)
     .maybeSingle();
 
-  if (!data) return NextResponse.json({ hasSecret: false });
-  return NextResponse.json({ hasSecret: true, provider: data.provider, last4: data.secret.slice(-4) });
+  if (!data) return NextResponse.json({ hasSecret: false, isOwner });
+  return NextResponse.json({ hasSecret: true, provider: data.provider, last4: data.secret.slice(-4), isOwner });
 }
 
 export async function POST(request: Request) {

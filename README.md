@@ -58,6 +58,7 @@ Fill in `.env.local`:
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Project Settings → API Keys → publishable key |
 | `SUPABASE_SECRET_KEY` | Project Settings → API Keys → secret key (server-only, never exposed to the browser) |
 | `ANTHROPIC_API_KEY` | console.anthropic.com → API Keys (see "Getting an Anthropic API key" below) |
+| `OWNER_EMAIL` | The email you'll sign up to your own deployment with. `ANTHROPIC_API_KEY` above is only ever used for requests from this account — anyone else who signs up must add their own key in Settings, with no fallback |
 | `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | Run `npx web-push generate-vapid-keys`; optional — only needed for push notifications |
 | `VAPID_SUBJECT` | `mailto:you@example.com` — required alongside the VAPID keys |
 | `CRON_SECRET` | Any random string, e.g. `openssl rand -hex 32`. Authenticates the cron/notification routes |
@@ -127,10 +128,14 @@ The assistant and planner call the Anthropic API. To get your own key:
    it's billed per-token usage, not a flat monthly fee.)
 2. Add a payment method under **Billing**.
 3. Go to **API Keys** and create a new key.
-4. Put it in `ANTHROPIC_API_KEY` (used as the shared/fallback key for
-   everyone on your deployment), or paste it into the app itself under
-   **Settings → Planner AI** to bill your own planner usage to your own
-   Anthropic account instead of the shared key.
+4. Put it in `ANTHROPIC_API_KEY` in your `.env.local`/Vercel env vars.
+
+**Important:** `ANTHROPIC_API_KEY` is only ever used for requests from the
+account whose email matches `OWNER_EMAIL` — that's you, the person deploying
+this. If anyone else signs up on your deployment, they must add their own key
+under **Settings → Planner AI**; there is no fallback to your key for them.
+This is deliberate — usage should never bill to your Anthropic account on
+someone else's behalf.
 
 ## The Planner
 

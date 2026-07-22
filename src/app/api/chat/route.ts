@@ -6,9 +6,8 @@ import { buildScheduleInputs } from "@/lib/scheduling/from-db";
 import { computeSchedule } from "@/lib/scheduling/engine";
 import { buildSystemPrompt } from "@/lib/assistant/system-prompt";
 import { buildTools } from "@/lib/assistant/tools";
+import { resolveAssistantCredential, NO_CREDENTIAL_MESSAGE } from "@/lib/ai/credentials";
 import { zonedNow } from "@/lib/scheduling/time";
-
-const anthropic = new Anthropic();
 
 export async function POST(request: Request) {
   const supabase = await createClient();
@@ -23,6 +22,13 @@ export async function POST(request: Request) {
 
   // Persist the user's message immediately (chat history survives reloads).
   await supabase.from("chat_messages").insert({ user_id: user.id, role: "user", content: message });
+
+  const credential = await resolveAssistantCredential(user.id, user.email);
+  if (!credential.ok) {
+    await supabase.from("chat_messages").insert({ user_id: user.id, role: "assistant", content: NO_CREDENTIAL_MESSAGE });
+    return NextResponse.json({ reply: NO_CREDENTIAL_MESSAGE });
+  }
+  const anthropic = new Anthropic({ apiKey: credential.secret });
 
   const rows = await queryScheduleRows(supabase, user.id);
   const { inputs } = buildScheduleInputs(rows);

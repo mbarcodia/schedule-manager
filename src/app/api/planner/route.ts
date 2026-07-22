@@ -5,7 +5,7 @@ import { buildScheduleInputs } from "@/lib/scheduling/from-db";
 import { computeSchedule } from "@/lib/scheduling/engine";
 import { buildPlannerSystemPrompt } from "@/lib/planner/system-prompt";
 import { buildPlannerTools } from "@/lib/planner/tools";
-import { runPlannerTurn, type PlannerProvider } from "@/lib/planner/run-turn";
+import { runPlannerTurnStream, type PlannerProvider } from "@/lib/planner/run-turn";
 import { runRelayTurn } from "@/lib/planner/relay-runner";
 import { zonedNow } from "@/lib/scheduling/time";
 
@@ -40,68 +40,82 @@ export async function POST(request: Request) {
 
   const credential = await resolveCredential(user.id);
 
-  let reply: string;
-  try {
-    if (credential.provider === "subscription_oauth") {
-      // The relay does everything itself (fetch rows/notes/history, build
-      // the prompt and tools) using its own admin client — see
-      // src/relay/server.ts. Vercel only needs the model choice here.
-      const { data: profile } = await supabase.from("profiles").select("planner_model").eq("id", user.id).single();
-      ({ reply } = await runRelayTurn({
-        userId: user.id,
-        secret: credential.secret,
-        model: profile?.planner_model ?? "claude-opus-4-8",
-      }));
-    } else {
-      const [rows, { data: noteRows }] = await Promise.all([
-        queryScheduleRows(supabase, user.id),
-        supabase.from("notes").select("*").eq("user_id", user.id).order("updated_at", { ascending: false }),
-      ]);
-      const { inputs } = buildScheduleInputs(rows);
-      const schedule = computeSchedule(inputs);
-      const systemPrompt = buildPlannerSystemPrompt(rows, inputs, schedule, noteRows ?? []);
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(controller) {
+      let reply: string;
+      try {
+        if (credential.provider === "subscription_oauth") {
+          // The relay does everything itself (fetch rows/notes/history,
+          // build the prompt and tools) using its own admin client — see
+          // src/relay/server.ts. Vercel only needs the model choice here.
+          // Dormant today (no relay deployed) — resolves to a clean error
+          // via runRelayTurn's own check, delivered as a single chunk so
+          // the client's read loop doesn't need a separate code path.
+          const { data: profile } = await supabase.from("profiles").select("planner_model").eq("id", user.id).single();
+          ({ reply } = await runRelayTurn({
+            userId: user.id,
+            secret: credential.secret,
+            model: profile?.planner_model ?? "claude-opus-4-8",
+          }));
+          controller.enqueue(encoder.encode(reply));
+        } else {
+          const [rows, { data: noteRows }] = await Promise.all([
+            queryScheduleRows(supabase, user.id),
+            supabase.from("notes").select("*").eq("user_id", user.id).order("updated_at", { ascending: false }),
+          ]);
+          const { inputs } = buildScheduleInputs(rows);
+          const schedule = computeSchedule(inputs);
+          const systemPrompt = buildPlannerSystemPrompt(rows, inputs, schedule, noteRows ?? []);
 
-      const z = zonedNow(rows.profile.timezone);
-      const today = new Date(z.year, z.month - 1, z.day);
+          const z = zonedNow(rows.profile.timezone);
+          const today = new Date(z.year, z.month - 1, z.day);
 
-      const tools = buildPlannerTools({
-        supabase,
-        userId: user.id,
-        timezone: rows.profile.timezone,
-        weeklyHours: inputs.weeklyHours,
-        horizonWeeks: inputs.horizonWeeks,
-        today,
-        rows,
-        inputs,
-      });
+          const tools = buildPlannerTools({
+            supabase,
+            userId: user.id,
+            timezone: rows.profile.timezone,
+            weeklyHours: inputs.weeklyHours,
+            horizonWeeks: inputs.horizonWeeks,
+            today,
+            rows,
+            inputs,
+          });
 
-      const { data: historyRows } = await supabase
-        .from("planner_messages")
-        .select("role,content")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false })
-        .limit(40);
-      const history = (historyRows ?? [])
-        .slice()
-        .reverse()
-        .map((m) => ({ role: m.role, content: m.content }));
+          const { data: historyRows } = await supabase
+            .from("planner_messages")
+            .select("role,content")
+            .eq("user_id", user.id)
+            .order("created_at", { ascending: false })
+            .limit(40);
+          const history = (historyRows ?? [])
+            .slice()
+            .reverse()
+            .map((m) => ({ role: m.role, content: m.content }));
 
-      ({ reply } = await runPlannerTurn({
-        provider: credential.provider,
-        secret: credential.secret,
-        model: rows.profile.planner_model,
-        system: systemPrompt,
-        history,
-        tools,
-        maxIterations: 12,
-      }));
-    }
-  } catch (err) {
-    console.error("planner route error", err);
-    reply = "I couldn't reach the planner just now — nothing was changed. Please send that again.";
-  }
+          ({ reply } = await runPlannerTurnStream(
+            {
+              provider: credential.provider,
+              secret: credential.secret,
+              model: rows.profile.planner_model,
+              system: systemPrompt,
+              history,
+              tools,
+              maxIterations: 12,
+            },
+            (chunk) => controller.enqueue(encoder.encode(chunk)),
+          ));
+        }
+      } catch (err) {
+        console.error("planner route error", err);
+        reply = "I couldn't reach the planner just now — nothing was changed. Please send that again.";
+        controller.enqueue(encoder.encode(reply));
+      }
 
-  await supabase.from("planner_messages").insert({ user_id: user.id, role: "assistant", content: reply });
+      await supabase.from("planner_messages").insert({ user_id: user.id, role: "assistant", content: reply });
+      controller.close();
+    },
+  });
 
-  return NextResponse.json({ reply });
+  return new Response(stream, { headers: { "Content-Type": "text/plain; charset=utf-8" } });
 }

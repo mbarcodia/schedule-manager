@@ -64,14 +64,23 @@ export function usePlannerChat(onReplied: () => void) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ message: trimmed }),
         });
-        const data = await res.json();
-        setMessages((prev) => [
-          ...prev.filter((m) => !m.pending),
-          { role: "assistant", text: data.reply ?? "Something went wrong." },
-        ]);
+        if (!res.ok || !res.body) throw new Error("bad response");
+
+        // The route streams plain text chunks (see /api/planner/route.ts) —
+        // replace the pending "…" bubble with accumulated text as it arrives
+        // instead of waiting for the whole reply.
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let accumulated = "";
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          accumulated += decoder.decode(value, { stream: true });
+          setMessages((prev) => [...prev.slice(0, -1), { role: "assistant", text: accumulated }]);
+        }
       } catch {
         setMessages((prev) => [
-          ...prev.filter((m) => !m.pending),
+          ...prev.slice(0, -1),
           { role: "assistant", text: "I couldn't reach the planner just now — please try again." },
         ]);
       }

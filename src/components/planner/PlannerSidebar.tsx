@@ -133,9 +133,18 @@ export function PlannerSidebar({ refreshKey }: PlannerSidebarProps) {
 
   return (
     <div className="flex-none w-[320px] border-l border-border flex flex-col min-h-0">
-      <div className="flex-none px-4 py-3.5 border-b border-border">
-        <div className="font-medium text-[13px]">Projects & notes</div>
-        <div className="mt-0.5 text-[11px] text-muted">Notes the planner keeps, organized by trackable.</div>
+      <div className="flex-none px-4 py-3.5 border-b border-border flex items-start justify-between gap-2">
+        <div>
+          <div className="font-medium text-[13px]">Projects & notes</div>
+          <div className="mt-0.5 text-[11px] text-muted">Notes the planner keeps, organized by trackable.</div>
+        </div>
+        <a
+          href="/api/planner/export"
+          download
+          className="flex-none text-[10.5px] text-accent-text hover:underline whitespace-nowrap"
+        >
+          Export
+        </a>
       </div>
       <div className="flex-1 overflow-y-auto px-3 py-3 flex flex-col gap-3 min-h-0">
         {trackables.map((t) => (

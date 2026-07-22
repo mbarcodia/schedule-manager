@@ -21,7 +21,7 @@ export async function runAnthropicTurn(input: PlannerTurnInput): Promise<{ reply
   // Fable 5's safety classifiers can decline a request with HTTP 200 and an
   // empty/partial body — surface it as a normal reply instead of crashing.
   if (finalMessage.stop_reason === "refusal") {
-    return { reply: "I can't help with that particular request. Nothing was changed — let's get back to planning." };
+    return { reply: REFUSAL_REPLY };
   }
 
   const reply =
@@ -31,4 +31,56 @@ export async function runAnthropicTurn(input: PlannerTurnInput): Promise<{ reply
       .join(" ")
       .trim() || "Done.";
   return { reply };
+}
+
+const REFUSAL_REPLY = "I can't help with that particular request. Nothing was changed — let's get back to planning.";
+
+/** Streaming variant: calls onChunk with each piece of visible text as the
+ * model writes it, across every tool-runner iteration (not just the final
+ * message — a deliberate behavior change from the non-streaming path, which
+ * only ever showed the last iteration's text). Still returns the full
+ * assembled reply so the caller can persist it once streaming completes. */
+export async function runAnthropicTurnStream(
+  input: PlannerTurnInput,
+  onChunk: (text: string) => void,
+): Promise<{ reply: string }> {
+  const anthropic = new Anthropic({ apiKey: input.secret });
+
+  const runner = anthropic.beta.messages.toolRunner({
+    model: input.model,
+    max_tokens: 8000,
+    system: input.system,
+    messages: input.history.map((m) => ({ role: m.role, content: m.content })),
+    tools: input.tools,
+    max_iterations: input.maxIterations,
+    stream: true,
+  });
+
+  let full = "";
+  let lastStopReason: string | null = null;
+  let firstIteration = true;
+  for await (const messageStream of runner) {
+    // Text from different iterations (e.g. a remark before a tool call,
+    // then the summary after it comes back) are otherwise concatenated
+    // with no boundary — insert a paragraph break between iterations that
+    // both produced visible text.
+    let wroteInThisIteration = false;
+    for await (const event of messageStream) {
+      if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+        if (!wroteInThisIteration && !firstIteration && full && !full.endsWith("\n\n")) {
+          full += "\n\n";
+          onChunk("\n\n");
+        }
+        wroteInThisIteration = true;
+        full += event.delta.text;
+        onChunk(event.delta.text);
+      } else if (event.type === "message_delta") {
+        lastStopReason = event.delta.stop_reason ?? lastStopReason;
+      }
+    }
+    firstIteration = false;
+  }
+
+  if (lastStopReason === "refusal") return { reply: REFUSAL_REPLY };
+  return { reply: full.trim() || "Done." };
 }

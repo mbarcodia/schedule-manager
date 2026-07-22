@@ -12,7 +12,7 @@
 // import out of this file is what keeps the Agent SDK out of every
 // Vercel function's dependency graph.
 
-import { runAnthropicTurn } from "./anthropic-runner";
+import { runAnthropicTurn, runAnthropicTurnStream } from "./anthropic-runner";
 import type { buildPlannerTools } from "./tools";
 
 export type PlannerProvider = "env_api_key" | "user_api_key" | "subscription_oauth";
@@ -39,5 +39,20 @@ export async function runPlannerTurn(input: PlannerTurnInput): Promise<{ reply: 
       // importing agent-runner.ts to handle it) is what keeps the Agent
       // SDK out of this route's bundle.
       throw new Error("subscription_oauth must be routed through relay-runner.ts, not runPlannerTurn.");
+  }
+}
+
+/** Streaming counterpart of runPlannerTurn — same two in-process backends,
+ * same subscription_oauth exclusion. */
+export async function runPlannerTurnStream(
+  input: PlannerTurnInput,
+  onChunk: (text: string) => void,
+): Promise<{ reply: string }> {
+  switch (input.provider) {
+    case "env_api_key":
+    case "user_api_key":
+      return runAnthropicTurnStream(input, onChunk);
+    case "subscription_oauth":
+      throw new Error("subscription_oauth must be routed through relay-runner.ts, not runPlannerTurnStream.");
   }
 }

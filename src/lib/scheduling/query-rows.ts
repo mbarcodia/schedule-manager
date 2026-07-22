@@ -1,6 +1,8 @@
-// Shared row-fetching logic used by both the browser client
-// (fetch-schedule-data.ts) and the server-side chat route — same queries,
-// different Supabase client instance (RLS scopes both to the caller).
+// Shared row-fetching logic used by the browser client (fetch-schedule-data.ts),
+// the server-side chat route, and the admin-client cron routes. Every query is
+// explicitly filtered by user_id rather than relying solely on RLS, since the
+// cron routes call this with createAdminClient() (no auth session, RLS bypassed
+// entirely) to build one user's schedule at a time out of an admin-scoped client.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
@@ -38,30 +40,38 @@ export async function queryScheduleRows(
     connectionsRes,
   ] = await Promise.all([
     supabase.from("profiles").select("*").eq("id", userId).single(),
-    supabase.from("categories").select("*"),
-    supabase.from("projects").select("*"),
-    supabase.from("proposals").select("*"),
-    supabase.from("goals").select("*"),
-    supabase.from("tasks").select("*"),
-    supabase.from("recurring_rules").select("*"),
-    supabase.from("preference_notes").select("*"),
+    supabase.from("categories").select("*").eq("user_id", userId),
+    supabase.from("projects").select("*").eq("user_id", userId),
+    supabase.from("proposals").select("*").eq("user_id", userId),
+    supabase.from("goals").select("*").eq("user_id", userId),
+    supabase.from("tasks").select("*").eq("user_id", userId),
+    supabase.from("recurring_rules").select("*").eq("user_id", userId),
+    supabase.from("preference_notes").select("*").eq("user_id", userId),
     supabase
       .from("day_overrides")
       .select("*")
+      .eq("user_id", userId)
       .gte("override_date", windowStartDate)
       .lte("override_date", windowEndDate),
-    supabase.from("events").select("*").gte("starts_at", windowStart).lte("starts_at", windowEnd),
+    supabase
+      .from("events")
+      .select("*")
+      .eq("user_id", userId)
+      .gte("starts_at", windowStart)
+      .lte("starts_at", windowEnd),
     supabase
       .from("progress_log")
       .select("*")
+      .eq("user_id", userId)
       .gte("occurred_date", windowStartDate)
       .lte("occurred_date", windowEndDate),
     supabase
       .from("pinned_chunks")
       .select("*")
+      .eq("user_id", userId)
       .gte("occurred_date", windowStartDate)
       .lte("occurred_date", windowEndDate),
-    supabase.from("calendar_connections").select("*"),
+    supabase.from("calendar_connections").select("*").eq("user_id", userId),
   ]);
 
   for (const res of [

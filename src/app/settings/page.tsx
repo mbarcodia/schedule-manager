@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { CaretLeftIcon, CheckIcon } from "@phosphor-icons/react";
 import { createClient } from "@/lib/supabase/client";
 import type { CalendarProvider, Database, PreferredModel, WeeklyHoursJson } from "@/lib/supabase/database.types";
+import { getPushSubscriptionStatus, subscribeToPush, unsubscribeFromPush } from "@/lib/push/subscribe";
 
 type CategoryRow = Database["public"]["Tables"]["categories"]["Row"];
 type ConnectionRow = Database["public"]["Tables"]["calendar_connections"]["Row"];
@@ -54,6 +55,23 @@ function timeInputToMinutes(value: string): number {
   return h * 60 + m;
 }
 
+// Hour-only, not minute-precision: the cron routes that deliver these
+// notifications only run hourly (see time-match.ts), so a minute picker
+// would promise timing accuracy the delivery mechanism can't honor.
+const HOUR_OPTIONS = Array.from({ length: 24 }, (_, h) => {
+  const period = h < 12 ? "AM" : "PM";
+  const displayHour = h % 12 === 0 ? 12 : h % 12;
+  return { value: h * 60, label: `${displayHour}:00 ${period}` };
+});
+
+interface NotifPrefs {
+  eodEnabled: boolean;
+  eodTime: number;
+  weeklyEnabled: boolean;
+  weeklyDow: number;
+  weeklyTime: number;
+}
+
 const MODEL_OPTIONS: {
   id: PreferredModel;
   label: string;
@@ -96,6 +114,10 @@ export default function SettingsPage() {
   const [newConnColor, setNewConnColor] = useState(PROVIDER_DEFAULT_COLORS.outlook_ics);
   const [syncing, setSyncing] = useState(false);
   const [connError, setConnError] = useState<string | null>(null);
+  const [notif, setNotif] = useState<NotifPrefs | null>(null);
+  const [pushEnabled, setPushEnabled] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
+  const [pushError, setPushError] = useState<string | null>(null);
 
   useEffect(() => {
     let ignore = false;
@@ -105,18 +127,33 @@ export default function SettingsPage() {
         data: { user },
       } = await supabase.auth.getUser();
       if (!user) return;
-      const [{ data }, { data: cats }, { data: conns }] = await Promise.all([
-        supabase.from("profiles").select("preferred_model,weekly_hours").eq("id", user.id).single(),
+      const [{ data }, { data: cats }, { data: conns }, pushOn] = await Promise.all([
+        supabase
+          .from("profiles")
+          .select(
+            "preferred_model,weekly_hours,eod_checkin_enabled,eod_checkin_time,weekly_summary_enabled,weekly_summary_dow,weekly_summary_time",
+          )
+          .eq("id", user.id)
+          .single(),
         supabase.from("categories").select("*").order("sort_order"),
         supabase.from("calendar_connections").select("*").order("created_at"),
+        getPushSubscriptionStatus(),
       ]);
       if (ignore) return;
       if (data) {
         setCurrent(data.preferred_model);
         setHours(data.weekly_hours);
+        setNotif({
+          eodEnabled: data.eod_checkin_enabled,
+          eodTime: data.eod_checkin_time,
+          weeklyEnabled: data.weekly_summary_enabled,
+          weeklyDow: data.weekly_summary_dow,
+          weeklyTime: data.weekly_summary_time,
+        });
       }
       setCategories(cats ?? []);
       setConnections(conns ?? []);
+      setPushEnabled(pushOn);
       setLoading(false);
     }
     void load();
@@ -241,6 +278,64 @@ export default function SettingsPage() {
     if (!existing) return;
     const next = { ...hours, [String(dow)]: { ...existing, [field]: minutes } };
     void saveHours(next);
+  }
+
+  async function togglePush(enabled: boolean) {
+    setPushBusy(true);
+    setPushError(null);
+    if (enabled) {
+      const res = await subscribeToPush();
+      if (res.ok) setPushEnabled(true);
+      else setPushError(res.error ?? "Something went wrong.");
+    } else {
+      await unsubscribeFromPush();
+      setPushEnabled(false);
+    }
+    setPushBusy(false);
+  }
+
+  async function saveNotif(next: NotifPrefs) {
+    setNotif(next);
+    const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return;
+    await supabase
+      .from("profiles")
+      .update({
+        eod_checkin_enabled: next.eodEnabled,
+        eod_checkin_time: next.eodTime,
+        weekly_summary_enabled: next.weeklyEnabled,
+        weekly_summary_dow: next.weeklyDow,
+        weekly_summary_time: next.weeklyTime,
+      })
+      .eq("id", user.id);
+  }
+
+  function toggleEodCheckin(on: boolean) {
+    if (!notif) return;
+    void saveNotif({ ...notif, eodEnabled: on });
+  }
+
+  function setEodCheckinTime(minutes: number) {
+    if (!notif) return;
+    void saveNotif({ ...notif, eodTime: minutes });
+  }
+
+  function toggleWeeklySummary(on: boolean) {
+    if (!notif) return;
+    void saveNotif({ ...notif, weeklyEnabled: on });
+  }
+
+  function setWeeklySummaryDow(dow: number) {
+    if (!notif) return;
+    void saveNotif({ ...notif, weeklyDow: dow });
+  }
+
+  function setWeeklySummaryTime(minutes: number) {
+    if (!notif) return;
+    void saveNotif({ ...notif, weeklyTime: minutes });
   }
 
   async function choose(model: PreferredModel) {
@@ -536,6 +631,103 @@ export default function SettingsPage() {
               </button>
             </div>
           </div>
+        </div>
+
+        <div className="mt-8 pt-5 border-t border-border">
+          <h2 className="text-base font-medium mb-1">Notifications</h2>
+          <p className="text-xs text-muted mb-4">
+            Real push notifications from your browser. Delivery is checked hourly by the server, so times below are
+            rounded to the hour rather than exact-minute.
+          </p>
+
+          <div className="flex items-center gap-3 rounded-md border border-border bg-panel px-3 py-2 mb-2">
+            <label className="flex items-center gap-2 text-xs flex-1">
+              <input
+                type="checkbox"
+                checked={pushEnabled}
+                disabled={pushBusy}
+                onChange={(e) => togglePush(e.target.checked)}
+                className="accent-accent"
+              />
+              Enable push notifications
+            </label>
+            {pushBusy && <span className="text-xs text-muted">Working…</span>}
+          </div>
+          {pushError && <p className="text-[11px] text-accent-text mb-2">{pushError}</p>}
+
+          {loading || !notif ? (
+            <p className="text-xs text-muted">Loading…</p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              <div
+                className={`flex items-center gap-3 rounded-md border border-border bg-panel px-3 py-2 ${pushEnabled ? "" : "opacity-50"}`}
+              >
+                <label className="flex items-center gap-2 text-xs w-40 flex-none">
+                  <input
+                    type="checkbox"
+                    checked={notif.eodEnabled}
+                    disabled={!pushEnabled}
+                    onChange={(e) => toggleEodCheckin(e.target.checked)}
+                    className="accent-accent"
+                  />
+                  End-of-day check-in
+                </label>
+                <select
+                  value={notif.eodTime}
+                  disabled={!pushEnabled || !notif.eodEnabled}
+                  onChange={(e) => setEodCheckinTime(Number(e.target.value))}
+                  className="rounded border border-border bg-surface px-1.5 py-1 text-text text-xs outline-none focus-visible:border-accent"
+                >
+                  {HOUR_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div
+                className={`flex items-center gap-2 flex-wrap rounded-md border border-border bg-panel px-3 py-2 ${pushEnabled ? "" : "opacity-50"}`}
+              >
+                <label className="flex items-center gap-2 text-xs w-40 flex-none">
+                  <input
+                    type="checkbox"
+                    checked={notif.weeklyEnabled}
+                    disabled={!pushEnabled}
+                    onChange={(e) => toggleWeeklySummary(e.target.checked)}
+                    className="accent-accent"
+                  />
+                  Weekly research summary
+                </label>
+                <select
+                  value={notif.weeklyDow}
+                  disabled={!pushEnabled || !notif.weeklyEnabled}
+                  onChange={(e) => setWeeklySummaryDow(Number(e.target.value))}
+                  className="rounded border border-border bg-surface px-1.5 py-1 text-text text-xs outline-none focus-visible:border-accent"
+                >
+                  {DAY_LABELS.map((label, dow) => (
+                    <option key={dow} value={dow}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={notif.weeklyTime}
+                  disabled={!pushEnabled || !notif.weeklyEnabled}
+                  onChange={(e) => setWeeklySummaryTime(Number(e.target.value))}
+                  className="rounded border border-border bg-surface px-1.5 py-1 text-text text-xs outline-none focus-visible:border-accent"
+                >
+                  {HOUR_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {!pushEnabled && <p className="text-[11px] text-muted">Turn on push notifications above first.</p>}
+            </div>
+          )}
         </div>
 
         <div className="mt-8 pt-5 border-t border-border">

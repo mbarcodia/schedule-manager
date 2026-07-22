@@ -57,6 +57,50 @@ function categoryPalette(hex: string): { bg: string; border: string; textColor: 
 
 const UNCATEGORIZED_PALETTE = { bg: "#292b31", border: "#75798c", textColor: "#cfd3e5" };
 
+export interface BlockLane {
+  lane: number;
+  lanes: number;
+}
+
+/** Interval-partitions one day's blocks into side-by-side lanes so blocks
+ * that share minutes split the column width instead of stacking on top of
+ * each other (early-done pins routinely land on already-occupied past
+ * time). Lane count is per collision cluster — blocks with no overlap keep
+ * the full width. */
+export function computeBlockLanes(blocks: ScheduleBlock[]): Map<ScheduleBlock, BlockLane> {
+  const out = new Map<ScheduleBlock, BlockLane>();
+  const items = blocks
+    .map((b) => ({ b, start: Math.max(b.start, DAY_START_MIN), end: Math.min(b.end, DAY_END_MIN), lane: 0 }))
+    .filter((x) => x.end > x.start)
+    .sort((a, z) => a.start - z.start || z.end - a.end);
+
+  let cluster: typeof items = [];
+  let laneEnds: number[] = [];
+  let clusterEnd = 0;
+
+  const flush = () => {
+    for (const x of cluster) out.set(x.b, { lane: x.lane, lanes: laneEnds.length });
+    cluster = [];
+    laneEnds = [];
+  };
+
+  for (const x of items) {
+    if (cluster.length && x.start >= clusterEnd) flush();
+    let lane = laneEnds.findIndex((end) => end <= x.start);
+    if (lane === -1) {
+      lane = laneEnds.length;
+      laneEnds.push(x.end);
+    } else {
+      laneEnds[lane] = x.end;
+    }
+    x.lane = lane;
+    cluster.push(x);
+    clusterEnd = cluster.length === 1 ? x.end : Math.max(clusterEnd, x.end);
+  }
+  flush();
+  return out;
+}
+
 export function computeBlockVisual(
   block: ScheduleBlock,
   opts: { atRiskTitles: string[]; nearDeadlineTitles?: string[]; categories?: Category[] },

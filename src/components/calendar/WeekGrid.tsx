@@ -5,7 +5,7 @@ import { Block } from "./Block";
 import { TaskDetailPopover } from "./TaskDetailPopover";
 import { EventDetailPopover } from "./EventDetailPopover";
 import { defaultDayWindow, resolveDayWindow } from "@/lib/scheduling/day-window";
-import { DAY_END_MIN, DAY_START_MIN, DEFAULT_SCROLL_MIN } from "@/lib/scheduling/render";
+import { computeBlockLanes, DAY_END_MIN, DAY_START_MIN, DEFAULT_SCROLL_MIN } from "@/lib/scheduling/render";
 import { dateForGday, minToLabel, nowAbsMinute, WEEKDAY_LABELS } from "@/lib/scheduling/time";
 import type { Category, ComputeScheduleResult, DayOverrides, ScheduleBlock, WeeklyHours } from "@/lib/scheduling/types";
 
@@ -172,6 +172,7 @@ export function WeekGrid({
           const effWindow = resolveDayWindow(gday, weeklyHours, dayOverrides);
           const allDayBlocks = mergeAdjacentTaskBlocks(schedule.blocks.filter((b) => b.gday === gday));
           const dayBlocks = allDayBlocks.filter((b) => b.end > DAY_START_MIN && b.start < DAY_END_MIN);
+          const blockLanes = computeBlockLanes(dayBlocks);
           const showNow = isToday && NOW - todayGday * 1440 >= DAY_START_MIN && NOW - todayGday * 1440 <= DAY_END_MIN;
           const nowTop = NOW - todayGday * 1440 - DAY_START_MIN;
 
@@ -239,6 +240,7 @@ export function WeekGrid({
                     atRiskTitles={schedule.risk}
                     nearDeadlineTitles={schedule.nearDeadline}
                     categories={categories}
+                    layout={blockLanes.get(b)}
                     onSetProgress={(mode, minutes) => onSetProgress(b, mode, minutes)}
                     onPinDone={() => onPinDone(b)}
                     onUnpinDone={() => onUnpinDone(b)}

@@ -34,9 +34,12 @@ export async function updateSession(request: NextRequest) {
 
   const isAuthRoute = request.nextUrl.pathname.startsWith("/login");
   const isPublicAsset = request.nextUrl.pathname.startsWith("/manifest") ||
-    request.nextUrl.pathname.startsWith("/icons");
+    request.nextUrl.pathname.startsWith("/icons") ||
+    request.nextUrl.pathname === "/sw.js";
+  // Cron routes authenticate with CRON_SECRET, not a session cookie.
+  const isCronRoute = request.nextUrl.pathname.startsWith("/api/cron/");
 
-  if (!user && !isAuthRoute && !isPublicAsset) {
+  if (!user && !isAuthRoute && !isPublicAsset && !isCronRoute) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);

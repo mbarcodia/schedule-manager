@@ -1,0 +1,25 @@
+# Hourly trigger for the push-notification digest routes. Vercel Hobby crons
+# are capped at 2 jobs / once daily, so the any-hour digest matching
+# (eod-checkin + weekly-summary check each user's chosen local hour) is
+# driven from here instead — see src/lib/notifications/time-match.ts.
+name: Notification digests
+
+on:
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger digest routes for the current UTC hour
+        env:
+          BASE_URL: ${{ secrets.PROD_BASE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          H=$(date -u +%-H)
+          curl -fsS --max-time 120 "$BASE_URL/api/cron/eod-checkin?hour=$H" \
+            -H "Authorization: Bearer $CRON_SECRET"
+          curl -fsS --max-time 120 "$BASE_URL/api/cron/weekly-summary?hour=$H" \
+            -H "Authorization: Bearer $CRON_SECRET"

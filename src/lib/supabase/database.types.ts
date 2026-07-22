@@ -34,17 +34,32 @@ export interface Database {
           preferred_model: PreferredModel;
           timezone: string;
           weekly_hours: WeeklyHoursJson;
+          eod_checkin_enabled: boolean;
+          eod_checkin_time: number;
+          weekly_summary_enabled: boolean;
+          weekly_summary_dow: number;
+          weekly_summary_time: number;
           created_at: string;
         },
         { id: string } & Partial<{
           preferred_model: PreferredModel;
           timezone: string;
           weekly_hours: WeeklyHoursJson;
+          eod_checkin_enabled: boolean;
+          eod_checkin_time: number;
+          weekly_summary_enabled: boolean;
+          weekly_summary_dow: number;
+          weekly_summary_time: number;
         }>,
         Partial<{
           preferred_model: PreferredModel;
           timezone: string;
           weekly_hours: WeeklyHoursJson;
+          eod_checkin_enabled: boolean;
+          eod_checkin_time: number;
+          weekly_summary_enabled: boolean;
+          weekly_summary_dow: number;
+          weekly_summary_time: number;
         }>
       >;
       categories: Table<
@@ -281,6 +296,11 @@ export interface Database {
           last_sync_error: string | null;
           last_sync_event_count: number | null;
         }>
+      >;
+      push_subscriptions: Table<
+        { id: string; user_id: string; endpoint: string; p256dh: string; auth_key: string; created_at: string },
+        { id?: string; user_id: string; endpoint: string; p256dh: string; auth_key: string },
+        Partial<{ endpoint: string; p256dh: string; auth_key: string }>
       >;
       progress_log: Table<
         {

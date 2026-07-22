@@ -1,7 +1,7 @@
 "use client";
 
 import { CheckIcon } from "@phosphor-icons/react";
-import { computeBlockVisual } from "@/lib/scheduling/render";
+import { computeBlockVisual, type BlockLane } from "@/lib/scheduling/render";
 import type { Category, ScheduleBlock } from "@/lib/scheduling/types";
 
 interface BlockProps {
@@ -9,6 +9,7 @@ interface BlockProps {
   atRiskTitles: string[];
   nearDeadlineTitles: string[];
   categories: Category[];
+  layout?: BlockLane;
   onPinDone: () => void;
   onUnpinDone: () => void;
   onSetProgress: (mode: "done" | "partial" | "none", minutes?: number) => void;
@@ -20,6 +21,7 @@ export function Block({
   atRiskTitles,
   nearDeadlineTitles,
   categories,
+  layout,
   onPinDone,
   onUnpinDone,
   onSetProgress,
@@ -51,8 +53,8 @@ export function Block({
       title={visual.tooltip}
       style={{
         position: "absolute",
-        left: 3,
-        right: 3,
+        left: `calc(${((layout?.lane ?? 0) / (layout?.lanes ?? 1)) * 100}% + 3px)`,
+        width: `calc(${100 / (layout?.lanes ?? 1)}% - 6px)`,
         top: visual.top,
         height: visual.height,
         background: visual.bg,

@@ -14,7 +14,9 @@ export interface UseScheduleDataResult {
   refresh: () => Promise<void>;
   /** Mark a task/research chunk fully done, partially done, or missed. */
   setProgress: (block: ScheduleBlock, mode: "done" | "partial" | "none", minutes?: number) => Promise<void>;
-  /** Check a future block done early — pins it in place, time credited now. */
+  /** Check a future block done early — the pin is recorded ending at the
+   * completion moment (full length, so the task stays fully credited) and
+   * the block's original slot is freed for the scheduler to refill. */
   pinDone: (block: ScheduleBlock) => Promise<void>;
   /** Undo an early-done pin. */
   unpinDone: (block: ScheduleBlock) => Promise<void>;
@@ -110,6 +112,31 @@ export function useScheduleData(): UseScheduleDataResult {
         data: { user },
       } = await supabase.auth.getUser();
       if (!user) return;
+      // Record the pin ending at the completion moment rather than at the
+      // block's scheduled slot — the freed slot then reshuffles on the next
+      // compute. Length is preserved so the task stays fully credited; if
+      // the day is younger than the block is long, it spills past "now"
+      // rather than losing credit.
+      const d = new Date();
+      const nowMin = Math.floor((d.getHours() * 60 + d.getMinutes()) / 15) * 15;
+      const len = block.end - block.start;
+      const todayGday = (d.getDay() + 6) % 7;
+      const occurredDate = gdayToISODate(todayGday);
+      // A second chunk of the same task checked off around the same time
+      // would land on a slot the task already claimed — colliding with a
+      // prior pin (merged away by the upsert's conflict key) or with a
+      // progress-logged span (double-booking minutes already credited).
+      // Stack it immediately before the task's earliest claim today
+      // instead. Adjacent same-status chunks render merged, so repeated
+      // check-offs read as one growing done block.
+      const claimFilter = { user_id: user.id, subject_type: subjectType, subject_id: subjectId, occurred_date: occurredDate };
+      const [{ data: pins }, { data: prog }] = await Promise.all([
+        supabase.from("pinned_chunks").select("start_min").match(claimFilter),
+        supabase.from("progress_log").select("start_min").match(claimFilter),
+      ]);
+      const claims = [...(pins ?? []), ...(prog ?? [])].map((r) => r.start_min);
+      const anchor = claims.length ? Math.min(...claims) : nowMin;
+      const start = Math.max(0, Math.min(nowMin, anchor) - len);
       await supabase.from("pinned_chunks").upsert(
         {
           user_id: user.id,
@@ -119,9 +146,9 @@ export function useScheduleData(): UseScheduleDataResult {
           title: block.title,
           project_id: block.projectId ?? null,
           priority: block.priority,
-          occurred_date: gdayToISODate(block.gday),
-          start_min: block.start,
-          end_min: block.end,
+          occurred_date: occurredDate,
+          start_min: start,
+          end_min: start + len,
         },
         { onConflict: "user_id,subject_type,subject_id,occurred_date,start_min" },
       );

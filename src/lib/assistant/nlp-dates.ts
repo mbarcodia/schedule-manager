@@ -36,7 +36,9 @@ export function parseDeadlineDate(rawLower: string, today: Date): Date | null {
     d.setDate(d.getDate() + 1);
     return d;
   }
-  if (lower.includes("today")) return new Date(today);
+  // "tonight" is still today's date — only the time-of-day differs, which
+  // is a separate (time) parse, not this (date) one.
+  if (lower.includes("today") || lower.includes("tonight")) return new Date(today);
 
   const mm = lower.match(
     /\b(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\.?\s+(\d{1,2})(?:st|nd|rd|th)?\b/,
@@ -66,16 +68,41 @@ export function parseDeadlineDate(rawLower: string, today: Date): Date | null {
   return null;
 }
 
-/** Parses "2pm", "14:30", "9:00" into minutes-since-midnight. */
+/** Parses "2pm", "14:30", "9:00", "noon", "midnight" into minutes-since-midnight. */
 export function parseTimeStr(s: string | null | undefined): number | null {
   if (s == null) return null;
-  const m = String(s).toLowerCase().match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/);
+  const lower = String(s).toLowerCase().trim();
+  if (/^(noon|midday)$/.test(lower)) return 720;
+  if (lower === "midnight") return 0;
+  const m = lower.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/);
   if (!m) return null;
   let h = parseInt(m[1], 10);
   const mi = m[2] ? parseInt(m[2], 10) : 0;
   if (m[3] === "pm" && h < 12) h += 12;
   if (m[3] === "am" && h === 12) h = 0;
   return h * 60 + mi;
+}
+
+/** Matches phrases meaning "start this immediately" — "now", "right now",
+ * "immediately", "asap", "right away", "straight away". */
+export function isNowPhrase(s: string | null | undefined): boolean {
+  if (s == null) return false;
+  return /^(right\s+now|now|immediately|asap|right\s+away|straight\s+away)$/.test(s.toLowerCase().trim());
+}
+
+/** Parses "in 30 minutes", "in 2 hours", "in an hour", "in half an hour",
+ * "in 1 hour 30 minutes" into a minute offset from now. Returns null if the
+ * phrase isn't a relative-time one at all (as opposed to 0, a valid offset). */
+export function parseRelativeMinutes(s: string | null | undefined): number | null {
+  if (s == null) return null;
+  const lower = s.toLowerCase().trim();
+  if (/^in\s+(half\s+an\s+hour|a\s+half\s*-?\s*hour)$/.test(lower)) return 30;
+  if (/^in\s+an?\s+hour$/.test(lower)) return 60;
+  const m = lower.match(/^in\s+(?:(\d+)\s*h(?:ours?)?)?\s*(?:(?:and\s+)?(\d+)\s*m(?:in(?:ute)?s?)?)?$/);
+  if (!m || (!m[1] && !m[2])) return null;
+  const hours = m[1] ? parseInt(m[1], 10) : 0;
+  const minutes = m[2] ? parseInt(m[2], 10) : 0;
+  return hours * 60 + minutes;
 }
 
 export function normTitle(s: string): string {

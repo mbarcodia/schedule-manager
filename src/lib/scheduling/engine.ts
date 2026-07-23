@@ -135,8 +135,11 @@ function findSlot(
     for (let m = start; m + lengthMin <= end; m += 15) {
       const abs = base + m;
       if (abs < floorAbs) continue;
+      // Checked minute-by-minute (not in 15-min steps) so an off-grid busy
+      // range — e.g. an 11:59 "right now" pin — is actually seen as an
+      // obstacle even though this candidate start is itself grid-aligned.
       let free = true;
-      for (let k = 0; k < lengthMin; k += 15) {
+      for (let k = 0; k < lengthMin; k += 1) {
         if (busy.has(abs + k)) {
           free = false;
           break;
@@ -149,8 +152,11 @@ function findSlot(
   return null;
 }
 
+// Marks every minute in the range busy (not 15-min steps) so a block whose
+// start/end isn't itself grid-aligned — e.g. an 11:59 "right now" pin —
+// still correctly blocks any grid-aligned candidate slot that overlaps it.
 function markBusy(abs: AbsMinute, len: number, busy: Set<AbsMinute>): void {
-  for (let k = 0; k < len; k += 15) busy.add(abs + k);
+  for (let k = 0; k < len; k += 1) busy.add(abs + k);
 }
 
 interface RunSchedulerResult {
@@ -343,7 +349,7 @@ export function computeSchedule(
     for (let m = ws; m + a.length <= we; m += 15) {
       const abs = a.gday * 1440 + m;
       let free = true;
-      for (let k = 0; k < a.length; k += 15) {
+      for (let k = 0; k < a.length; k += 1) {
         if (baseBusy.has(abs + k)) {
           free = false;
           break;

@@ -10,9 +10,17 @@
 // task" → add_trackable then add_task linked to it).
 
 import { betaTool } from "@anthropic-ai/sdk/helpers/beta/json-schema";
-import { parseDeadlineDate, parseTimeStr, fuzzyFindByTitle, findByTitle, normTitle } from "./nlp-dates";
+import {
+  parseDeadlineDate,
+  parseTimeStr,
+  fuzzyFindByTitle,
+  findByTitle,
+  normTitle,
+  isNowPhrase,
+  parseRelativeMinutes,
+} from "./nlp-dates";
 import { statusReply } from "./status";
-import { gdayForDate, zonedTimeToUtc } from "@/lib/scheduling/time";
+import { gdayForDate, zonedTimeToUtc, zonedNow } from "@/lib/scheduling/time";
 import { computeSchedule } from "@/lib/scheduling/engine";
 import { buildScheduleInputs } from "@/lib/scheduling/from-db";
 import { queryScheduleRows } from "@/lib/scheduling/query-rows";
@@ -108,14 +116,28 @@ interface ResolvedPin {
 
 /** Resolves a task-pin's date+time phrase into calendar-date form. Returns
  * null if neither field was given (no pin requested), or a plain string
- * error message if given but unparseable/out of range. */
+ * error message if given but unparseable/out of range.
+ *
+ * "right now" / "asap" / "in 30 minutes" etc. need today's real clock time,
+ * not just a phrase — and naturally come with no explicit date ("start this
+ * now"), so a now/relative time phrase defaults the date to today rather
+ * than erroring for missing it. The resulting start is whatever minute that
+ * resolves to (e.g. 11:59), deliberately NOT snapped to the 15-minute grid
+ * — the engine tracks busy time minute-by-minute so this still correctly
+ * blocks anything else from double-booking it. */
 function resolvePin(ctx: ToolContext, dateStr?: string, timeStr?: string): ResolvedPin | string | null {
   if (!dateStr && timeStr == null) return null;
-  if (!dateStr || timeStr == null) return "A pinned time needs both a date and a clock time.";
-  const d = parseDeadlineDate(dateStr.toLowerCase(), ctx.today);
-  if (!d) return `Couldn't understand the date "${dateStr}".`;
-  const start = parseTimeStr(timeStr);
-  if (start == null) return `Couldn't understand the time "${timeStr}" — try "2pm" or "14:30".`;
+  const nowPhrase = timeStr != null && isNowPhrase(timeStr);
+  const relativeMin = timeStr != null ? parseRelativeMinutes(timeStr) : null;
+  const effectiveDateStr = (nowPhrase || relativeMin != null) && !dateStr ? "today" : dateStr;
+  if (!effectiveDateStr || timeStr == null) return "A pinned time needs both a date and a clock time.";
+  const d = parseDeadlineDate(effectiveDateStr.toLowerCase(), ctx.today);
+  if (!d) return `Couldn't understand the date "${effectiveDateStr}".`;
+  const start =
+    nowPhrase || relativeMin != null
+      ? Math.min(1439, zonedNow(ctx.timezone).minuteOfDay + (relativeMin ?? 1))
+      : parseTimeStr(timeStr);
+  if (start == null) return `Couldn't understand the time "${timeStr}" — try "2pm", "14:30", "noon", or "right now".`;
   const gday = gdayForDate(ctx.timezone, { year: d.getFullYear(), month: d.getMonth() + 1, day: d.getDate() }, new Date());
   if (gday < 0 || gday >= ctx.horizonWeeks * 7) return `That date is outside the ${ctx.horizonWeeks}-week scheduling horizon.`;
   const pinned_date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -159,7 +181,11 @@ export function buildTools(ctx: ToolContext) {
         project: { type: "string", description: "title of project/proposal to link to" },
         category: { type: "string", description: "name of the category to color this task by (e.g. Research, Teaching, Tasks) — omit to leave uncategorized" },
         pin_date: { type: "string", description: 'force part of this task onto an exact date, natural language, e.g. "monday", "july 24" — pairs with pin_time. Anything else scheduled there moves automatically; the rest of this task (if any) is still auto-placed.' },
-        pin_time: { type: "string", description: 'clock time for pin_date, e.g. "2pm", "14:30" — required if pin_date is given' },
+        pin_time: {
+          type: "string",
+          description:
+            'clock time for pin_date, e.g. "2pm", "14:30", "noon", "midnight". Also accepts "right now"/"asap"/"immediately" (starts the next minute) and relative phrases like "in 30 minutes"/"in 2 hours"/"in an hour" — for any of these, pin_date can be omitted and defaults to today.',
+        },
         pin_length_min: { type: "number", description: "minutes to pin at that exact time (default: the chunk size); the remaining duration, if any, is auto-placed normally" },
       },
       required: ["title"],
@@ -254,7 +280,11 @@ export function buildTools(ctx: ToolContext) {
         },
         work_on_next: { type: "boolean", description: "schedule this task at the next available time, before other flexible tasks" },
         pin_date: { type: "string", description: 'force part of this task onto an exact date, natural language, e.g. "monday", "july 24" — pairs with pin_time. Anything else scheduled there moves automatically; the rest of the task (if any) is still auto-placed.' },
-        pin_time: { type: "string", description: 'clock time for pin_date, e.g. "2pm", "14:30" — required if pin_date is given' },
+        pin_time: {
+          type: "string",
+          description:
+            'clock time for pin_date, e.g. "2pm", "14:30", "noon", "midnight". Also accepts "right now"/"asap"/"immediately" (starts the next minute) and relative phrases like "in 30 minutes"/"in 2 hours"/"in an hour" — for any of these, pin_date can be omitted and defaults to today.',
+        },
         pin_length_min: { type: "number", description: "minutes to pin at that exact time (default: the task's chunk size)" },
         clear_pin: { type: "boolean", description: "remove any pinned time and let this task auto-schedule freely again" },
       },

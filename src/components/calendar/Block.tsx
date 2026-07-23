@@ -39,17 +39,18 @@ export function Block({
 
   const compact = visual.density !== "full";
   const checkSize = compact ? 12 : 18;
-  // Anything under half an hour is too squeezed to also fit a category tag
-  // (e.g. the 15-min morning Emails block) — drop it entirely rather than
-  // cram it in illegibly.
-  const showTag = block.end - block.start >= 30;
+  // Any block under 30 minutes — task, event, recurring or not — is too
+  // squeezed for anything beyond title + checkmark. No time, no category
+  // tag, no status text; cramming those in just makes it illegible.
+  const ultraCompact = block.end - block.start < 30;
+  const showTag = !ultraCompact;
   const futureTask = visual.isTask && !block.status;
   const clickable = visual.isTask || block.type === "synced";
   // Anchors (recurring blocks) have no "pin done early" concept — a fixed
   // daily slot doesn't free up remaining duration the way a task's does —
   // so only tasks get the pin/unpin flow; anything else just toggles a
   // plain done/not-done via progress_log.
-  const showInlineStatus = compact && !!visual.statusLabel;
+  const showInlineStatus = compact && !!visual.statusLabel && !ultraCompact;
 
   function handleCheckClick(e: React.MouseEvent) {
     e.stopPropagation();
@@ -190,9 +191,11 @@ export function Block({
           >
             {visual.title}
           </div>
-          <div style={{ fontSize: 9, opacity: 0.65, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-            {visual.timeLabel}
-          </div>
+          {!ultraCompact && (
+            <div style={{ fontSize: 9, opacity: 0.65, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              {visual.timeLabel}
+            </div>
+          )}
         </div>
       )}
 

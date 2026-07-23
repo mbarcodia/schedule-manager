@@ -69,9 +69,17 @@ export interface Database {
         }>
       >;
       categories: Table<
-        { id: string; user_id: string; name: string; color: string; sort_order: number; created_at: string },
-        { id?: string; user_id: string; name: string; color: string; sort_order?: number },
-        Partial<{ name: string; color: string; sort_order: number }>
+        {
+          id: string;
+          user_id: string;
+          name: string;
+          color: string;
+          sort_order: number;
+          created_at: string;
+          min_chunk_min: number | null;
+        },
+        { id?: string; user_id: string; name: string; color: string; sort_order?: number; min_chunk_min?: number | null },
+        Partial<{ name: string; color: string; sort_order: number; min_chunk_min: number | null }>
       >;
       projects: Table<
         {

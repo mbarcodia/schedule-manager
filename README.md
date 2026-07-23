@@ -1,5 +1,9 @@
 # Schedule Manager
 
+> ⚠️ **This project is under active development.** Features change, break, and
+> get rebuilt without notice, and there's no guarantee of stability between
+> commits. Expect rough edges if you deploy your own instance today.
+
 A personal scheduling app: a week calendar with tasks, projects, and time budgets, an
 AI assistant for quick edits ("push my gym block to 6pm"), and a Planner — a
 longer-horizon AI chat for talking through projects and keeping notes tied to
@@ -18,16 +22,28 @@ instance is below. No account or access from the original author is required.
 - A **Planner**: a separate chat for discussing ongoing projects, building
   execution plans, and keeping notes — see "The Planner" below
 
-## Prerequisites
+## What you'll need
 
-- Node.js 20+ and npm
-- A [Supabase](https://supabase.com) account (free tier is enough)
-- A [Vercel](https://vercel.com) account (free tier is enough) for deployment
-- An [Anthropic](https://console.anthropic.com) API key for the assistant/planner
-- The [Supabase CLI](https://supabase.com/docs/guides/local-development/cli/getting-started)
-  (`brew install supabase/tap/supabase`, or see that link for other platforms)
+**Important:** there is no single sign-on here. This app runs across three
+separate companies' infrastructure (Supabase for the database, Vercel for
+hosting, Anthropic for the AI), plus GitHub to get the code — so you need
+**four separate free-to-start accounts**, not one. Nothing auto-creates the
+others for you.
 
-## Setup
+| Account | What it's for | Signup time | Cost |
+|---|---|---|---|
+| [GitHub](https://github.com) | Hosts the code you'll deploy from | ~2 min (skip if you have one) | Free |
+| [Supabase](https://supabase.com) | Your database (tasks, schedule, notes) + login system | ~2 min signup, ~2 min for the project to spin up | Free tier is enough for personal use |
+| [Vercel](https://vercel.com) | Hosts the actual running app at a URL | ~2 min, plus linking GitHub | Free (Hobby plan) |
+| [Anthropic](https://console.anthropic.com) | Powers the AI assistant/planner | ~3 min, requires a payment method | Pay-per-use, no flat fee — typically **$1–15/month** for personal use depending on which model you pick (see Settings → Assistant model in the app for a breakdown) |
+
+Total hands-on setup time is roughly **20–30 minutes**, most of which is
+waiting for accounts/projects to provision rather than active work.
+
+## One-time setup
+
+Everything in this section is done **once**, when you first deploy. After
+that, using the app day-to-day is just opening the URL — none of this repeats.
 
 ### 1. Clone and install
 
@@ -81,7 +97,7 @@ creates every table (tasks, projects, notes, planner state, etc.), Row Level
 Security policies, and grants. It's safe to re-run; already-applied
 migrations are skipped.
 
-### 5. Run locally
+### 5. Run locally (optional, to try it before deploying)
 
 ```bash
 npm run dev
@@ -119,6 +135,17 @@ If you don't set these up, the app still works — you just won't get the
 hourly-precision digest notifications (daily calendar sync still runs via
 Vercel's cron).
 
+## What you do every time you use it
+
+Nothing from the setup above. Once deployed, using the app is just:
+
+- Open your Vercel URL and log in (or stay logged in — sessions persist).
+- Use the calendar, assistant, and planner normally.
+
+The only "maintenance" you'd ever touch again is redeploying if you pull code
+updates from upstream, or checking your Anthropic billing occasionally — both
+optional, neither required to keep using the app.
+
 ## Getting an Anthropic API key
 
 The assistant and planner call the Anthropic API. To get your own key:
@@ -147,7 +174,7 @@ persists across sessions.
 - It has everything the quick assistant has (create/edit tasks and events,
   log progress), plus notes.
 - Each note has a kind (idea, todo, paper, update, other) and can be linked
-  to a project/proposal/task, or left unlinked.
+  to a project/proposal/goal/task, or left unlinked.
 - Create and edit notes either by asking the planner in chat ("add a note to
   ACE2 about the new element we need to design") or directly in the sidebar.
 - The sidebar groups notes under their linked project; **Export notes** in

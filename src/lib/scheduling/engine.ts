@@ -6,7 +6,8 @@
 //      week, mornings first.
 //   4. Remaining tasks are placed by priority → explicit order → deadline,
 //      respecting dependencies, per-day pacing caps, and earliest-start
-//      floors. A chunk that doesn't fit shrinks (down to 30m) to fill gaps.
+//      floors. A chunk that doesn't fit shrinks to fill gaps, down to its
+//      category's min_chunk_min (or 30m if the category has none set).
 //   5. Two-pass re-optimization: pass 1 plans the whole horizon ignoring
 //      completions (to see where past chunks landed); past chunks are then
 //      credited/re-fed and pass 2 reschedules everything from "now" forward.
@@ -84,6 +85,7 @@ function taskDefs(inputs: ScheduleInputs): TaskDef[] {
           priority: "high",
           duration: p.weeklyMinMin!,
           chunk: p.chunk || 120,
+          minChunk: p.minChunk,
           tag: "research",
           dependsOn: null,
           floor: w * 7 * 1440,
@@ -205,9 +207,10 @@ function runScheduler(
       return findSlot(inputs, floor, len, false, busy, dayOk, t.ceilAbs);
     };
 
+    const shrinkFloor = t.minChunk ?? 30;
     let slot = tryLen(chunkLen);
-    while (!slot && chunkLen > 30) {
-      chunkLen = Math.max(30, chunkLen - 30);
+    while (!slot && chunkLen > shrinkFloor) {
+      chunkLen = Math.max(shrinkFloor, chunkLen - 30);
       slot = tryLen(chunkLen);
     }
     if (!slot) {

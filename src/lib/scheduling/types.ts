@@ -12,6 +12,9 @@ export interface Category {
   name: string;
   color: string; // hex
   sortOrder: number;
+  /** Hard floor for any shrunk chunk in this category, in minutes. Null/
+   * undefined = no category-specific floor (engine falls back to 30m). */
+  minChunkMin?: number | null;
 }
 
 /** A "global day" index: 0 = Monday of the current week, 1 = Tuesday, ...
@@ -30,9 +33,13 @@ export interface Task {
   priority: Priority;
   /** Total minutes of work remaining. */
   duration: number;
-  /** Preferred chunk size in minutes; the engine may shrink a chunk (down to
-   * 30m) to fit a gap. */
+  /** Preferred chunk size in minutes; the engine may shrink a chunk to fit
+   * a gap, down to minChunk (or 30m if unset). */
   chunk: number;
+  /** Hard floor for a shrunk chunk, in minutes — sourced from the task's/
+   * project's category. Defaults to 30 (the engine's original universal
+   * floor) when the category has none set. */
+  minChunk?: number;
   tag?: "deep-focus" | "research" | null;
   dependsOn?: string | null;
   /** Deadline in absolute minutes from the horizon start; 99999 = none. */
@@ -67,6 +74,9 @@ export interface Project {
   preferMorning?: boolean;
   /** Default chunk size for auto-generated research blocks. */
   chunk?: number;
+  /** Hard floor for a shrunk research chunk, in minutes — sourced from the
+   * project's category. */
+  minChunk?: number;
   /** Priority among research projects when claiming mornings; lower first. */
   researchOrd?: number;
   /** Colors this project's auto-generated weekly research chunks. */

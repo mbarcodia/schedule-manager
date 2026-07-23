@@ -306,6 +306,12 @@ export default function SettingsPage() {
     await supabase.from("categories").update({ color }).eq("id", id);
   }
 
+  async function setCategoryMinChunk(id: string, minChunkMin: number | null) {
+    setCategories((prev) => prev.map((c) => (c.id === id ? { ...c, min_chunk_min: minChunkMin } : c)));
+    const supabase = createClient();
+    await supabase.from("categories").update({ min_chunk_min: minChunkMin }).eq("id", id);
+  }
+
   async function deleteCategory(id: string) {
     setCategories((prev) => prev.filter((c) => c.id !== id));
     const supabase = createClient();
@@ -665,7 +671,9 @@ export default function SettingsPage() {
           <h2 className="text-base font-medium mb-1">Categories</h2>
           <p className="text-xs text-muted mb-4">
             Groups your tasks and projects for the calendar&apos;s block color (research chunks pick up their
-            project&apos;s category). Add, rename, recolor, or remove any of these anytime.
+            project&apos;s category). Add, rename, recolor, or remove any of these anytime. &quot;Min chunk&quot;
+            is a hard floor in minutes — the scheduler will never shrink a block in this category smaller than
+            this to fill a gap (default 30 if left blank).
           </p>
 
           <div className="flex flex-col gap-2">
@@ -684,6 +692,20 @@ export default function SettingsPage() {
                     if (e.target.value.trim() && e.target.value !== cat.name) renameCategory(cat.id, e.target.value.trim());
                   }}
                   className="flex-1 bg-transparent text-sm text-text outline-none border-b border-transparent focus-visible:border-accent"
+                />
+                <input
+                  type="number"
+                  min={0}
+                  step={5}
+                  defaultValue={cat.min_chunk_min ?? ""}
+                  placeholder="30"
+                  title="Minimum chunk size (minutes)"
+                  onBlur={(e) => {
+                    const raw = e.target.value.trim();
+                    const parsed = raw === "" ? null : Math.max(0, parseInt(raw, 10) || 0);
+                    if (parsed !== (cat.min_chunk_min ?? null)) setCategoryMinChunk(cat.id, parsed);
+                  }}
+                  className="w-16 rounded-md border border-border bg-surface px-2 py-1 text-xs text-text outline-none focus-visible:border-accent"
                 />
                 <button
                   onClick={() => deleteCategory(cat.id)}

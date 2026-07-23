@@ -69,8 +69,12 @@ export function buildScheduleInputs(
   const horizonWeeks = HORIZON_WEEKS;
 
   const categories: Category[] = rows.categories
-    .map((c) => ({ id: c.id, name: c.name, color: c.color, sortOrder: c.sort_order }))
+    .map((c) => ({ id: c.id, name: c.name, color: c.color, sortOrder: c.sort_order, minChunkMin: c.min_chunk_min }))
     .sort((a, b) => a.sortOrder - b.sortOrder);
+
+  const minChunkByCategory = new Map(categories.map((c) => [c.id, c.minChunkMin]));
+  const minChunkFor = (categoryId: string | null | undefined): number | undefined =>
+    categoryId ? (minChunkByCategory.get(categoryId) ?? undefined) : undefined;
 
   const projects: Project[] = rows.projects.map((p) => ({
     id: p.id,
@@ -79,6 +83,7 @@ export function buildScheduleInputs(
     weeklyMinMin: p.weekly_min_min,
     preferMorning: p.prefer_morning,
     chunk: p.chunk_min,
+    minChunk: minChunkFor(p.category_id),
     researchOrd: p.research_ord ?? undefined,
     categoryId: p.category_id,
   }));
@@ -121,6 +126,7 @@ export function buildScheduleInputs(
       priority: t.priority,
       duration: t.duration_min,
       chunk: t.chunk_min,
+      minChunk: minChunkFor(t.category_id),
       tag: t.tag,
       dependsOn: t.depends_on,
       deadline,

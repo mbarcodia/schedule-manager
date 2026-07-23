@@ -78,16 +78,66 @@ export function parseTimeStr(s: string | null | undefined): number | null {
   return h * 60 + mi;
 }
 
-/** Fuzzy title match — same heuristic as the prototype's findByTitleIn:
- * substring match either direction, or a >3-char word overlap. */
+export function normTitle(s: string): string {
+  return (s || "").toLowerCase().trim().replace(/\s+/g, " ");
+}
+
+export interface TitleMatch<T> {
+  match: T | null;
+  /** Populated only when multiple candidates tie for the best score and
+   * neither is an outright exact match — the caller should ask which one
+   * was meant instead of silently picking one. */
+  ambiguous: T[];
+}
+
+const FUZZY_THRESHOLD = 0.35;
+
+/** Title resolution with disambiguation, replacing the old first-match
+ * heuristic (which returned whichever list item happened to come first,
+ * with no score and no exact-match priority — the root cause of a class of
+ * misrouting bugs where a query for one record's exact title resolved to a
+ * different, unrelated record).
+ *
+ * An exact (normalized) title always wins outright, and multiple exact
+ * matches (duplicate titles) are themselves ambiguous rather than picking
+ * the first. Otherwise, candidates are scored — substring containment
+ * beats partial word overlap — and must clear a minimum threshold; ties
+ * for the top score are also reported as ambiguous rather than guessed. */
+export function findByTitle<T extends { title: string }>(list: T[], needle: string): TitleMatch<T> {
+  const n = normTitle(needle);
+  if (!n) return { match: null, ambiguous: [] };
+
+  const exact = list.filter((t) => normTitle(t.title) === n);
+  if (exact.length === 1) return { match: exact[0], ambiguous: [] };
+  if (exact.length > 1) return { match: null, ambiguous: exact };
+
+  const needleWords = n.split(" ").filter((w) => w.length > 3);
+  const scored = list
+    .map((item) => {
+      const title = normTitle(item.title);
+      let score = 0;
+      if (title.includes(n) || n.includes(title)) {
+        score = 0.5 + 0.3 * (Math.min(title.length, n.length) / Math.max(title.length, n.length));
+      } else if (needleWords.length) {
+        const titleWords = title.split(" ");
+        const overlap = needleWords.filter((w) => titleWords.includes(w));
+        if (overlap.length) score = 0.35 * (overlap.length / needleWords.length);
+      }
+      return { item, score };
+    })
+    .filter((s) => s.score >= FUZZY_THRESHOLD)
+    .sort((a, b) => b.score - a.score);
+
+  if (!scored.length) return { match: null, ambiguous: [] };
+  const top = scored[0].score;
+  const tied = scored.filter((s) => s.score >= top - 1e-9);
+  if (tied.length > 1) return { match: null, ambiguous: tied.map((s) => s.item) };
+  return { match: scored[0].item, ambiguous: [] };
+}
+
+/** Convenience wrapper for lower-stakes lookups (recurring rules,
+ * preference notes) that don't need disambiguation UX — ties or
+ * below-threshold matches both resolve to null rather than guessing. */
 export function fuzzyFindByTitle<T extends { title: string }>(list: T[], needle: string): T | null {
-  const n = (needle || "").toLowerCase().trim();
-  if (!n) return null;
-  return (
-    list.find((t) => {
-      const title = t.title.toLowerCase();
-      if (title.includes(n) || n.includes(title)) return true;
-      return n.split(" ").some((w) => w.length > 3 && title.includes(w));
-    }) ?? null
-  );
+  return findByTitle(list, needle).match;
 }

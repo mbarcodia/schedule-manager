@@ -39,6 +39,7 @@ export async function POST(request: Request) {
   const z = zonedNow(rows.profile.timezone);
   const today = new Date(z.year, z.month - 1, z.day);
 
+  const mutationTracker = { mutated: false };
   const tools = buildTools({
     supabase,
     userId: user.id,
@@ -48,6 +49,7 @@ export async function POST(request: Request) {
     today,
     rows,
     inputs,
+    mutationTracker,
   });
 
   const { data: historyRows } = await supabase
@@ -81,7 +83,9 @@ export async function POST(request: Request) {
     console.error("chat route error", err);
     reply =
       describeAnthropicError(err) ??
-      "I couldn't reach the assistant just now — nothing was changed. Please send that again.";
+      (mutationTracker.mutated
+        ? "The assistant hit an error partway through this — some changes may have already gone through before it failed. Check your calendar, then send that again if anything's still missing."
+        : "I couldn't reach the assistant just now — nothing was changed. Please send that again.");
   }
 
   await supabase.from("chat_messages").insert({ user_id: user.id, role: "assistant", content: reply });

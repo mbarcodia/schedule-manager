@@ -30,6 +30,7 @@ export async function POST(request: Request) {
   await supabase.from("planner_messages").insert({ user_id: user.id, role: "user", content: message });
 
   const credential = await resolvePlannerCredential(user.id, user.email);
+  const mutationTracker = { mutated: false };
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
@@ -74,6 +75,7 @@ export async function POST(request: Request) {
             today,
             rows,
             inputs,
+            mutationTracker,
           });
 
           const { data: historyRows } = await supabase
@@ -104,7 +106,9 @@ export async function POST(request: Request) {
         console.error("planner route error", err);
         reply =
           describeAnthropicError(err) ??
-          "I couldn't reach the planner just now — nothing was changed. Please send that again.";
+          (mutationTracker.mutated
+            ? "The planner hit an error partway through this turn — some changes (tasks/notes/etc.) may have already gone through before it failed. Check your calendar and notes, then send that again if anything's still missing."
+            : "I couldn't reach the planner just now — nothing was changed. Please send that again.");
         controller.enqueue(encoder.encode(reply));
       }
 

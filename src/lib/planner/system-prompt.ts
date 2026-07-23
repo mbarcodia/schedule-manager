@@ -24,12 +24,13 @@ export function buildPlannerSystemPrompt(
   const titleById = new Map<string, string>();
   rows.projects.forEach((p) => titleById.set(p.id, p.title));
   rows.proposals.forEach((p) => titleById.set(p.id, p.title));
+  rows.goals.forEach((g) => titleById.set(g.id, g.title));
   rows.tasks.forEach((t) => titleById.set(t.id, t.title));
 
   const notesIndex = notes.length
     ? notes
         .map((n) => {
-          const linkedId = n.project_id ?? n.proposal_id ?? n.task_id;
+          const linkedId = n.project_id ?? n.proposal_id ?? n.goal_id ?? n.task_id;
           const linked = linkedId ? (titleById.get(linkedId) ?? "unknown") : "unlinked";
           const preview = n.content.replace(/\s+/g, " ").slice(0, 200);
           return `- [${n.kind}] "${n.title}" (${linked}, updated ${n.updated_at.slice(0, 10)}): ${preview}`;

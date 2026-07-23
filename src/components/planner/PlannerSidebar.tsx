@@ -126,9 +126,13 @@ export function PlannerSidebar({ refreshKey }: PlannerSidebarProps) {
 
   const notesFor = (t: Trackable) =>
     notes.filter((n) =>
-      t.kind === "project" ? n.project_id === t.id : t.kind === "proposal" ? n.proposal_id === t.id : false,
+      t.kind === "project"
+        ? n.project_id === t.id
+        : t.kind === "proposal"
+          ? n.proposal_id === t.id
+          : n.goal_id === t.id,
     );
-  const unlinked = notes.filter((n) => !n.project_id && !n.proposal_id && !n.task_id);
+  const unlinked = notes.filter((n) => !n.project_id && !n.proposal_id && !n.goal_id && !n.task_id);
   const taskLinked = notes.filter((n) => n.task_id);
 
   return (

@@ -10,7 +10,7 @@
 // task" → add_trackable then add_task linked to it).
 
 import { betaTool } from "@anthropic-ai/sdk/helpers/beta/json-schema";
-import { parseDeadlineDate, parseTimeStr, fuzzyFindByTitle } from "./nlp-dates";
+import { parseDeadlineDate, parseTimeStr, fuzzyFindByTitle, findByTitle, normTitle } from "./nlp-dates";
 import { statusReply } from "./status";
 import { gdayForDate, zonedTimeToUtc } from "@/lib/scheduling/time";
 import { computeSchedule } from "@/lib/scheduling/engine";
@@ -20,6 +20,17 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
 import type { ScheduleInputs, Task, WeeklyHours } from "@/lib/scheduling/types";
 import type { RawScheduleRows } from "@/lib/scheduling/from-db";
+
+/** Set to true by markMutated() the moment any tool successfully writes to
+ * the database this turn. The route reads it after a failed model/transport
+ * call to say honestly whether a partial write may have already happened,
+ * instead of assuming "nothing was changed" (a later iteration in a
+ * multi-tool-call turn can fail after an earlier iteration's tool already
+ * wrote — the claim isn't automatically true just because the turn as a
+ * whole errored). */
+export interface MutationTracker {
+  mutated: boolean;
+}
 
 export interface ToolContext {
   supabase: SupabaseClient<Database>;
@@ -33,6 +44,11 @@ export interface ToolContext {
    * lookups re-query fresh (see file header). */
   rows: RawScheduleRows;
   inputs: ScheduleInputs;
+  mutationTracker: MutationTracker;
+}
+
+export function markMutated(ctx: ToolContext): void {
+  ctx.mutationTracker.mutated = true;
 }
 
 function titleToDeadlineAt(ctx: ToolContext, dueLower: string): string | null {
@@ -41,19 +57,35 @@ function titleToDeadlineAt(ctx: ToolContext, dueLower: string): string | null {
   return zonedTimeToUtc(d.getFullYear(), d.getMonth() + 1, d.getDate(), 17, 0, ctx.timezone).toISOString();
 }
 
-export async function findTrackableId(
-  ctx: ToolContext,
-  needle: string,
-): Promise<{ projectId: string | null; proposalId: string | null; title: string } | null> {
+export type TrackableLookup =
+  | { status: "found"; projectId: string | null; proposalId: string | null; title: string }
+  | { status: "ambiguous"; candidates: string[] }
+  | { status: "none" };
+
+/** Resolves a project/proposal by title. Both kinds are scored together
+ * (not project-then-proposal in sequence) so a same-titled project and
+ * proposal are correctly flagged ambiguous instead of the project silently
+ * winning by search order. */
+export async function findTrackableId(ctx: ToolContext, needle: string): Promise<TrackableLookup> {
   const [{ data: projects }, { data: proposals }] = await Promise.all([
     ctx.supabase.from("projects").select("id,title").eq("user_id", ctx.userId),
     ctx.supabase.from("proposals").select("id,title").eq("user_id", ctx.userId),
   ]);
-  const proj = fuzzyFindByTitle(projects ?? [], needle);
-  if (proj) return { projectId: proj.id, proposalId: null, title: proj.title };
-  const prop = fuzzyFindByTitle(proposals ?? [], needle);
-  if (prop) return { projectId: null, proposalId: prop.id, title: prop.title };
-  return null;
+  const combined = [
+    ...(projects ?? []).map((p) => ({ id: p.id, title: p.title, isProject: true })),
+    ...(proposals ?? []).map((p) => ({ id: p.id, title: p.title, isProject: false })),
+  ];
+  const { match, ambiguous } = findByTitle(combined, needle);
+  if (ambiguous.length) return { status: "ambiguous", candidates: ambiguous.map((c) => c.title) };
+  if (!match) return { status: "none" };
+  console.log(`[assistant] trackable resolved: needle=${JSON.stringify(needle)} -> id=${match.id} title=${JSON.stringify(match.title)}`);
+  return match.isProject
+    ? { status: "found", projectId: match.id, proposalId: null, title: match.title }
+    : { status: "found", projectId: null, proposalId: match.id, title: match.title };
+}
+
+function ambiguousMsg(kind: string, needle: string, candidates: { title: string }[]): string {
+  return `"${needle}" matches multiple ${kind}: ${candidates.map((c) => c.title).join(", ")}. Say which one (use its exact title).`;
 }
 
 /** Fuzzy-matches a category by name (case-insensitive substring, either
@@ -128,7 +160,19 @@ export function buildTools(ctx: ToolContext) {
     },
     run: async (inp) => {
       const duration = inp.duration_min || 30;
-      const link = inp.project ? await findTrackableId(ctx, inp.project) : null;
+
+      let link: { projectId: string | null; proposalId: string | null; title: string } | null = null;
+      if (inp.project) {
+        const lookup = await findTrackableId(ctx, inp.project);
+        if (lookup.status === "ambiguous") {
+          return `"${inp.project}" matches multiple projects/proposals: ${lookup.candidates.join(", ")}. Say which one (use its exact title), or add the task without a project link.`;
+        }
+        if (lookup.status === "none") {
+          return `No project or proposal matching "${inp.project}" — add it first, or add the task without a project link.`;
+        }
+        link = { projectId: lookup.projectId, proposalId: lookup.proposalId, title: lookup.title };
+      }
+
       const categoryId = inp.category ? await findCategoryId(ctx, inp.category) : null;
       const deadline_at = inp.due ? titleToDeadlineAt(ctx, inp.due.toLowerCase()) : null;
       const deadlineNotUnderstood = !!inp.due && !deadline_at;
@@ -143,8 +187,7 @@ export function buildTools(ctx: ToolContext) {
         if (conflict) return `Couldn't add "${inp.title}": ${conflict}`;
       }
 
-      const { error } = await supabase.from("tasks").insert({
-        user_id: userId,
+      const payload: Omit<Database["public"]["Tables"]["tasks"]["Insert"], "user_id" | "id"> = {
         title: inp.title,
         priority,
         duration_min: duration,
@@ -159,9 +202,26 @@ export function buildTools(ctx: ToolContext) {
         pinned_date: pin?.pinned_date ?? null,
         pinned_start_min: pin?.pinned_start_min ?? null,
         pinned_length_min: pinLength,
-      });
+      };
+      const summary = `(${duration}m, ${priority} priority${link ? ", linked to " + link.title : ""}).${pin ? ` ${pinLength}m pinned to ${inp.pin_date} at ${inp.pin_time} — anything else scheduled there moves automatically.` : " Placed on the calendar."}${deadlineNotUnderstood ? ` Couldn't understand the deadline "${inp.due}", so no deadline was set — try a format like "july 24" or "in 2 weeks".` : ""}`;
+
+      // Dedupe on exact (normalized) title — re-declaring a task with the
+      // same title updates it in place instead of creating a duplicate.
+      const { data: existingTasks } = await supabase.from("tasks").select("id,title").eq("user_id", userId);
+      const dupe = (existingTasks ?? []).find((t) => normTitle(t.title) === normTitle(inp.title));
+      if (dupe) {
+        const { error } = await supabase.from("tasks").update(payload).eq("id", dupe.id);
+        if (error) return `Couldn't update "${dupe.title}": ${error.message}`;
+        markMutated(ctx);
+        console.log(`[assistant] add_task upsert: id=${dupe.id} title=${JSON.stringify(dupe.title)}`);
+        return `"${dupe.title}" already existed — updated it instead of creating a duplicate ${summary}`;
+      }
+
+      const { data: inserted, error } = await supabase.from("tasks").insert({ user_id: userId, ...payload }).select("id").single();
       if (error) return `Couldn't add "${inp.title}": ${error.message}`;
-      return `Added "${inp.title}" (${duration}m, ${priority} priority${link ? ", linked to " + link.title : ""}).${pin ? ` ${pinLength}m pinned to ${inp.pin_date} at ${inp.pin_time} — anything else scheduled there moves automatically.` : " Placed on the calendar."}${deadlineNotUnderstood ? ` Couldn't understand the deadline "${inp.due}", so no deadline was set — try a format like "july 24" or "in 2 weeks".` : ""}`;
+      markMutated(ctx);
+      console.log(`[assistant] add_task insert: id=${inserted?.id} title=${JSON.stringify(inp.title)}`);
+      return `Added "${inp.title}" ${summary}`;
     },
   });
 
@@ -189,8 +249,12 @@ export function buildTools(ctx: ToolContext) {
     },
     run: async (inp) => {
       const { data: tasks } = await supabase.from("tasks").select("id,title,chunk_min,duration_min").eq("user_id", userId);
-      const match = fuzzyFindByTitle(tasks ?? [], inp.title);
+      const { match, ambiguous } = findByTitle(tasks ?? [], inp.title);
+      if (ambiguous.length) {
+        return `"${inp.title}" matches multiple tasks: ${ambiguous.map((t) => t.title).join(", ")}. Say which one (use its exact title).`;
+      }
       if (!match) return `No task matching "${inp.title}". Tasks: ${(tasks ?? []).map((t) => t.title).join(", ") || "none"}.`;
+      console.log(`[assistant] update_task resolved: needle=${JSON.stringify(inp.title)} -> id=${match.id} title=${JSON.stringify(match.title)}`);
 
       const patch: Database["public"]["Tables"]["tasks"]["Update"] = {};
       if (inp.priority) patch.priority = inp.priority;
@@ -241,6 +305,7 @@ export function buildTools(ctx: ToolContext) {
       }
       const { error } = await supabase.from("tasks").update(patch).eq("id", match.id);
       if (error) return `Couldn't update "${match.title}": ${error.message}`;
+      markMutated(ctx);
       return `Updated "${match.title}"${inp.work_on_next ? " — it now takes the next available slot and everything else re-flows around it" : ""}${pinMessage}${inp.clear_pin ? " — pin removed, it auto-schedules freely again." : ""}${!inp.work_on_next && !pinMessage && !inp.clear_pin ? " — schedule re-flowed" : ""}`;
     },
   });
@@ -260,8 +325,11 @@ export function buildTools(ctx: ToolContext) {
           supabase.from("events").select("id,title").eq("user_id", userId),
         ]);
 
-      const t = fuzzyFindByTitle(tasks ?? [], title);
+      const tMatch = findByTitle(tasks ?? [], title);
+      if (tMatch.ambiguous.length) return ambiguousMsg("tasks", title, tMatch.ambiguous);
+      const t = tMatch.match;
       if (t) {
+        console.log(`[assistant] remove_item resolved: needle=${JSON.stringify(title)} -> task id=${t.id} title=${JSON.stringify(t.title)}`);
         await Promise.all([
           supabase.from("progress_log").delete().match({ user_id: userId, subject_type: "task", subject_id: t.id }),
           supabase.from("pinned_chunks").delete().match({ user_id: userId, subject_type: "task", subject_id: t.id }),
@@ -269,24 +337,36 @@ export function buildTools(ctx: ToolContext) {
         const { data: deleted, error } = await supabase.from("tasks").delete().eq("id", t.id).select("id");
         if (error) return `Couldn't remove "${t.title}": ${error.message}`;
         if (!deleted || deleted.length === 0) return `Couldn't remove "${t.title}" — nothing was deleted, try again.`;
+        markMutated(ctx);
         return `Removed task "${t.title}" and its calendar blocks.`;
       }
-      const p = fuzzyFindByTitle(proposals ?? [], title);
+      const pMatch = findByTitle(proposals ?? [], title);
+      if (pMatch.ambiguous.length) return ambiguousMsg("proposals", title, pMatch.ambiguous);
+      const p = pMatch.match;
       if (p) {
+        console.log(`[assistant] remove_item resolved: needle=${JSON.stringify(title)} -> proposal id=${p.id} title=${JSON.stringify(p.title)}`);
         const { data: deleted, error } = await supabase.from("proposals").delete().eq("id", p.id).select("id");
         if (error) return `Couldn't remove "${p.title}": ${error.message}`;
         if (!deleted || deleted.length === 0) return `Couldn't remove "${p.title}" — nothing was deleted, try again.`;
+        markMutated(ctx);
         return `Removed proposal "${p.title}".`;
       }
-      const g = fuzzyFindByTitle(goals ?? [], title);
+      const gMatch = findByTitle(goals ?? [], title);
+      if (gMatch.ambiguous.length) return ambiguousMsg("goals", title, gMatch.ambiguous);
+      const g = gMatch.match;
       if (g) {
+        console.log(`[assistant] remove_item resolved: needle=${JSON.stringify(title)} -> goal id=${g.id} title=${JSON.stringify(g.title)}`);
         const { data: deleted, error } = await supabase.from("goals").delete().eq("id", g.id).select("id");
         if (error) return `Couldn't remove "${g.title}": ${error.message}`;
         if (!deleted || deleted.length === 0) return `Couldn't remove "${g.title}" — nothing was deleted, try again.`;
+        markMutated(ctx);
         return `Removed goal "${g.title}".`;
       }
-      const pr = fuzzyFindByTitle(projects ?? [], title);
+      const prMatch = findByTitle(projects ?? [], title);
+      if (prMatch.ambiguous.length) return ambiguousMsg("projects", title, prMatch.ambiguous);
+      const pr = prMatch.match;
       if (pr) {
+        console.log(`[assistant] remove_item resolved: needle=${JSON.stringify(title)} -> project id=${pr.id} title=${JSON.stringify(pr.title)}`);
         await Promise.all([
           supabase.from("progress_log").delete().match({ user_id: userId, subject_type: "research", subject_id: pr.id }),
           supabase.from("pinned_chunks").delete().match({ user_id: userId, subject_type: "research", subject_id: pr.id }),
@@ -295,13 +375,18 @@ export function buildTools(ctx: ToolContext) {
         const { data: deleted, error } = await supabase.from("projects").delete().eq("id", pr.id).select("id");
         if (error) return `Couldn't remove "${pr.title}": ${error.message}`;
         if (!deleted || deleted.length === 0) return `Couldn't remove "${pr.title}" — nothing was deleted, try again.`;
+        markMutated(ctx);
         return `Removed project "${pr.title}" and its weekly research blocks.`;
       }
-      const ev = fuzzyFindByTitle(events ?? [], title);
+      const evMatch = findByTitle(events ?? [], title);
+      if (evMatch.ambiguous.length) return ambiguousMsg("events", title, evMatch.ambiguous);
+      const ev = evMatch.match;
       if (ev) {
+        console.log(`[assistant] remove_item resolved: needle=${JSON.stringify(title)} -> event id=${ev.id} title=${JSON.stringify(ev.title)}`);
         const { data: deleted, error } = await supabase.from("events").delete().eq("id", ev.id).select("id");
         if (error) return `Couldn't remove "${ev.title}": ${error.message}`;
         if (!deleted || deleted.length === 0) return `Couldn't remove "${ev.title}" — nothing was deleted, try again.`;
+        markMutated(ctx);
         return `Removed event "${ev.title}" — the freed time refills automatically.`;
       }
       const all = [...(tasks ?? []), ...(proposals ?? []), ...(goals ?? []), ...(projects ?? [])];
@@ -335,28 +420,90 @@ export function buildTools(ctx: ToolContext) {
           ? ` Couldn't understand the deadline "${inp.due}", so no deadline was set — try a format like "friday" or "aug 3".`
           : "";
 
+      // Dedupe on exact (normalized) title within the same kind —
+      // re-declaring a project/proposal/goal that already exists updates it
+      // in place instead of creating a duplicate.
       if (inp.kind === "project") {
         const categoryId = inp.category ? await findCategoryId(ctx, inp.category) : null;
-        const { error } = await supabase.from("projects").insert({
-          user_id: userId,
-          title: inp.title,
-          deadline_date,
-          weekly_min_min: inp.weekly_research_hrs ? inp.weekly_research_hrs * 60 : null,
-          prefer_morning: !!inp.weekly_research_hrs,
-          chunk_min: 120,
-          research_ord: 5,
-          category_id: categoryId,
-        });
+        const { data: existing } = await supabase.from("projects").select("id,title").eq("user_id", userId);
+        const dupe = (existing ?? []).find((p) => normTitle(p.title) === normTitle(inp.title));
+        const patch: Database["public"]["Tables"]["projects"]["Update"] = { title: inp.title };
+        if (deadline_date) patch.deadline_date = deadline_date;
+        if (inp.weekly_research_hrs != null) {
+          patch.weekly_min_min = inp.weekly_research_hrs * 60;
+          patch.prefer_morning = true;
+        }
+        if (categoryId) patch.category_id = categoryId;
+        const summary = `${deadline_date ? ", due " + deadline_date : ""}${inp.weekly_research_hrs ? ", " + inp.weekly_research_hrs + "h/wk research minimum scheduled" : ""}.${deadlineNote}`;
+        if (dupe) {
+          const { error } = await supabase.from("projects").update(patch).eq("id", dupe.id);
+          if (error) return `Couldn't update project: ${error.message}`;
+          markMutated(ctx);
+          console.log(`[assistant] add_trackable upsert: project id=${dupe.id} title=${JSON.stringify(dupe.title)}`);
+          return `Project "${dupe.title}" already existed — updated it instead of creating a duplicate${summary}`;
+        }
+        const { data: inserted, error } = await supabase
+          .from("projects")
+          .insert({
+            user_id: userId,
+            title: inp.title,
+            deadline_date,
+            weekly_min_min: inp.weekly_research_hrs ? inp.weekly_research_hrs * 60 : null,
+            prefer_morning: !!inp.weekly_research_hrs,
+            chunk_min: 120,
+            research_ord: 5,
+            category_id: categoryId,
+          })
+          .select("id")
+          .single();
         if (error) return `Couldn't add project: ${error.message}`;
-        return `Project "${inp.title}" added${deadline_date ? ", due " + deadline_date : ""}${inp.weekly_research_hrs ? ", " + inp.weekly_research_hrs + "h/wk research minimum scheduled" : ""}.${deadlineNote}`;
+        markMutated(ctx);
+        console.log(`[assistant] add_trackable insert: project id=${inserted?.id} title=${JSON.stringify(inp.title)}`);
+        return `Project "${inp.title}" added${summary}`;
       }
       if (inp.kind === "proposal") {
-        const { error } = await supabase.from("proposals").insert({ user_id: userId, title: inp.title, deadline_date });
+        const { data: existing } = await supabase.from("proposals").select("id,title").eq("user_id", userId);
+        const dupe = (existing ?? []).find((p) => normTitle(p.title) === normTitle(inp.title));
+        const summary = `${deadline_date ? ", due " + deadline_date : ""}.${deadlineNote}`;
+        if (dupe) {
+          const patch: Database["public"]["Tables"]["proposals"]["Update"] = { title: inp.title };
+          if (deadline_date) patch.deadline_date = deadline_date;
+          const { error } = await supabase.from("proposals").update(patch).eq("id", dupe.id);
+          if (error) return `Couldn't update proposal: ${error.message}`;
+          markMutated(ctx);
+          console.log(`[assistant] add_trackable upsert: proposal id=${dupe.id} title=${JSON.stringify(dupe.title)}`);
+          return `Proposal "${dupe.title}" already existed — updated it instead of creating a duplicate${summary}`;
+        }
+        const { data: inserted, error } = await supabase
+          .from("proposals")
+          .insert({ user_id: userId, title: inp.title, deadline_date })
+          .select("id")
+          .single();
         if (error) return `Couldn't add proposal: ${error.message}`;
-        return `Proposal "${inp.title}" added${deadline_date ? ", due " + deadline_date : ""}.${deadlineNote}`;
+        markMutated(ctx);
+        console.log(`[assistant] add_trackable insert: proposal id=${inserted?.id} title=${JSON.stringify(inp.title)}`);
+        return `Proposal "${inp.title}" added${summary}`;
       }
-      const { error } = await supabase.from("goals").insert({ user_id: userId, title: inp.title, cadence: inp.cadence || "Ongoing" });
+      const { data: existingGoals } = await supabase.from("goals").select("id,title").eq("user_id", userId);
+      const dupeGoal = (existingGoals ?? []).find((g) => normTitle(g.title) === normTitle(inp.title));
+      if (dupeGoal) {
+        const { error } = await supabase
+          .from("goals")
+          .update({ title: inp.title, cadence: inp.cadence || undefined })
+          .eq("id", dupeGoal.id);
+        if (error) return `Couldn't update goal: ${error.message}`;
+        markMutated(ctx);
+        console.log(`[assistant] add_trackable upsert: goal id=${dupeGoal.id} title=${JSON.stringify(dupeGoal.title)}`);
+        return `Goal "${dupeGoal.title}" already existed — updated it instead of creating a duplicate.`;
+      }
+      const { data: insertedGoal, error } = await supabase
+        .from("goals")
+        .insert({ user_id: userId, title: inp.title, cadence: inp.cadence || "Ongoing" })
+        .select("id")
+        .single();
       if (error) return `Couldn't add goal: ${error.message}`;
+      markMutated(ctx);
+      console.log(`[assistant] add_trackable insert: goal id=${insertedGoal?.id} title=${JSON.stringify(inp.title)}`);
       return `Goal "${inp.title}" added.`;
     },
   });
@@ -406,6 +553,7 @@ export function buildTools(ctx: ToolContext) {
         source: "manual",
       });
       if (error) return `Couldn't add event: ${error.message}`;
+      markMutated(ctx);
       const weekLabel = Math.floor(gday / 7);
       return `Added "${inp.title}" ${weekLabel ? `(${weekLabel} week${weekLabel > 1 ? "s" : ""} out) ` : ""}at the requested time. Anything that was scheduled there has been moved automatically.`;
     },
@@ -451,6 +599,7 @@ export function buildTools(ctx: ToolContext) {
         .from("day_overrides")
         .upsert(patch, { onConflict: "user_id,override_date" });
       if (error) return `Couldn't adjust that day: ${error.message}`;
+      markMutated(ctx);
       return `${inp.day} ${inp.weeks_from_now ? `(${inp.weeks_from_now} week${inp.weeks_from_now > 1 ? "s" : ""} out) ` : ""}updated.${inp.allow_weekend ? " That weekend day is now allowed for scheduling." : ""}`;
     },
   });
@@ -492,6 +641,7 @@ export function buildTools(ctx: ToolContext) {
           { user_id: userId, subject_type: subjectType, subject_id: subjectId, occurred_date, start_min: c.start, end_min: c.end, minutes_done: null },
           { onConflict: "user_id,subject_type,subject_id,occurred_date,start_min" },
         );
+        markMutated(ctx);
         return `Marked the "${c.title}" block (${len}m) done.`;
       }
       if (minutes_done == null) return `How much of the ${len}m block did you complete?`;
@@ -500,6 +650,7 @@ export function buildTools(ctx: ToolContext) {
           .from("progress_log")
           .delete()
           .match({ user_id: userId, subject_type: subjectType, subject_id: subjectId, occurred_date, start_min: c.start });
+        markMutated(ctx);
         return `Marked the "${c.title}" block missed — all ${len}m rescheduled later this week.`;
       }
       const mins = Math.max(15, Math.round(minutes_done / 15) * 15);
@@ -515,6 +666,7 @@ export function buildTools(ctx: ToolContext) {
         },
         { onConflict: "user_id,subject_type,subject_id,occurred_date,start_min" },
       );
+      markMutated(ctx);
       return `Logged ${mins}m of ${len}m on "${c.title}" — the remaining ${len - mins}m is rescheduled later this week.`;
     },
   });
@@ -544,6 +696,7 @@ export function buildTools(ctx: ToolContext) {
       if (inp.remove) {
         if (!match) return `No recurring rule matching "${inp.title}".`;
         await supabase.from("recurring_rules").delete().eq("id", match.id);
+        markMutated(ctx);
         return `Removed the recurring "${match.title}" rule.`;
       }
 
@@ -568,6 +721,7 @@ export function buildTools(ctx: ToolContext) {
       const payload = { title: inp.title, tag: match?.tag ?? "anchor", days, length_min, win_start_min, win_end_min };
       if (match) await supabase.from("recurring_rules").update(payload).eq("id", match.id);
       else await supabase.from("recurring_rules").insert({ user_id: userId, ...payload });
+      markMutated(ctx);
 
       const win = win_start_min == null ? "wherever it fits" : `${win_start_min}-${win_end_min}`;
       return `${match ? "Updated" : "Added"} standing rule — "${inp.title}": ${length_min}m, ${win}. Saved permanently.`;
@@ -591,9 +745,11 @@ export function buildTools(ctx: ToolContext) {
         );
         if (!match) return "No saved preference matches that.";
         await supabase.from("preference_notes").delete().eq("id", match.id);
+        markMutated(ctx);
         return `Forgot: "${match.note}".`;
       }
       await supabase.from("preference_notes").insert({ user_id: userId, note });
+      markMutated(ctx);
       return `Remembered: "${note}". I'll honor this from now on.`;
     },
   });
@@ -618,7 +774,8 @@ export function buildTools(ctx: ToolContext) {
       ];
 
       if (title) {
-        const found = fuzzyFindByTitle(trackables, title);
+        const { match: found, ambiguous } = findByTitle(trackables, title);
+        if (ambiguous.length) return ambiguousMsg("projects/proposals", title, ambiguous);
         if (!found) return `Nothing matching "${title}". Tracking: ${trackables.map((t) => t.title).join(", ") || "nothing"}.`;
         return statusReply(found, ctx.today, ctx.weeklyHours, inputs.tasks, schedule);
       }

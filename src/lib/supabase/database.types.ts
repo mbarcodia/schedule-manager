@@ -227,6 +227,7 @@ export interface Database {
           project_id: string | null;
           proposal_id: string | null;
           task_id: string | null;
+          goal_id: string | null;
           title: string;
           content: string;
           kind: NoteKind;
@@ -239,6 +240,7 @@ export interface Database {
           project_id?: string | null;
           proposal_id?: string | null;
           task_id?: string | null;
+          goal_id?: string | null;
           title: string;
           content?: string;
           kind?: NoteKind;
@@ -247,6 +249,7 @@ export interface Database {
           project_id: string | null;
           proposal_id: string | null;
           task_id: string | null;
+          goal_id: string | null;
           title: string;
           content: string;
           kind: NoteKind;

@@ -22,21 +22,23 @@ export async function GET() {
   } = await supabase.auth.getUser();
   if (!user) return new Response("Not signed in", { status: 401 });
 
-  const [{ data: notes }, { data: projects }, { data: proposals }, { data: tasks }] = await Promise.all([
+  const [{ data: notes }, { data: projects }, { data: proposals }, { data: goals }, { data: tasks }] = await Promise.all([
     supabase.from("notes").select("*").eq("user_id", user.id).order("updated_at", { ascending: false }),
     supabase.from("projects").select("id,title").eq("user_id", user.id),
     supabase.from("proposals").select("id,title").eq("user_id", user.id),
+    supabase.from("goals").select("id,title").eq("user_id", user.id),
     supabase.from("tasks").select("id,title").eq("user_id", user.id),
   ]);
 
   const titleById = new Map<string, string>();
   (projects ?? []).forEach((p) => titleById.set(p.id, p.title));
   (proposals ?? []).forEach((p) => titleById.set(p.id, p.title));
+  (goals ?? []).forEach((g) => titleById.set(g.id, g.title));
   (tasks ?? []).forEach((t) => titleById.set(t.id, t.title));
 
   const groups = new Map<string, NoteRow[]>();
   for (const n of notes ?? []) {
-    const linkedId = n.project_id ?? n.proposal_id ?? n.task_id;
+    const linkedId = n.project_id ?? n.proposal_id ?? n.goal_id ?? n.task_id;
     const heading = linkedId ? (titleById.get(linkedId) ?? "Unknown") : "Unlinked";
     if (!groups.has(heading)) groups.set(heading, []);
     groups.get(heading)!.push(n);

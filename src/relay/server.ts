@@ -55,6 +55,7 @@ async function handleTurn(userId: string, secret: string, model: string): Promis
     today,
     rows,
     inputs,
+    mutationTracker: { mutated: false },
   });
 
   const { data: historyRows } = await admin

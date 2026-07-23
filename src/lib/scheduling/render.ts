@@ -146,7 +146,6 @@ export function computeBlockVisual(
   const done = block.status === "done";
   const missed = block.status === "missed";
   const partial = block.status === "partial";
-  const futureTask = isTask && !block.status;
 
   let statusLabel: string | null = null;
   let statusColor = "#9397ab";
@@ -171,11 +170,17 @@ export function computeBlockVisual(
     border = "#e0a94e";
   }
 
-  const taskStarted = isTask && !!block.status && !block.pinned;
-  const canComplete = isTask; // anchor check-circles are a deferred nice-to-have (see PROGRESS.md)
+  // Everything the scheduler itself placed can be checked off — only a
+  // synced calendar meeting (someone else's event, not ours to complete) is
+  // excluded.
+  const canComplete = block.type !== "synced";
+  const started = canComplete && !!block.status && !block.pinned;
+  const futureSchedulable = canComplete && !block.status;
 
   const tooltip = missed
-    ? `${block.title} — not completed, time moved later in the week`
+    ? isTask
+      ? `${block.title} — not completed, time moved later in the week`
+      : `${block.title} — not completed`
     : partial
       ? `${block.title} — partially done, rest rescheduled`
       : done
@@ -184,10 +189,12 @@ export function computeBlockVisual(
           ? `${block.title} — scheduled to finish after its deadline`
           : isNearDeadline
             ? `${block.title} — finishes the same day it's due, no buffer left`
-            : taskStarted
+            : started
               ? `${block.title} — click to log progress`
-              : futureTask
-                ? `${block.title} — check the circle to mark done early`
+              : futureSchedulable
+                ? isTask
+                  ? `${block.title} — check the circle to mark done early`
+                  : `${block.title} — check the circle to mark done`
                 : block.title;
 
   return {

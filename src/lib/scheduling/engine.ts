@@ -43,6 +43,7 @@ interface AnchorDef {
   length: number;
   title: string;
   tag: string;
+  ruleId: string;
 }
 
 function anchorDefs(inputs: ScheduleInputs): AnchorDef[] {
@@ -60,6 +61,7 @@ function anchorDefs(inputs: ScheduleInputs): AnchorDef[] {
           length: r.length,
           title: r.title,
           tag: r.tag || "anchor",
+          ruleId: r.id,
         });
       });
     });
@@ -285,6 +287,7 @@ export function computeSchedule(
 ): ComputeScheduleResult {
   const blocks: ScheduleBlock[] = [];
   const baseBusy = new Set<AbsMinute>();
+  const NOW = nowAbsMinute(inputs.timezone, now);
 
   inputs.events.forEach((e) => {
     markBusy(e.gday * 1440 + e.start, e.end - e.start, baseBusy);
@@ -357,8 +360,26 @@ export function computeSchedule(
     // day" rule these blocks are meant to honor.
     if (placed == null) return;
     markBusy(a.gday * 1440 + placed, a.length, baseBusy);
+
+    // Anchors don't go through the greedy scheduler's kept/missed
+    // reconciliation (they're placed deterministically above, not fit in by
+    // runScheduler), so past/current instances get their done/missed status
+    // resolved directly here against the same completed-map progress_log
+    // feeds tasks from — see from-db.ts's "anchor-" subjectId prefix.
+    const abs = a.gday * 1440 + placed;
+    const absEnd = abs + a.length;
+    const taskId = `anchor-${a.ruleId}`;
+    const key = `${taskId}@${a.gday}-${placed}`;
+    let status: ScheduleBlock["status"];
+    if (abs < NOW) {
+      status = inputs.completed[key] ? "done" : absEnd <= NOW ? "missed" : "active";
+    }
     blocks.push({
       type: "anchor",
+      taskId,
+      key,
+      abs,
+      status,
       tagLabel: "Block",
       title: a.title,
       gday: a.gday,
@@ -372,7 +393,6 @@ export function computeSchedule(
     pinReduction[t.id] ? { ...t, duration: Math.max(0, t.duration - pinReduction[t.id]) } : t,
   );
   const plan = runScheduler(inputs, defs, new Set(baseBusy), 0, null);
-  const NOW = nowAbsMinute(inputs.timezone, now);
 
   const kept: ScheduleBlock[] = [];
   const futurePins: ScheduleBlock[] = [];

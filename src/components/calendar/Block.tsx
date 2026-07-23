@@ -30,16 +30,25 @@ export function Block({
   const visual = computeBlockVisual(block, { atRiskTitles, nearDeadlineTitles, categories });
   if (!visual) return null;
 
-  const compact = visual.density === "compact";
+  const compact = visual.density !== "full";
   const checkSize = compact ? 12 : 18;
   const futureTask = visual.isTask && !block.status;
   const clickable = visual.isTask || block.type === "synced";
+  // Anchors (recurring blocks) have no "pin done early" concept — a fixed
+  // daily slot doesn't free up remaining duration the way a task's does —
+  // so only tasks get the pin/unpin flow; anything else just toggles a
+  // plain done/not-done via progress_log.
+  const showInlineStatus = compact && !!visual.statusLabel;
 
   function handleCheckClick(e: React.MouseEvent) {
     e.stopPropagation();
-    if (block.pinned) onUnpinDone();
-    else if (futureTask) onPinDone();
-    else onSetProgress(visual!.done ? "none" : "done");
+    if (block.type === "task") {
+      if (block.pinned) onUnpinDone();
+      else if (futureTask) onPinDone();
+      else onSetProgress(visual!.done ? "none" : "done");
+    } else {
+      onSetProgress(visual!.done ? "none" : "done");
+    }
   }
 
   return (
@@ -63,7 +72,7 @@ export function Block({
         background: visual.bg,
         border: `${visual.borderWidth}px ${visual.borderStyle} ${visual.border}`,
         borderRadius: 8,
-        padding: `${compact ? 2 : visual.density === "medium" ? 3 : 6}px 8px`,
+        padding: `${compact ? 2 : 6}px 8px`,
         overflow: "hidden",
         boxSizing: "border-box",
         opacity: visual.opacity,
@@ -77,42 +86,91 @@ export function Block({
       }}
     >
       {visual.canComplete && (
-        <button
-          onClick={handleCheckClick}
-          title={visual.done ? "Mark not done" : "Mark done"}
+        <div
           style={{
             position: "absolute",
             top: compact ? 1 : 3,
             right: 3,
-            width: checkSize,
-            height: checkSize,
-            borderRadius: "50%",
-            border: `1px solid ${visual.done ? "#9184d9" : "rgba(233,233,237,0.4)"}`,
-            background: visual.done ? "#9184d9" : "rgba(22,24,38,0.6)",
-            color: visual.done ? "#161826" : "#e9e9ed",
-            cursor: "pointer",
-            display: "inline-flex",
+            display: "flex",
             alignItems: "center",
-            justifyContent: "center",
-            padding: 0,
+            gap: 3,
             zIndex: 2,
           }}
         >
-          <CheckIcon size={9} weight="bold" />
-        </button>
+          {showInlineStatus && (
+            <span
+              style={{
+                fontSize: 7.5,
+                color: visual.statusColor,
+                fontWeight: 600,
+                letterSpacing: "0.04em",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {visual.statusLabel}
+            </span>
+          )}
+          <button
+            onClick={handleCheckClick}
+            title={visual.done ? "Mark not done" : "Mark done"}
+            style={{
+              width: checkSize,
+              height: checkSize,
+              flex: "0 0 auto",
+              borderRadius: "50%",
+              border: `1px solid ${visual.done ? "#9184d9" : "rgba(233,233,237,0.4)"}`,
+              background: visual.done ? "#9184d9" : "rgba(22,24,38,0.6)",
+              color: visual.done ? "#161826" : "#e9e9ed",
+              cursor: "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: 0,
+            }}
+          >
+            <CheckIcon size={9} weight="bold" />
+          </button>
+        </div>
       )}
 
-      {visual.density === "full" && (
+      {visual.density === "full" ? (
         <>
-          <div style={{ fontSize: 9, letterSpacing: "0.06em", textTransform: "uppercase", opacity: 0.7, lineHeight: 1 }}>
-            {visual.tagLabel}
-          </div>
           <div
             style={{
               fontSize: 12,
               fontWeight: 500,
               lineHeight: 1.25,
-              marginTop: 2,
+              color: visual.textColor,
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              paddingRight: checkSize + 4,
+            }}
+          >
+            {visual.title}
+          </div>
+          <div style={{ fontSize: 9.5, opacity: 0.65, marginTop: 2 }}>{visual.timeLabel}</div>
+          {!showInlineStatus && visual.statusLabel && (
+            <div style={{ fontSize: 9, color: visual.statusColor, marginTop: 2, fontWeight: 600, letterSpacing: "0.05em" }}>
+              {visual.statusLabel}
+            </div>
+          )}
+        </>
+      ) : (
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "center",
+            height: "100%",
+            paddingRight: checkSize + (showInlineStatus ? 32 : 6),
+          }}
+        >
+          <div
+            style={{
+              fontSize: 10.5,
+              fontWeight: 500,
+              lineHeight: 1.2,
               color: visual.textColor,
               whiteSpace: "nowrap",
               overflow: "hidden",
@@ -121,73 +179,34 @@ export function Block({
           >
             {visual.title}
           </div>
-          <div style={{ fontSize: 9.5, opacity: 0.65, marginTop: 2 }}>{visual.timeLabel}</div>
-          {visual.statusLabel && (
-            <div style={{ fontSize: 9, color: visual.statusColor, marginTop: 2, fontWeight: 600, letterSpacing: "0.05em" }}>
-              {visual.statusLabel}
-            </div>
-          )}
-        </>
-      )}
-      {(visual.density === "medium" || visual.density === "compact") && (
-        // Not enough height to stack tag/title/time — the tag moves to a
-        // vertical strip on the left instead of getting dropped, so every
-        // block still shows its category, name, and time.
-        <div style={{ display: "flex", height: "100%", alignItems: "flex-start", gap: 5 }}>
-          <div
-            style={{
-              writingMode: "vertical-rl",
-              transform: "rotate(180deg)",
-              fontSize: 7,
-              letterSpacing: "0.03em",
-              textTransform: "uppercase",
-              opacity: 0.7,
-              flex: "0 0 auto",
-              lineHeight: 1,
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              // Aligned to the block's top edge (not centered) so a label
-              // taller than the block truncates its tail end ("BLOC") —
-              // centering would clip evenly from both ends and mangle the
-              // start of the word too ("LOCK").
-              maxHeight: "100%",
-            }}
-          >
-            {visual.tagLabel}
-          </div>
-          <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", justifyContent: "center" }}>
-            <div
-              style={{
-                fontSize: visual.density === "medium" ? 11 : 10,
-                fontWeight: 500,
-                lineHeight: 1.2,
-                color: visual.textColor,
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-              }}
-            >
-              {visual.title}
-            </div>
-            <div
-              style={{
-                fontSize: visual.density === "medium" ? 9 : 8.5,
-                opacity: 0.65,
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-              }}
-            >
+          {visual.density === "medium" && (
+            <div style={{ fontSize: 9, opacity: 0.65, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
               {visual.timeLabel}
             </div>
-            {visual.statusLabel && visual.density === "medium" && (
-              <div style={{ fontSize: 8.5, color: visual.statusColor, marginTop: 1, fontWeight: 600, letterSpacing: "0.05em" }}>
-                {visual.statusLabel}
-              </div>
-            )}
-          </div>
+          )}
         </div>
       )}
+
+      {/* Category tag — always horizontal, bottom-right corner, regardless
+         of block size. */}
+      <div
+        style={{
+          position: "absolute",
+          bottom: 3,
+          right: 6,
+          fontSize: visual.density === "full" ? 9 : 7,
+          letterSpacing: "0.05em",
+          textTransform: "uppercase",
+          opacity: 0.6,
+          whiteSpace: "nowrap",
+          overflow: "hidden",
+          maxWidth: "60%",
+          textOverflow: "ellipsis",
+          pointerEvents: "none",
+        }}
+      >
+        {visual.tagLabel}
+      </div>
     </div>
   );
 }

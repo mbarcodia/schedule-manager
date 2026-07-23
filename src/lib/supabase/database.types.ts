@@ -10,7 +10,7 @@ export type Priority = "high" | "medium" | "low";
 export type TaskTag = "deep-focus" | "research";
 export type TaskTimeOfDay = "morning" | "afternoon";
 export type EventSource = "manual" | "google" | "icloud" | "outlook";
-export type SubjectType = "task" | "research";
+export type SubjectType = "task" | "research" | "anchor";
 export type ChatRole = "user" | "assistant";
 export type CalendarProvider = "outlook_ics" | "icloud_ics" | "google_ics";
 

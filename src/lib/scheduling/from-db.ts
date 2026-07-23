@@ -195,7 +195,9 @@ export function buildScheduleInputs(
     const subjectId =
       p.subject_type === "research"
         ? `research-${p.subject_id}-w${Math.floor(gday / 7)}`
-        : p.subject_id;
+        : p.subject_type === "anchor"
+          ? `anchor-${p.subject_id}`
+          : p.subject_id;
     const key = `${subjectId}@${gday}-${p.start_min}`;
     if (p.minutes_done == null) completed[key] = true;
     else partial[key] = p.minutes_done;

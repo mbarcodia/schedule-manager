@@ -186,5 +186,7 @@ persists across sessions.
 
 ## License
 
+Built by Marybeth C. Arcodia with Claude (Anthropic) — 2026.
+
 MIT — see [LICENSE](LICENSE). Use, modify, and redistribute freely, including
 commercially, as long as the copyright notice stays attached.

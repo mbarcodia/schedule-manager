@@ -22,9 +22,12 @@ export interface UseScheduleDataResult {
   unpinDone: (block: ScheduleBlock) => Promise<void>;
 }
 
-function subjectFromTaskId(taskId: string): { subjectType: "task" | "research"; subjectId: string } {
-  const m = /^research-(.+)-w\d+$/.exec(taskId);
-  return m ? { subjectType: "research", subjectId: m[1] } : { subjectType: "task", subjectId: taskId };
+function subjectFromTaskId(taskId: string): { subjectType: "task" | "research" | "anchor"; subjectId: string } {
+  const research = /^research-(.+)-w\d+$/.exec(taskId);
+  if (research) return { subjectType: "research", subjectId: research[1] };
+  const anchor = /^anchor-(.+)$/.exec(taskId);
+  if (anchor) return { subjectType: "anchor", subjectId: anchor[1] };
+  return { subjectType: "task", subjectId: taskId };
 }
 
 /** The real calendar date a block's gday falls on, given the account's

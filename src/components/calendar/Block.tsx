@@ -55,8 +55,11 @@ export function Block({
         position: "absolute",
         left: `calc(${((layout?.lane ?? 0) / (layout?.lanes ?? 1)) * 100}% + 3px)`,
         width: `calc(${100 / (layout?.lanes ?? 1)}% - 6px)`,
-        top: visual.top,
-        height: visual.height,
+        // Inset by 1px top/bottom so back-to-back blocks (e.g. two 15-min
+        // anchors sharing an edge) show a visible sliver of separation
+        // instead of their borders touching and blending together.
+        top: visual.top + 1,
+        height: Math.max(0, visual.height - 2),
         background: visual.bg,
         border: `${visual.borderWidth}px ${visual.borderStyle} ${visual.border}`,
         borderRadius: 8,
@@ -126,44 +129,63 @@ export function Block({
           )}
         </>
       )}
-      {visual.density === "medium" && (
-        <>
+      {(visual.density === "medium" || visual.density === "compact") && (
+        // Not enough height to stack tag/title/time — the tag moves to a
+        // vertical strip on the left instead of getting dropped, so every
+        // block still shows its category, name, and time.
+        <div style={{ display: "flex", height: "100%", alignItems: "flex-start", gap: 5 }}>
           <div
             style={{
-              fontSize: 11,
-              fontWeight: 500,
-              lineHeight: 1.2,
-              color: visual.textColor,
+              writingMode: "vertical-rl",
+              transform: "rotate(180deg)",
+              fontSize: 7,
+              letterSpacing: "0.03em",
+              textTransform: "uppercase",
+              opacity: 0.7,
+              flex: "0 0 auto",
+              lineHeight: 1,
               whiteSpace: "nowrap",
               overflow: "hidden",
-              textOverflow: "ellipsis",
+              // Aligned to the block's top edge (not centered) so a label
+              // taller than the block truncates its tail end ("BLOC") —
+              // centering would clip evenly from both ends and mangle the
+              // start of the word too ("LOCK").
+              maxHeight: "100%",
             }}
           >
-            {visual.title}
+            {visual.tagLabel}
           </div>
-          <div style={{ fontSize: 9, opacity: 0.65, marginTop: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-            {visual.timeLabel}
-          </div>
-          {visual.statusLabel && (
-            <div style={{ fontSize: 8.5, color: visual.statusColor, marginTop: 1, fontWeight: 600, letterSpacing: "0.05em" }}>
-              {visual.statusLabel}
+          <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+            <div
+              style={{
+                fontSize: visual.density === "medium" ? 11 : 10,
+                fontWeight: 500,
+                lineHeight: 1.2,
+                color: visual.textColor,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+            >
+              {visual.title}
             </div>
-          )}
-        </>
-      )}
-      {visual.density === "compact" && (
-        <div
-          style={{
-            fontSize: 10.5,
-            fontWeight: 500,
-            lineHeight: `${visual.height}px`,
-            color: visual.textColor,
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-          }}
-        >
-          {visual.title}
+            <div
+              style={{
+                fontSize: visual.density === "medium" ? 9 : 8.5,
+                opacity: 0.65,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+            >
+              {visual.timeLabel}
+            </div>
+            {visual.statusLabel && visual.density === "medium" && (
+              <div style={{ fontSize: 8.5, color: visual.statusColor, marginTop: 1, fontWeight: 600, letterSpacing: "0.05em" }}>
+                {visual.statusLabel}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

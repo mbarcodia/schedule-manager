@@ -128,6 +128,7 @@ export function buildScheduleInputs(
       chunk: t.chunk_min,
       minChunk: minChunkFor(t.category_id),
       tag: t.tag,
+      timeOfDay: t.time_of_day,
       dependsOn: t.depends_on,
       deadline,
       floor,

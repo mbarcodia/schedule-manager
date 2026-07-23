@@ -119,6 +119,7 @@ function findSlot(
   busy: Set<AbsMinute>,
   dayOk: ((gday: GDay) => boolean) | null,
   ceilAbs?: AbsMinute,
+  constrainAfternoon?: boolean,
 ): Slot | null {
   for (let g = 0; g < inputs.horizonWeeks * 7; g++) {
     if (ceilAbs != null && g * 1440 >= ceilAbs) break;
@@ -127,7 +128,9 @@ function findSlot(
     if (dayOk && !dayOk(g)) continue;
     const base = g * 1440;
     const end = constrainNoon ? Math.min(win.end, 720) : win.end;
-    for (let m = win.start; m + lengthMin <= end; m += 15) {
+    const start = constrainAfternoon ? Math.max(win.start, 720) : win.start;
+    if (constrainAfternoon && start >= end) continue; // day's window doesn't reach into the afternoon
+    for (let m = start; m + lengthMin <= end; m += 15) {
       const abs = base + m;
       if (abs < floorAbs) continue;
       let free = true;
@@ -198,7 +201,8 @@ function runScheduler(
       const dayOk = t.maxPerDayMin
         ? (d: GDay) => ((perDay[t.id] || {})[d] || 0) + len <= t.maxPerDayMin!
         : null;
-      if (t.tag === "deep-focus") return findSlot(inputs, floor, len, true, busy, dayOk, t.ceilAbs);
+      if (t.timeOfDay === "afternoon") return findSlot(inputs, floor, len, false, busy, dayOk, t.ceilAbs, true);
+      if (t.timeOfDay === "morning" || t.tag === "deep-focus") return findSlot(inputs, floor, len, true, busy, dayOk, t.ceilAbs);
       if (t.tag === "research" || t.preferMorning)
         return (
           findSlot(inputs, floor, len, true, busy, dayOk, t.ceilAbs) ||
@@ -301,6 +305,31 @@ export function computeSchedule(
     });
   });
 
+  // Task pins are marked busy before anchors are placed (not after) so an
+  // anchor's free-slot search actually sees a pinned task chunk as occupied
+  // instead of placing straight on top of it — pins are a fixed commitment
+  // exactly like an event from this point of view.
+  const pinReduction: Record<string, number> = {};
+  const taskPinChunks: ScheduleBlock[] = [];
+  inputs.tasks.forEach((t) => {
+    if (!t.pin) return;
+    const abs = t.pin.gday * 1440 + t.pin.start;
+    markBusy(abs, t.pin.length, baseBusy);
+    pinReduction[t.id] = t.pin.length;
+    taskPinChunks.push({
+      type: "task",
+      taskId: t.id,
+      projectId: t.projectId || null,
+      categoryId: t.categoryId ?? null,
+      tagLabel: t.tag === "research" ? "Research" : t.tag === "deep-focus" ? "Deep focus" : "Task",
+      title: t.title,
+      gday: t.pin.gday,
+      start: t.pin.start,
+      end: t.pin.start + t.pin.length,
+      priority: t.priority,
+    });
+  });
+
   anchorDefs(inputs).forEach((a) => {
     const dayWindow = resolveDayWindow(a.gday, inputs.weeklyHours, inputs.dayOverrides);
     if (dayWindow == null) return; // day off entirely
@@ -322,43 +351,20 @@ export function computeSchedule(
         break;
       }
     }
-    if (placed == null) placed = ws;
+    // No free slot in the window this day (e.g. events/a pin fill it) — skip
+    // placing this instance entirely rather than forcing it on top of
+    // whatever's already there. Matches the "just don't schedule it for that
+    // day" rule these blocks are meant to honor.
+    if (placed == null) return;
     markBusy(a.gday * 1440 + placed, a.length, baseBusy);
     blocks.push({
       type: "anchor",
-      tagLabel: a.title,
+      tagLabel: "Block",
       title: a.title,
       gday: a.gday,
       start: placed,
       end: placed + a.length,
       priority: null,
-    });
-  });
-
-  // A task pin forces a fixed chunk onto the grid before the greedy fill
-  // runs, exactly like an event: mark it busy first, then hand the
-  // scheduler the task's remaining (post-pin) duration so it only fills
-  // what's left. The pin chunk itself is spliced into the pre-kept chunk
-  // list below, so it rides the same past/missed reconciliation as any
-  // other scheduled chunk — no separate bookkeeping needed.
-  const pinReduction: Record<string, number> = {};
-  const taskPinChunks: ScheduleBlock[] = [];
-  inputs.tasks.forEach((t) => {
-    if (!t.pin) return;
-    const abs = t.pin.gday * 1440 + t.pin.start;
-    markBusy(abs, t.pin.length, baseBusy);
-    pinReduction[t.id] = t.pin.length;
-    taskPinChunks.push({
-      type: "task",
-      taskId: t.id,
-      projectId: t.projectId || null,
-      categoryId: t.categoryId ?? null,
-      tagLabel: t.tag === "research" ? "Research" : t.tag === "deep-focus" ? "Deep focus" : "Task",
-      title: t.title,
-      gday: t.pin.gday,
-      start: t.pin.start,
-      end: t.pin.start + t.pin.length,
-      priority: t.priority,
     });
   });
 

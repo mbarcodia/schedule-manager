@@ -8,6 +8,7 @@ export type PlannerCredentialProvider = "api_key" | "oauth_token";
 export type NoteKind = "idea" | "todo" | "paper" | "update" | "other";
 export type Priority = "high" | "medium" | "low";
 export type TaskTag = "deep-focus" | "research";
+export type TaskTimeOfDay = "morning" | "afternoon";
 export type EventSource = "manual" | "google" | "icloud" | "outlook";
 export type SubjectType = "task" | "research";
 export type ChatRole = "user" | "assistant";
@@ -152,6 +153,7 @@ export interface Database {
           pinned_date: string | null;
           pinned_start_min: number | null;
           pinned_length_min: number | null;
+          time_of_day: TaskTimeOfDay | null;
         },
         {
           id?: string;
@@ -172,6 +174,7 @@ export interface Database {
           pinned_date?: string | null;
           pinned_start_min?: number | null;
           pinned_length_min?: number | null;
+          time_of_day?: TaskTimeOfDay | null;
         },
         Partial<{
           title: string;
@@ -190,6 +193,7 @@ export interface Database {
           pinned_date: string | null;
           pinned_start_min: number | null;
           pinned_length_min: number | null;
+          time_of_day: TaskTimeOfDay | null;
         }>
       >;
       recurring_rules: Table<

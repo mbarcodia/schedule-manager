@@ -41,6 +41,11 @@ export interface Task {
    * floor) when the category has none set. */
   minChunk?: number;
   tag?: "deep-focus" | "research" | null;
+  /** Explicit half-of-day constraint the scheduler must honor — "morning"
+   * means before noon (same as tag "deep-focus"), "afternoon" means noon or
+   * later. Undefined = no constraint beyond whatever tag/preferMorning
+   * already implies. */
+  timeOfDay?: "morning" | "afternoon" | null;
   dependsOn?: string | null;
   /** Deadline in absolute minutes from the horizon start; 99999 = none. */
   deadline: number;

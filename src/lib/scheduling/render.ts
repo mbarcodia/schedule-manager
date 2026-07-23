@@ -62,14 +62,19 @@ export interface BlockLane {
   lanes: number;
 }
 
-/** Interval-partitions one day's blocks into side-by-side lanes so blocks
- * that share minutes split the column width instead of stacking on top of
- * each other (early-done pins routinely land on already-occupied past
- * time). Lane count is per collision cluster — blocks with no overlap keep
- * the full width. */
+/** Interval-partitions one day's *synced calendar events* into side-by-side
+ * lanes so two real meetings at the same time split the column width
+ * instead of stacking on top of each other. Deliberately scoped to
+ * type==="synced" only — anchors and tasks are placed by the engine, which
+ * guarantees they never overlap each other or an event; if one ever did,
+ * laning it side-by-side would quietly hide a real scheduling bug instead
+ * of surfacing it. Blocks with no Map entry (every non-synced block, and
+ * any synced block with no overlap) render full-width via Block.tsx's
+ * lane=0/lanes=1 fallback. */
 export function computeBlockLanes(blocks: ScheduleBlock[]): Map<ScheduleBlock, BlockLane> {
   const out = new Map<ScheduleBlock, BlockLane>();
   const items = blocks
+    .filter((b) => b.type === "synced")
     .map((b) => ({ b, start: Math.max(b.start, DAY_START_MIN), end: Math.min(b.end, DAY_END_MIN), lane: 0 }))
     .filter((x) => x.end > x.start)
     .sort((a, z) => a.start - z.start || z.end - a.end);

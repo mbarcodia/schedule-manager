@@ -186,5 +186,5 @@ persists across sessions.
 
 ## License
 
-No license file is included — all rights reserved by default. Fork and
-adapt freely for personal use; ask before redistributing.
+MIT — see [LICENSE](LICENSE). Use, modify, and redistribute freely, including
+commercially, as long as the copyright notice stays attached.

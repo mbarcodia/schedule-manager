@@ -149,6 +149,12 @@ export function buildTools(ctx: ToolContext) {
         chunk_min: { type: "number", description: "split into chunks of this many minutes" },
         max_per_day_min: { type: "number", description: "spread the work: schedule at most this many minutes of it per day" },
         deep_focus: { type: "boolean", description: "restrict to mornings before noon" },
+        time_of_day: {
+          type: "string",
+          enum: ["morning", "afternoon"],
+          description:
+            'Use whenever the user names a general part of the day without an exact clock time (e.g. "schedule this in the afternoon"). "morning" = before noon, "afternoon" = noon or later. For an exact time instead, use pin_date/pin_time.',
+        },
         due: { type: "string", description: 'deadline in natural language, e.g. "july 24", "friday", "in 2 weeks", "end of month"' },
         project: { type: "string", description: "title of project/proposal to link to" },
         category: { type: "string", description: "name of the category to color this task by (e.g. Research, Teaching, Tasks) — omit to leave uncategorized" },
@@ -193,6 +199,7 @@ export function buildTools(ctx: ToolContext) {
         duration_min: duration,
         chunk_min,
         tag: inp.deep_focus ? "deep-focus" : null,
+        time_of_day: inp.time_of_day ?? null,
         deadline_at,
         floor_at: new Date().toISOString(),
         max_per_day_min: inp.max_per_day_min || null,
@@ -203,7 +210,7 @@ export function buildTools(ctx: ToolContext) {
         pinned_start_min: pin?.pinned_start_min ?? null,
         pinned_length_min: pinLength,
       };
-      const summary = `(${duration}m, ${priority} priority${link ? ", linked to " + link.title : ""}).${pin ? ` ${pinLength}m pinned to ${inp.pin_date} at ${inp.pin_time} — anything else scheduled there moves automatically.` : " Placed on the calendar."}${deadlineNotUnderstood ? ` Couldn't understand the deadline "${inp.due}", so no deadline was set — try a format like "july 24" or "in 2 weeks".` : ""}`;
+      const summary = `(${duration}m, ${priority} priority${link ? ", linked to " + link.title : ""}).${pin ? ` ${pinLength}m pinned to ${inp.pin_date} at ${inp.pin_time} — anything else scheduled there moves automatically.` : inp.time_of_day ? ` Placed in the ${inp.time_of_day}.` : " Placed on the calendar."}${deadlineNotUnderstood ? ` Couldn't understand the deadline "${inp.due}", so no deadline was set — try a format like "july 24" or "in 2 weeks".` : ""}`;
 
       // Dedupe on exact (normalized) title — re-declaring a task with the
       // same title updates it in place instead of creating a duplicate.
@@ -239,6 +246,12 @@ export function buildTools(ctx: ToolContext) {
         max_per_day_min: { type: "number" },
         due: { type: "string", description: "new deadline, natural language" },
         category: { type: "string", description: "name of the category to recolor this task by" },
+        time_of_day: {
+          type: "string",
+          enum: ["morning", "afternoon", "none"],
+          description:
+            'Use whenever the user names a general part of the day without an exact clock time. "morning" = before noon, "afternoon" = noon or later, "none" clears any existing constraint.',
+        },
         work_on_next: { type: "boolean", description: "schedule this task at the next available time, before other flexible tasks" },
         pin_date: { type: "string", description: 'force part of this task onto an exact date, natural language, e.g. "monday", "july 24" — pairs with pin_time. Anything else scheduled there moves automatically; the rest of the task (if any) is still auto-placed.' },
         pin_time: { type: "string", description: 'clock time for pin_date, e.g. "2pm", "14:30" — required if pin_date is given' },
@@ -266,6 +279,7 @@ export function buildTools(ctx: ToolContext) {
         if (!categoryId) return `No category matching "${inp.category}". Add it first in Settings.`;
         patch.category_id = categoryId;
       }
+      if (inp.time_of_day) patch.time_of_day = inp.time_of_day === "none" ? null : inp.time_of_day;
       if (inp.due) {
         const deadline_at = titleToDeadlineAt(ctx, inp.due.toLowerCase());
         // Fail loudly rather than silently no-op-ing: an unparseable date

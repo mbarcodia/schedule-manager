@@ -29,7 +29,7 @@ export async function POST(request: Request) {
   // Persist the user's message immediately (planner history survives reloads).
   await supabase.from("planner_messages").insert({ user_id: user.id, role: "user", content: message });
 
-  const credential = await resolvePlannerCredential(user.id, user.email);
+  const credential = await resolvePlannerCredential(user.id);
   const mutationTracker = { mutated: false };
 
   const encoder = new TextEncoder();

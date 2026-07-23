@@ -73,11 +73,13 @@ Fill in `.env.local`:
 | `NEXT_PUBLIC_SUPABASE_URL` | Project Settings → Data API → Project URL |
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Project Settings → API Keys → publishable key |
 | `SUPABASE_SECRET_KEY` | Project Settings → API Keys → secret key (server-only, never exposed to the browser) |
-| `ANTHROPIC_API_KEY` | console.anthropic.com → API Keys (see "Getting an Anthropic API key" below) |
-| `OWNER_EMAIL` | The email you'll sign up to your own deployment with. `ANTHROPIC_API_KEY` above is only ever used for requests from this account — anyone else who signs up must add their own key in Settings, with no fallback |
 | `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | Run `npx web-push generate-vapid-keys`; optional — only needed for push notifications |
 | `VAPID_SUBJECT` | `mailto:you@example.com` — required alongside the VAPID keys |
 | `CRON_SECRET` | Any random string, e.g. `openssl rand -hex 32`. Authenticates the cron/notification routes |
+
+There's no Anthropic key here — every user (including you) adds their own
+from inside the app after signing up. See "Getting an Anthropic API key"
+below.
 
 ### 4. Apply the database schema
 
@@ -148,21 +150,23 @@ optional, neither required to keep using the app.
 
 ## Getting an Anthropic API key
 
-The assistant and planner call the Anthropic API. To get your own key:
+The assistant and planner call the Anthropic API. There's no env var for
+this — every user, including you, adds their own key from inside the app,
+once, after signing up:
 
-1. Go to [console.anthropic.com](https://console.anthropic.com) and sign in
+1. Sign up and log in to your deployed app.
+2. Go to **Settings** → **Anthropic API key**.
+3. Go to [console.anthropic.com](https://console.anthropic.com) and sign in
    or create an account. (This is separate from a claude.ai subscription —
    it's billed per-token usage, not a flat monthly fee.)
-2. Add a payment method under **Billing**.
-3. Go to **API Keys** and create a new key.
-4. Put it in `ANTHROPIC_API_KEY` in your `.env.local`/Vercel env vars.
+4. Add a payment method under **Billing**, then go to **API Keys** and
+   create a new key.
+5. Paste it into Settings.
 
-**Important:** `ANTHROPIC_API_KEY` is only ever used for requests from the
-account whose email matches `OWNER_EMAIL` — that's you, the person deploying
-this. If anyone else signs up on your deployment, they must add their own key
-under **Settings → Planner AI**; there is no fallback to your key for them.
-This is deliberate — usage should never bill to your Anthropic account on
-someone else's behalf.
+One key covers both the assistant and the planner — there's no separate key
+for each, and no shared/fallback key anyone else could ever bill to. If
+other people sign up on your deployment, each of them repeats this same
+step with their own key; nothing is shared between accounts.
 
 ## The Planner
 
@@ -181,8 +185,8 @@ persists across sessions.
   the sidebar header downloads everything as one Markdown file.
 - The planner reads your existing notes when relevant, so you don't need to
   re-explain context every session.
-- Pick which Claude model the planner uses, and optionally add your own
-  Anthropic API key, under **Settings → Planner AI**.
+- Pick which Claude model the planner uses under **Settings → Planner AI**
+  (uses the same Anthropic API key as the assistant, set once in Settings).
 
 ## License
 

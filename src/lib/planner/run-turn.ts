@@ -1,6 +1,5 @@
 // One interface, two in-process backends (both riding the Anthropic SDK's
-// tool runner — env key vs. per-user key is just a different secret). The
-// route only ever calls runPlannerTurn for these two.
+// tool runner). The route only ever calls runPlannerTurn for these two.
 //
 // The third provider, subscription_oauth, is deliberately NOT handled
 // here: the Claude Agent SDK it requires bundles a ~250-270MB native CLI
@@ -15,7 +14,7 @@
 import { runAnthropicTurn, runAnthropicTurnStream } from "./anthropic-runner";
 import type { buildPlannerTools } from "./tools";
 
-export type PlannerProvider = "env_api_key" | "user_api_key" | "subscription_oauth";
+export type PlannerProvider = "user_api_key" | "subscription_oauth";
 
 export interface PlannerTurnInput {
   provider: PlannerProvider;
@@ -30,7 +29,6 @@ export interface PlannerTurnInput {
 
 export async function runPlannerTurn(input: PlannerTurnInput): Promise<{ reply: string }> {
   switch (input.provider) {
-    case "env_api_key":
     case "user_api_key":
       return runAnthropicTurn(input);
     case "subscription_oauth":
@@ -49,7 +47,6 @@ export async function runPlannerTurnStream(
   onChunk: (text: string) => void,
 ): Promise<{ reply: string }> {
   switch (input.provider) {
-    case "env_api_key":
     case "user_api_key":
       return runAnthropicTurnStream(input, onChunk);
     case "subscription_oauth":

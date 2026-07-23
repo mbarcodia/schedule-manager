@@ -233,10 +233,10 @@ function runScheduler(
       categoryId: t.categoryId ?? null,
       tagLabel:
         t.tag === "research"
-          ? "Research"
+          ? inputs.tagLabels.research
           : t.tag === "deep-focus"
-            ? "Deep focus"
-            : "Task",
+            ? inputs.tagLabels.deepFocus
+            : inputs.tagLabels.task,
       title: t.title,
       gday: slot.gday,
       start: slot.start,
@@ -324,7 +324,7 @@ export function computeSchedule(
       taskId: t.id,
       projectId: t.projectId || null,
       categoryId: t.categoryId ?? null,
-      tagLabel: t.tag === "research" ? "Research" : t.tag === "deep-focus" ? "Deep focus" : "Task",
+      tagLabel: t.tag === "research" ? inputs.tagLabels.research : t.tag === "deep-focus" ? inputs.tagLabels.deepFocus : inputs.tagLabels.task,
       title: t.title,
       gday: t.pin.gday,
       start: t.pin.start,
@@ -380,7 +380,7 @@ export function computeSchedule(
       key,
       abs,
       status,
-      tagLabel: "Block",
+      tagLabel: inputs.tagLabels.block,
       title: a.title,
       gday: a.gday,
       start: placed,

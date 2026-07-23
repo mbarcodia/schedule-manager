@@ -5,6 +5,7 @@
 // why persistence uses real dates while the engine works in relative minutes.
 
 import { gdayForDate, zonedNow } from "./time";
+import { DEFAULT_TAG_LABELS } from "./types";
 import type {
   CalendarEvent,
   Category,
@@ -15,6 +16,7 @@ import type {
   Goal,
   RecurringRule,
   ScheduleInputs,
+  TagLabels,
   Task,
   WeeklyHours,
 } from "./types";
@@ -229,6 +231,13 @@ export function buildScheduleInputs(
     weeklyHours[dow] = rows.profile.weekly_hours[String(dow)] ?? null;
   }
 
+  const tagLabels: TagLabels = {
+    task: rows.profile.label_task || DEFAULT_TAG_LABELS.task,
+    research: rows.profile.label_research || DEFAULT_TAG_LABELS.research,
+    deepFocus: rows.profile.label_deep_focus || DEFAULT_TAG_LABELS.deepFocus,
+    block: rows.profile.label_block || DEFAULT_TAG_LABELS.block,
+  };
+
   const inputs: ScheduleInputs = {
     timezone,
     horizonWeeks,
@@ -241,6 +250,7 @@ export function buildScheduleInputs(
     completed,
     partial,
     pinned,
+    tagLabels,
   };
 
   return { inputs, projects, proposals, goals, categories };

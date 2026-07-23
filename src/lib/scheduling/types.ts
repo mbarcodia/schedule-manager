@@ -231,4 +231,22 @@ export interface ScheduleInputs {
   completed: Record<string, boolean>;
   partial: Record<string, number>;
   pinned: Record<string, PinnedEntry>;
+  /** User-customizable display names for the four block-tag kinds — see
+   * Settings. Always fully resolved (defaults already applied) by the time
+   * they reach the engine. */
+  tagLabels: TagLabels;
 }
+
+export interface TagLabels {
+  task: string;
+  research: string;
+  deepFocus: string;
+  block: string;
+}
+
+export const DEFAULT_TAG_LABELS: TagLabels = {
+  task: "Task",
+  research: "Research",
+  deepFocus: "Deep focus",
+  block: "Block",
+};

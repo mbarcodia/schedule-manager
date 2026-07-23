@@ -32,6 +32,10 @@ export function Block({
 
   const compact = visual.density !== "full";
   const checkSize = compact ? 12 : 18;
+  // Anything under half an hour is too squeezed to also fit a category tag
+  // (e.g. the 15-min morning Emails block) — drop it entirely rather than
+  // cram it in illegibly.
+  const showTag = block.end - block.start >= 30;
   const futureTask = visual.isTask && !block.status;
   const clickable = visual.isTask || block.type === "synced";
   // Anchors (recurring blocks) have no "pin done early" concept — a fixed
@@ -179,34 +183,34 @@ export function Block({
           >
             {visual.title}
           </div>
-          {visual.density === "medium" && (
-            <div style={{ fontSize: 9, opacity: 0.65, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-              {visual.timeLabel}
-            </div>
-          )}
+          <div style={{ fontSize: 9, opacity: 0.65, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {visual.timeLabel}
+          </div>
         </div>
       )}
 
       {/* Category tag — always horizontal, bottom-right corner, regardless
-         of block size. */}
-      <div
-        style={{
-          position: "absolute",
-          bottom: 3,
-          right: 6,
-          fontSize: visual.density === "full" ? 9 : 7,
-          letterSpacing: "0.05em",
-          textTransform: "uppercase",
-          opacity: 0.6,
-          whiteSpace: "nowrap",
-          overflow: "hidden",
-          maxWidth: "60%",
-          textOverflow: "ellipsis",
-          pointerEvents: "none",
-        }}
-      >
-        {visual.tagLabel}
-      </div>
+         of block size — except under 30 minutes, where there's no room. */}
+      {showTag && (
+        <div
+          style={{
+            position: "absolute",
+            bottom: 3,
+            right: 6,
+            fontSize: visual.density === "full" ? 9 : 7,
+            letterSpacing: "0.05em",
+            textTransform: "uppercase",
+            opacity: 0.6,
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            maxWidth: "60%",
+            textOverflow: "ellipsis",
+            pointerEvents: "none",
+          }}
+        >
+          {visual.tagLabel}
+        </div>
+      )}
     </div>
   );
 }

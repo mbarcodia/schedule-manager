@@ -24,7 +24,7 @@ export async function POST(request: Request) {
   // Persist the user's message immediately (chat history survives reloads).
   await supabase.from("chat_messages").insert({ user_id: user.id, role: "user", content: message });
 
-  const credential = await resolveAssistantCredential(user.id, user.email);
+  const credential = await resolveAssistantCredential(user.id);
   if (!credential.ok) {
     await supabase.from("chat_messages").insert({ user_id: user.id, role: "assistant", content: NO_CREDENTIAL_MESSAGE });
     return NextResponse.json({ reply: NO_CREDENTIAL_MESSAGE });

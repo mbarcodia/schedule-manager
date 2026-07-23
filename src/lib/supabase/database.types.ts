@@ -45,6 +45,10 @@ export interface Database {
           weekly_summary_dow: number;
           weekly_summary_time: number;
           created_at: string;
+          label_task: string | null;
+          label_research: string | null;
+          label_deep_focus: string | null;
+          label_block: string | null;
         },
         { id: string } & Partial<{
           preferred_model: PreferredModel;
@@ -56,6 +60,10 @@ export interface Database {
           weekly_summary_enabled: boolean;
           weekly_summary_dow: number;
           weekly_summary_time: number;
+          label_task: string | null;
+          label_research: string | null;
+          label_deep_focus: string | null;
+          label_block: string | null;
         }>,
         Partial<{
           preferred_model: PreferredModel;
@@ -67,6 +75,10 @@ export interface Database {
           weekly_summary_enabled: boolean;
           weekly_summary_dow: number;
           weekly_summary_time: number;
+          label_task: string | null;
+          label_research: string | null;
+          label_deep_focus: string | null;
+          label_block: string | null;
         }>
       >;
       categories: Table<

@@ -153,11 +153,11 @@ export default function SettingsPage() {
     hasSecret: boolean;
     provider?: PlannerCredentialProvider;
     last4?: string;
-    isOwner?: boolean;
   }>({ hasSecret: false });
   const [plannerKeyInput, setPlannerKeyInput] = useState("");
   const [plannerCredBusy, setPlannerCredBusy] = useState(false);
   const [plannerCredError, setPlannerCredError] = useState<string | null>(null);
+  const [tagLabels, setTagLabels] = useState({ task: "", research: "", deepFocus: "", block: "" });
 
   useEffect(() => {
     let ignore = false;
@@ -171,7 +171,7 @@ export default function SettingsPage() {
         supabase
           .from("profiles")
           .select(
-            "preferred_model,planner_model,weekly_hours,eod_checkin_enabled,eod_checkin_time,weekly_summary_enabled,weekly_summary_dow,weekly_summary_time",
+            "preferred_model,planner_model,weekly_hours,eod_checkin_enabled,eod_checkin_time,weekly_summary_enabled,weekly_summary_dow,weekly_summary_time,label_task,label_research,label_deep_focus,label_block",
           )
           .eq("id", user.id)
           .single(),
@@ -190,6 +190,12 @@ export default function SettingsPage() {
           weeklyEnabled: data.weekly_summary_enabled,
           weeklyDow: data.weekly_summary_dow,
           weeklyTime: data.weekly_summary_time,
+        });
+        setTagLabels({
+          task: data.label_task ?? "",
+          research: data.label_research ?? "",
+          deepFocus: data.label_deep_focus ?? "",
+          block: data.label_block ?? "",
         });
       }
       setCategories(cats ?? []);
@@ -310,6 +316,32 @@ export default function SettingsPage() {
     setCategories((prev) => prev.map((c) => (c.id === id ? { ...c, min_chunk_min: minChunkMin } : c)));
     const supabase = createClient();
     await supabase.from("categories").update({ min_chunk_min: minChunkMin }).eq("id", id);
+  }
+
+  const TAG_LABEL_COLUMN = {
+    task: "label_task",
+    research: "label_research",
+    deepFocus: "label_deep_focus",
+    block: "label_block",
+  } as const;
+
+  async function saveTagLabel(field: keyof typeof TAG_LABEL_COLUMN, value: string) {
+    setTagLabels((prev) => ({ ...prev, [field]: value }));
+    const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return;
+    const val = value.trim() || null;
+    const patch =
+      field === "task"
+        ? { label_task: val }
+        : field === "research"
+          ? { label_research: val }
+          : field === "deepFocus"
+            ? { label_deep_focus: val }
+            : { label_block: val };
+    await supabase.from("profiles").update(patch).eq("id", user.id);
   }
 
   async function deleteCategory(id: string) {
@@ -467,10 +499,65 @@ export default function SettingsPage() {
           Back to schedule
         </Link>
 
+        <h1 className="text-base font-medium mb-1">Anthropic API key</h1>
+        <p className="text-xs text-muted mb-3 leading-relaxed">
+          Required to use either the assistant or the planner — one key covers both, there&apos;s no separate key for
+          each. Every account needs its own; there&apos;s no shared or fallback key, so usage only ever bills to your
+          own Anthropic account. This is a separate thing from a claude.ai subscription: it&apos;s billed per-token,
+          not a flat monthly fee.
+        </p>
+        <p className="text-xs text-muted mb-3 leading-relaxed">
+          To get one: go to{" "}
+          <a
+            href="https://console.anthropic.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-accent-text hover:underline"
+          >
+            console.anthropic.com
+          </a>
+          , sign in or create an account, add a payment method under Billing, then open{" "}
+          <span className="text-text">API Keys</span> and create a new key. Paste it below.
+        </p>
+        <div className="rounded-lg border border-border bg-panel p-3.5 mb-8">
+          {plannerCred.hasSecret ? (
+            <div className="flex items-center gap-2.5 text-xs">
+              <span className="text-text">
+                Using your API key (ending <span className="font-mono">{plannerCred.last4}</span>)
+              </span>
+              <button
+                onClick={removePlannerKey}
+                disabled={plannerCredBusy}
+                className="text-accent-text hover:underline disabled:opacity-60"
+              >
+                Remove
+              </button>
+            </div>
+          ) : (
+            <div className="flex gap-2">
+              <input
+                type="password"
+                value={plannerKeyInput}
+                onChange={(e) => setPlannerKeyInput(e.target.value)}
+                placeholder="sk-ant-…"
+                className="flex-1 rounded-md border border-border bg-surface px-2.5 py-1.5 text-xs text-text outline-none focus-visible:border-accent"
+              />
+              <button
+                onClick={() => savePlannerKey("api_key")}
+                disabled={plannerCredBusy || !plannerKeyInput.trim()}
+                className="rounded-md border border-accent text-accent px-3 py-1.5 text-xs font-medium hover:bg-accent/10 disabled:opacity-60"
+              >
+                Save
+              </button>
+            </div>
+          )}
+          {plannerCredError && <p className="mt-2 text-xs text-red-300">{plannerCredError}</p>}
+        </div>
+
         <h1 className="text-base font-medium mb-1">Assistant model</h1>
         <p className="text-xs text-muted mb-5">
           Pick which Claude model powers the chat assistant. Approximate monthly cost is based on typical personal
-          usage (20–50 short messages/day) — billed directly to your own Anthropic API key, separate from this app.
+          usage (20–50 short messages/day), billed to the API key above.
         </p>
 
         {loading ? (
@@ -508,7 +595,7 @@ export default function SettingsPage() {
           <h2 className="text-base font-medium mb-1">Planner AI</h2>
           <p className="text-xs text-muted mb-4">
             The Planner is a separate, longer-horizon chat for discussing projects and keeping notes — it uses its
-            own model choice and, optionally, its own API key.
+            own model choice, billed to the same API key from the top of this page.
           </p>
 
           <div className="rounded-lg border border-border bg-panel p-3.5 mb-5 text-xs text-muted leading-relaxed">
@@ -553,61 +640,58 @@ export default function SettingsPage() {
               })}
             </div>
           )}
+        </div>
 
-          <div className="rounded-lg border border-border bg-panel p-3.5">
-            <div className="text-sm font-medium mb-1">Your own Anthropic API key</div>
-            <p className="text-xs text-muted mb-3 leading-relaxed">
-              {plannerCred.isOwner
-                ? "Optional — as this deployment's owner, the assistant and planner already run on the shared key from your environment config. Add your own here only if you want to bill usage separately (e.g. for Claude Fable 5) or track it apart from the deployment's overall usage."
-                : "Required to use the assistant or planner. This deployment's shared key is reserved for its owner only — everyone else must add their own Anthropic API key here; there's no fallback."}{" "}
-              This is a separate thing from a claude.ai subscription: it&apos;s billed per-token, not a flat monthly
-              fee.
-            </p>
-            <p className="text-xs text-muted mb-3 leading-relaxed">
-              To get one: go to{" "}
-              <a
-                href="https://console.anthropic.com"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-accent-text hover:underline"
-              >
-                console.anthropic.com
-              </a>
-              , sign in or create an account, add a payment method under Billing, then open{" "}
-              <span className="text-text">API Keys</span> and create a new key. Paste it below.
-            </p>
-            {plannerCred.hasSecret ? (
-              <div className="flex items-center gap-2.5 text-xs">
-                <span className="text-text">
-                  Using your API key (ending <span className="font-mono">{plannerCred.last4}</span>)
-                </span>
-                <button
-                  onClick={removePlannerKey}
-                  disabled={plannerCredBusy}
-                  className="text-accent-text hover:underline disabled:opacity-60"
-                >
-                  Remove
-                </button>
-              </div>
-            ) : (
-              <div className="flex gap-2">
+        <div className="mt-8 pt-5 border-t border-border">
+          <h2 className="text-base font-medium mb-1">Block labels</h2>
+          <p className="text-xs text-muted mb-4 leading-relaxed">
+            Every calendar block shows a small tag naming what kind of item it is. What each one actually means:
+          </p>
+          <div className="rounded-lg border border-border bg-panel p-3.5 mb-4 text-xs text-muted leading-relaxed flex flex-col gap-2.5">
+            <div>
+              <span className="text-text font-medium">Task</span> — a regular one-off item you or the assistant
+              added (<code className="text-[10px]">add_task</code>). No special placement rule beyond priority and
+              deadline.
+            </div>
+            <div>
+              <span className="text-text font-medium">Research</span> — an auto-generated weekly block for a
+              project with a weekly research minimum set (in the project itself, not here) — placed in mornings
+              first.
+            </div>
+            <div>
+              <span className="text-text font-medium">Deep focus</span> — a task explicitly restricted to mornings
+              before noon. This is different from Research: it&apos;s a one-off task with the morning-only rule
+              turned on, not a project with a weekly minimum.
+            </div>
+            <div>
+              <span className="text-text font-medium">Block</span> — a standing recurring commitment (like Emails
+              or Lunch) you set up as a recurring rule — repeats on its own schedule every week.
+            </div>
+          </div>
+          <p className="text-xs text-muted mb-3 leading-relaxed">
+            Rename any of these — only the label changes, not the behavior. Leave blank to use the default.
+          </p>
+          <div className="flex flex-col gap-2">
+            {(
+              [
+                ["task", "Task"],
+                ["research", "Research"],
+                ["deepFocus", "Deep focus"],
+                ["block", "Block"],
+              ] as const
+            ).map(([field, defaultLabel]) => (
+              <div key={field} className="flex items-center gap-2.5">
+                <span className="w-20 flex-none text-xs text-muted">{defaultLabel}</span>
                 <input
-                  type="password"
-                  value={plannerKeyInput}
-                  onChange={(e) => setPlannerKeyInput(e.target.value)}
-                  placeholder="sk-ant-…"
+                  defaultValue={tagLabels[field]}
+                  placeholder={defaultLabel}
+                  onBlur={(e) => {
+                    if (e.target.value !== tagLabels[field]) saveTagLabel(field, e.target.value);
+                  }}
                   className="flex-1 rounded-md border border-border bg-surface px-2.5 py-1.5 text-xs text-text outline-none focus-visible:border-accent"
                 />
-                <button
-                  onClick={() => savePlannerKey("api_key")}
-                  disabled={plannerCredBusy || !plannerKeyInput.trim()}
-                  className="rounded-md border border-accent text-accent px-3 py-1.5 text-xs font-medium hover:bg-accent/10 disabled:opacity-60"
-                >
-                  Save
-                </button>
               </div>
-            )}
-            {plannerCredError && <p className="mt-2 text-xs text-red-300">{plannerCredError}</p>}
+            ))}
           </div>
         </div>
 

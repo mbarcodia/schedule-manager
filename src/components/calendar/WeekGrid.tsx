@@ -5,11 +5,12 @@ import { Block } from "./Block";
 import { TaskDetailPopover } from "./TaskDetailPopover";
 import { EventDetailPopover } from "./EventDetailPopover";
 import { defaultDayWindow, resolveDayWindow } from "@/lib/scheduling/day-window";
-import { computeBlockLanes, DAY_END_MIN, DAY_START_MIN, DEFAULT_SCROLL_MIN } from "@/lib/scheduling/render";
+import { computeBlockLanes, DAY_END_MIN, DAY_START_MIN, DEFAULT_SCROLL_MIN, PX_PER_MIN } from "@/lib/scheduling/render";
 import { dateForGday, minToLabel, nowAbsMinute, WEEKDAY_LABELS } from "@/lib/scheduling/time";
 import type { Category, ComputeScheduleResult, DayOverrides, ScheduleBlock, WeeklyHours } from "@/lib/scheduling/types";
 
-const VIEW_HEIGHT = DAY_END_MIN - DAY_START_MIN; // full 24h, 1px/min — scrolled to the working window by default
+// Full 24h day, at PX_PER_MIN — scrolled to the working window by default.
+const VIEW_HEIGHT = (DAY_END_MIN - DAY_START_MIN) * PX_PER_MIN;
 
 interface WeekGridProps {
   weekOffset: number;
@@ -23,7 +24,7 @@ interface WeekGridProps {
   onUnpinDone: (block: ScheduleBlock) => void;
 }
 
-const hourLabels = Array.from({ length: 24 }, (_, h) => ({ top: h * 60, label: minToLabel(h * 60) }));
+const hourLabels = Array.from({ length: 24 }, (_, h) => ({ top: h * 60 * PX_PER_MIN, label: minToLabel(h * 60) }));
 
 /** Compares the effective (possibly overridden) window for a day against
  * that weekday's own default, so the label reflects "earlier/later than
@@ -126,8 +127,8 @@ export function WeekGrid({
     if (!el) return;
     const todayInView = todayGday >= weekOffset * 7 && todayGday < weekOffset * 7 + 7;
     const nowMinuteOfDay = NOW - todayGday * 1440;
-    const target = todayInView ? Math.max(0, nowMinuteOfDay - 90) : DEFAULT_SCROLL_MIN;
-    el.scrollTop = target;
+    const targetMin = todayInView ? Math.max(0, nowMinuteOfDay - 90) : DEFAULT_SCROLL_MIN;
+    el.scrollTop = targetMin * PX_PER_MIN;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [weekOffset]);
 
@@ -174,7 +175,7 @@ export function WeekGrid({
           const dayBlocks = allDayBlocks.filter((b) => b.end > DAY_START_MIN && b.start < DAY_END_MIN);
           const blockLanes = computeBlockLanes(dayBlocks);
           const showNow = isToday && NOW - todayGday * 1440 >= DAY_START_MIN && NOW - todayGday * 1440 <= DAY_END_MIN;
-          const nowTop = NOW - todayGday * 1440 - DAY_START_MIN;
+          const nowTop = (NOW - todayGday * 1440 - DAY_START_MIN) * PX_PER_MIN;
 
           const openBlock = dayBlocks.find((b) => (b.key ?? `${b.type}@${b.gday}-${b.start}`) === openKey);
 
@@ -188,8 +189,7 @@ export function WeekGrid({
               className="relative border-l border-border-grid"
               style={{
                 height: VIEW_HEIGHT,
-                backgroundImage:
-                  "repeating-linear-gradient(to bottom, transparent 0, transparent 59px, rgba(233,233,237,0.06) 60px)",
+                backgroundImage: `repeating-linear-gradient(to bottom, transparent 0, transparent ${60 * PX_PER_MIN - 1}px, rgba(233,233,237,0.06) ${60 * PX_PER_MIN}px)`,
                 backgroundColor: isToday ? "rgba(145,132,217,0.05)" : "transparent",
               }}
             >
@@ -205,7 +205,7 @@ export function WeekGrid({
                   {effStart > DAY_START_MIN && (
                     <div
                       className="absolute left-0 right-0 flex items-center justify-center"
-                      style={{ top: 0, height: effStart - DAY_START_MIN, background: "rgba(22,24,38,0.7)" }}
+                      style={{ top: 0, height: (effStart - DAY_START_MIN) * PX_PER_MIN, background: "rgba(22,24,38,0.7)" }}
                     >
                       <span className="text-[9.5px] tracking-wide uppercase text-muted-2">
                         {startLabel(defaultWindow, effWindow.start)}
@@ -215,7 +215,11 @@ export function WeekGrid({
                   {effEnd < DAY_END_MIN && (
                     <div
                       className="absolute left-0 right-0 flex items-center justify-center"
-                      style={{ top: effEnd - DAY_START_MIN, height: DAY_END_MIN - effEnd, background: "rgba(22,24,38,0.7)" }}
+                      style={{
+                        top: (effEnd - DAY_START_MIN) * PX_PER_MIN,
+                        height: (DAY_END_MIN - effEnd) * PX_PER_MIN,
+                        background: "rgba(22,24,38,0.7)",
+                      }}
                     >
                       <span className="text-[9.5px] tracking-wide uppercase text-muted-2">
                         {endLabel(defaultWindow, effWindow.end)}
@@ -252,7 +256,7 @@ export function WeekGrid({
               {openBlock &&
                 (() => {
                   const clampStart = Math.max(openBlock.start, DAY_START_MIN);
-                  const popoverTop = Math.min(clampStart - DAY_START_MIN + 22, VIEW_HEIGHT - 180);
+                  const popoverTop = Math.min((clampStart - DAY_START_MIN) * PX_PER_MIN + 22, VIEW_HEIGHT - 180);
                   return openBlock.type === "synced" ? (
                     <EventDetailPopover block={openBlock} top={popoverTop} onClose={() => setOpenKey(null)} />
                   ) : (

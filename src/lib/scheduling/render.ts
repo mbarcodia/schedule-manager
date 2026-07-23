@@ -13,7 +13,9 @@ import type { Category, ScheduleBlock } from "./types";
 export const DAY_START_MIN = 0; // midnight
 export const DAY_END_MIN = 1440; // midnight next day
 export const DEFAULT_SCROLL_MIN = 420; // 7:00am
-export const PX_PER_MIN = 1; // 60px/hour
+// 72px/hour — sized so a typical viewport shows about 10 hours (e.g.
+// 8am-6pm) without scrolling, rather than the whole 24h day.
+export const PX_PER_MIN = 1.2;
 
 export type ContentDensity = "compact" | "medium" | "full";
 

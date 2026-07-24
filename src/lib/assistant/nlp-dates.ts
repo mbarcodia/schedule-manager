@@ -23,6 +23,18 @@ function weekdayFromText(lower: string): number | null {
 export function parseDeadlineDate(rawLower: string, today: Date): Date | null {
   const lower = rawLower.replace(/end of (the )?month/, "in 3 weeks");
 
+  // ISO (YYYY-MM-DD) — unambiguous, so check it before any other pattern.
+  // Tool-calling models reach for this format naturally; without it, a
+  // deadline like "2026-08-07" silently failed to parse and the task got
+  // placed with no deadline at all rather than erroring.
+  const iso = lower.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
+  if (iso) {
+    const year = parseInt(iso[1], 10);
+    const month = parseInt(iso[2], 10) - 1;
+    const day = parseInt(iso[3], 10);
+    return new Date(year, month, day);
+  }
+
   const inMatch = lower.match(/in\s+(\d+)\s*(day|days|week|weeks)/);
   if (inMatch) {
     const n = parseInt(inMatch[1], 10);

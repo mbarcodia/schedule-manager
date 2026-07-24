@@ -19,7 +19,30 @@ jobs:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           H=$(date -u +%-H)
-          curl -fsS --max-time 120 "$BASE_URL/api/cron/eod-checkin?hour=$H" \
-            -H "Authorization: Bearer $CRON_SECRET"
-          curl -fsS --max-time 120 "$BASE_URL/api/cron/weekly-summary?hour=$H" \
-            -H "Authorization: Bearer $CRON_SECRET"
+          fail=0
+          for route in eod-checkin weekly-summary; do
+            status=$(curl -s -o /tmp/resp.json -w "%{http_code}" --max-time 120 \
+              "$BASE_URL/api/cron/$route?hour=$H" \
+              -H "Authorization: Bearer $CRON_SECRET")
+            if [ "$status" != "200" ]; then
+              echo "::error::$route returned HTTP $status"
+              cat /tmp/resp.json
+              fail=1
+            fi
+          done
+          exit $fail
+
+      # Fires only when the step above failed. Uses ALERT_SECRET (not
+      # CRON_SECRET) so the alert still reaches the app even when
+      # CRON_SECRET itself is the thing that's out of sync — see
+      # CRON_SECRET_RUNBOOK.md for what to do when this notification lands.
+      - name: Alert via app push if cron auth is broken
+        if: failure()
+        env:
+          BASE_URL: ${{ secrets.PROD_BASE_URL }}
+          ALERT_SECRET: ${{ secrets.ALERT_SECRET }}
+        run: |
+          curl -fsS --max-time 30 "$BASE_URL/api/cron/alert-drift" \
+            -H "Authorization: Bearer $ALERT_SECRET" \
+            -H "Content-Type: application/json" \
+            -d '{"reason":"digest cron routes returned a non-200 response"}'

@@ -1,9 +1,10 @@
-# Planner subscription-token relay. Not a public web app — only Vercel
-# calls it, authenticated by PLANNER_RELAY_SECRET — so it has no
-# http_service block (no browser traffic, no auto-TLS routing needed for
-# that). One small always-on machine: planner turns can run tens of
-# seconds, and a cold-started Fly machine on top of that would compound
-# the Vercel-side maxDuration budget.
+# Planner subscription-token relay. Not a public web app — only the
+# Next.js deployment calls it, authenticated by PLANNER_RELAY_SECRET — so
+# it has no http_service block (no browser traffic, no auto-TLS routing
+# needed for that). Scale-to-zero: the machine stops between planner
+# turns and wakes in ~1-2s on the next request — negligible against a
+# turn's 10-60s runtime and the 300s Vercel budget, and it keeps the Fly
+# bill at storage-only pennies while idle.
 app = "schedule-manager-planner-relay"
 primary_region = "iad"
 
@@ -17,9 +18,9 @@ primary_region = "iad"
 [[services]]
   internal_port = 8080
   protocol = "tcp"
-  auto_stop_machines = "off"
+  auto_stop_machines = "stop"
   auto_start_machines = true
-  min_machines_running = 1
+  min_machines_running = 0
 
   [[services.ports]]
     port = 443

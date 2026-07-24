@@ -35,7 +35,8 @@ others for you.
 | [GitHub](https://github.com) | Hosts the code you'll deploy from | ~2 min (skip if you have one) | Free |
 | [Supabase](https://supabase.com) | Your database (tasks, schedule, notes) + login system | ~2 min signup, ~2 min for the project to spin up | Free tier is enough for personal use |
 | [Vercel](https://vercel.com) | Hosts the actual running app at a URL | ~2 min, plus linking GitHub | Free (Hobby plan) |
-| [Anthropic](https://console.anthropic.com) | Powers the AI assistant/planner | ~3 min, requires a payment method | Pay-per-use, no flat fee — typically **$1–15/month** for personal use depending on which model you pick (see Settings → Assistant model in the app for a breakdown) |
+| AI access — see ["Connecting Claude"](#connecting-claude-two-options) | Powers the AI assistant/planner | varies | **Option A:** Anthropic API key, pay-per-use (~$1–15/month typical). **Option B:** your existing Claude Pro/Max subscription + a tiny relay server (~$0.15–1/month on Fly.io) |
+| [Fly.io](https://fly.io) *(optional — Option B only)* | Hosts the small relay that lets the Planner run on your Claude subscription | ~3 min, requires a payment method | Scale-to-zero: **well under $1/month** (pennies of storage while idle, per-second compute only during planner turns) |
 
 Total hands-on setup time is roughly **20–30 minutes**, most of which is
 waiting for accounts/projects to provision rather than active work.
@@ -148,11 +149,27 @@ The only "maintenance" you'd ever touch again is redeploying if you pull code
 updates from upstream, or checking your Anthropic billing occasionally — both
 optional, neither required to keep using the app.
 
-## Getting an Anthropic API key
+## Connecting Claude: two options
 
-The assistant and planner call the Anthropic API. There's no env var for
-this — every user, including you, adds their own key from inside the app,
-once, after signing up:
+The assistant and planner need a Claude credential. There's no env var for
+this — every user, including you, adds their own from inside the app, once,
+after signing up. **Nothing is ever shared or billed across accounts**: no
+shared key, no fallback, and no way for one user's AI usage to land on
+another user's (or the deployer's) bill.
+
+You have two options. They can coexist — pick per person, and switch anytime
+in Settings.
+
+| | **Option A: Anthropic API key** | **Option B: Claude Pro/Max subscription** |
+|---|---|---|
+| Billing | Pay-per-token to Anthropic (typically $1–15/month personal use) | Covered by the flat subscription you may already pay for ([claude.ai](https://claude.ai) Pro/Max) |
+| Works with | Quick assistant **and** Planner | **Planner only** (the quick assistant still needs an API key) |
+| Models | All, including Claude Fable 5 | Up to Claude Opus 4.8 (subscription plans don't include Fable 5) |
+| Extra infrastructure | None | A tiny relay server you deploy once on your own Fly.io account (see below) |
+| Requires | An [Anthropic Console](https://console.anthropic.com) account with a payment method | A paid claude.ai plan (Pro or higher — the free plan doesn't qualify) + [Claude Code](https://claude.com/claude-code) installed once to mint the token |
+| Usage limits | Whatever you're willing to spend | Shares your plan's usage pool (5-hour window + weekly cap) with everything else you do on your Claude account |
+
+### Option A: Anthropic API key
 
 1. Sign up and log in to your deployed app.
 2. Go to **Settings** → **Anthropic API key**.
@@ -163,10 +180,77 @@ once, after signing up:
    create a new key.
 5. Paste it into Settings.
 
-One key covers both the assistant and the planner — there's no separate key
-for each, and no shared/fallback key anyone else could ever bill to. If
-other people sign up on your deployment, each of them repeats this same
-step with their own key; nothing is shared between accounts.
+One key covers both the assistant and the planner.
+
+### Option B: your Claude Pro/Max subscription (via a self-hosted relay)
+
+Your subscription can power the Planner instead of a metered API key. Two
+parts: mint a personal token, and run a small relay server (the token only
+authenticates through the Claude Agent SDK, whose bundled binary is too
+large for Vercel functions — hence the separate tiny server).
+
+**Honest caveats first:**
+
+- `claude setup-token` is Anthropic's documented mechanism for personal
+  automation under a subscription. Routing it through your own self-hosted
+  app is a reasonable personal use, but it's your account — Anthropic could
+  change policy, and heavy automated use draws from the same usage pool as
+  your own claude.ai and Claude Code sessions.
+- The token is planner-only; keep (or add) an API key if you also want the
+  quick assistant.
+
+**B1. Mint your token** (on your own computer, once):
+
+```bash
+npm install -g @anthropic-ai/claude-code   # if you don't have Claude Code
+claude setup-token
+```
+
+Log in with your claude.ai account when prompted; copy the token it prints
+(`sk-ant-oat01-…`).
+
+**B2. Deploy the relay to your own Fly.io account** (once per deployment —
+the deployer does this, not each user):
+
+1. Sign up at [fly.io](https://fly.io) and install
+   [flyctl](https://fly.io/docs/flyctl/install/).
+2. In `web/fly.toml`, change the `app` name to something globally unique
+   (e.g. `yourname-planner-relay`).
+3. From the `web/` directory:
+
+   ```bash
+   fly launch --no-deploy          # registers the app; accept the existing fly.toml
+   fly secrets set \
+     PLANNER_RELAY_SECRET="$(openssl rand -hex 32)" \
+     NEXT_PUBLIC_SUPABASE_URL="<your Supabase project URL>" \
+     SUPABASE_SECRET_KEY="<your Supabase secret key>"
+   fly deploy
+   ```
+
+4. In your **Vercel** project's environment variables, add:
+   - `PLANNER_RELAY_URL` — `https://<your-app-name>.fly.dev`
+   - `PLANNER_RELAY_SECRET` — the same value you set on Fly
+5. Redeploy on Vercel.
+
+The relay scales to zero: it sleeps between planner turns (pennies/month of
+storage) and wakes in ~1–2 seconds when a turn comes in. It is only
+callable by your Vercel deployment (authenticated by `PLANNER_RELAY_SECRET`)
+and only serves your instance.
+
+**B3. Paste your token in the app:** Settings → planner credential →
+subscription token. Each user of your deployment who wants subscription
+billing repeats B1 + B3 with their own claude.ai account; B2 is shared
+infrastructure you host.
+
+### Isolation model (who pays for what)
+
+This repo is a **self-host template**: each person (or household) deploys
+their own fully independent instance — own Supabase, own Vercel, own
+optional Fly relay, own Claude credentials. Nothing about your instance
+touches the original author's accounts, and vice versa. Within one
+deployment, every signed-up user brings their own Claude credential; the
+deployer's only shared costs are the hosting itself (free tiers + the
+optional sub-$1 relay).
 
 ## The Planner
 
@@ -185,8 +269,9 @@ persists across sessions.
   the sidebar header downloads everything as one Markdown file.
 - The planner reads your existing notes when relevant, so you don't need to
   re-explain context every session.
-- Pick which Claude model the planner uses under **Settings → Planner AI**
-  (uses the same Anthropic API key as the assistant, set once in Settings).
+- Pick which Claude model the planner uses under **Settings → Planner AI**.
+  The planner runs on whichever credential you set up — an Anthropic API key
+  or your Claude Pro/Max subscription (see "Connecting Claude" above).
 
 ## License
 

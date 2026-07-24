@@ -17,5 +17,16 @@ RUN npm ci
 COPY tsconfig.json ./
 COPY src ./src
 
+# Precompile to a single bundle: `npx tsx` took ~10s to start listening on a
+# shared-cpu-1x, which lost the race against Fly's ~8s proxy wait when a
+# scale-to-zero machine cold-started — the proxy gave up two seconds before
+# the server bound, and the planner turn bounced. A prebuilt bundle loads in
+# well under a second. The Agent SDK stays external (it spawns its bundled
+# CLI binary from node_modules at runtime), which is why the bundle must run
+# from /app where node_modules lives.
+RUN npx esbuild src/relay/server.ts --bundle --platform=node --format=cjs \
+  --external:@anthropic-ai/claude-agent-sdk \
+  --outfile=dist-relay/relay.js
+
 EXPOSE 8080
-CMD ["npx", "tsx", "src/relay/server.ts"]
+CMD ["node", "dist-relay/relay.js"]

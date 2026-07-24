@@ -30,6 +30,8 @@ export async function sendPushToUser(
         anySent = true;
       } catch (err) {
         const statusCode = (err as { statusCode?: number }).statusCode;
+        const body = (err as { body?: string }).body;
+        console.error(`[push] send failed sub=${sub.id} status=${statusCode} body=${body} err=${err}`);
         if (statusCode === 404 || statusCode === 410) {
           await supabase.from("push_subscriptions").delete().eq("id", sub.id);
         }

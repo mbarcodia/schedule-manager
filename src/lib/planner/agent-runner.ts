@@ -63,6 +63,30 @@ function adaptTool(t: PlannerToolLike): SdkMcpToolDefinition {
   });
 }
 
+/** Shared by every Agent SDK call site (one-shot and persistent-session) so
+ * the tool-adaptation logic above lives in exactly one place. */
+export function buildPlannerMcpServer(tools: PlannerTurnInput["tools"]) {
+  return createSdkMcpServer({
+    name: "planner",
+    tools: tools.map((t) => adaptTool(t as unknown as PlannerToolLike)),
+  });
+}
+
+/** Env the Agent SDK subprocess should run with for a given user's
+ * subscription token — never process.env directly (see below), and never
+ * the app's own shared ANTHROPIC_API_KEY. Shared by every call site. */
+export function buildPlannerSubprocessEnv(secret: string): Record<string, string | undefined> {
+  // options.env REPLACES the subprocess environment entirely (it is not
+  // merged with process.env) — build it explicitly per call so one user's
+  // token can never leak into another's warm-lambda invocation, and so the
+  // app's own shared ANTHROPIC_API_KEY never shadows the user's token.
+  const env: Record<string, string | undefined> = { ...process.env };
+  delete env.ANTHROPIC_API_KEY;
+  delete env.ANTHROPIC_AUTH_TOKEN;
+  env.CLAUDE_CODE_OAUTH_TOKEN = secret;
+  return env;
+}
+
 /** Streaming variant: forwards each visible text delta to onChunk as the
  * model writes it, across every agentic iteration — the same contract as
  * runAnthropicTurnStream on the API-key path. Iterations that both produce
@@ -73,16 +97,8 @@ export async function runAgentSdkTurnStream(
   onChunk: (text: string) => void,
 ): Promise<{ reply: string }> {
   const model = input.model === "claude-fable-5" ? "claude-opus-4-8" : input.model;
-
-  const server = createSdkMcpServer({
-    name: "planner",
-    tools: input.tools.map((t) => adaptTool(t as unknown as PlannerToolLike)),
-  });
-
-  const env: Record<string, string | undefined> = { ...process.env };
-  delete env.ANTHROPIC_API_KEY;
-  delete env.ANTHROPIC_AUTH_TOKEN;
-  env.CLAUDE_CODE_OAUTH_TOKEN = input.secret;
+  const server = buildPlannerMcpServer(input.tools);
+  const env = buildPlannerSubprocessEnv(input.secret);
 
   const prompt = input.history.length
     ? input.history.map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`).join("\n\n")
@@ -143,20 +159,8 @@ export async function runAgentSdkTurn(input: PlannerTurnInput): Promise<{ reply:
   // clamp defensively even though the settings picker should already keep
   // users off it while on this provider.
   const model = input.model === "claude-fable-5" ? "claude-opus-4-8" : input.model;
-
-  const server = createSdkMcpServer({
-    name: "planner",
-    tools: input.tools.map((t) => adaptTool(t as unknown as PlannerToolLike)),
-  });
-
-  // options.env REPLACES the subprocess environment entirely (it is not
-  // merged with process.env) — build it explicitly per call so one user's
-  // token can never leak into another's warm-lambda invocation, and so the
-  // app's own shared ANTHROPIC_API_KEY never shadows the user's token.
-  const env: Record<string, string | undefined> = { ...process.env };
-  delete env.ANTHROPIC_API_KEY;
-  delete env.ANTHROPIC_AUTH_TOKEN;
-  env.CLAUDE_CODE_OAUTH_TOKEN = input.secret;
+  const server = buildPlannerMcpServer(input.tools);
+  const env = buildPlannerSubprocessEnv(input.secret);
 
   const prompt = input.history.length
     ? input.history.map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`).join("\n\n")

@@ -6,7 +6,7 @@ import { computeSchedule } from "@/lib/scheduling/engine";
 import { buildPlannerSystemPrompt } from "@/lib/planner/system-prompt";
 import { buildPlannerTools } from "@/lib/planner/tools";
 import { runPlannerTurnStream } from "@/lib/planner/run-turn";
-import { runRelayTurn } from "@/lib/planner/relay-runner";
+import { runRelayTurnStream } from "@/lib/planner/relay-runner";
 import { resolvePlannerCredential, NO_CREDENTIAL_MESSAGE } from "@/lib/ai/credentials";
 import { describeAnthropicError } from "@/lib/ai/errors";
 import { zonedNow } from "@/lib/scheduling/time";
@@ -43,17 +43,18 @@ export async function POST(request: Request) {
         } else if (credential.provider === "subscription_oauth") {
           // The relay does everything itself (fetch rows/notes/history,
           // build the prompt and tools) using its own admin client — see
-          // src/relay/server.ts. Vercel only needs the model choice here.
-          // Dormant today (no relay deployed) — resolves to a clean error
-          // via runRelayTurn's own check, delivered as a single chunk so
-          // the client's read loop doesn't need a separate code path.
+          // src/relay/server.ts. Vercel only needs the model choice here,
+          // and pipes the relay's text chunks straight through to the
+          // client as they arrive.
           const { data: profile } = await supabase.from("profiles").select("planner_model").eq("id", user.id).single();
-          ({ reply } = await runRelayTurn({
-            userId: user.id,
-            secret: credential.secret,
-            model: profile?.planner_model ?? "claude-opus-4-8",
-          }));
-          controller.enqueue(encoder.encode(reply));
+          ({ reply } = await runRelayTurnStream(
+            {
+              userId: user.id,
+              secret: credential.secret,
+              model: profile?.planner_model ?? "claude-opus-4-8",
+            },
+            (chunk) => controller.enqueue(encoder.encode(chunk)),
+          ));
         } else {
           const [rows, { data: noteRows }] = await Promise.all([
             queryScheduleRows(supabase, user.id),

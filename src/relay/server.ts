@@ -14,7 +14,8 @@ import { buildScheduleInputs } from "@/lib/scheduling/from-db";
 import { computeSchedule } from "@/lib/scheduling/engine";
 import { buildPlannerSystemPrompt } from "@/lib/planner/system-prompt";
 import { buildPlannerTools } from "@/lib/planner/tools";
-import { runAgentSdkTurn } from "@/lib/planner/agent-runner";
+import { runAgentSdkTurn, runAgentSdkTurnStream } from "@/lib/planner/agent-runner";
+import type { PlannerTurnInput } from "@/lib/planner/run-turn";
 import { zonedNow } from "@/lib/scheduling/time";
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 8080;
@@ -32,7 +33,7 @@ async function readJsonBody(req: http.IncomingMessage): Promise<unknown> {
   return raw ? JSON.parse(raw) : {};
 }
 
-async function handleTurn(userId: string, secret: string, model: string): Promise<{ reply: string }> {
+async function prepareTurnInput(userId: string, secret: string, model: string): Promise<PlannerTurnInput> {
   const admin = createRelayAdminClient();
 
   const [rows, { data: noteRows }] = await Promise.all([
@@ -69,7 +70,7 @@ async function handleTurn(userId: string, secret: string, model: string): Promis
     .reverse()
     .map((m) => ({ role: m.role, content: m.content }));
 
-  return runAgentSdkTurn({
+  return {
     provider: "subscription_oauth",
     secret,
     model,
@@ -77,11 +78,19 @@ async function handleTurn(userId: string, secret: string, model: string): Promis
     history,
     tools,
     maxIterations: 12,
-  });
+  };
+}
+
+async function handleTurn(userId: string, secret: string, model: string): Promise<{ reply: string }> {
+  return runAgentSdkTurn(await prepareTurnInput(userId, secret, model));
 }
 
 const server = http.createServer(async (req, res) => {
-  if (req.method !== "POST" || req.url !== "/turn") {
+  // /turn returns the full reply as JSON once done; /turn-stream writes
+  // plain-text chunks as the model produces them (chunked transfer). Both
+  // stay available so relay and Vercel deploys never have to be atomic.
+  const isStream = req.url === "/turn-stream";
+  if (req.method !== "POST" || (req.url !== "/turn" && !isStream)) {
     res.writeHead(404).end();
     return;
   }
@@ -96,6 +105,22 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(400, { "Content-Type": "application/json" }).end(JSON.stringify({ error: "Missing userId/secret/model" }));
       return;
     }
+
+    if (isStream) {
+      const input = await prepareTurnInput(body.userId, body.secret, body.model);
+      res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
+      try {
+        await runAgentSdkTurnStream(input, (chunk) => res.write(chunk));
+      } catch (err) {
+        // Headers are already out — append a visible marker rather than
+        // silently truncating what streamed so far.
+        console.error("relay stream turn error", err);
+        res.write("\n\nI hit an error partway through this reply — it may be incomplete. Please send that again.");
+      }
+      res.end();
+      return;
+    }
+
     const result = await handleTurn(body.userId, body.secret, body.model);
     res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify(result));
   } catch (err) {

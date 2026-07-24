@@ -63,6 +63,81 @@ function adaptTool(t: PlannerToolLike): SdkMcpToolDefinition {
   });
 }
 
+/** Streaming variant: forwards each visible text delta to onChunk as the
+ * model writes it, across every agentic iteration — the same contract as
+ * runAnthropicTurnStream on the API-key path. Iterations that both produce
+ * visible text get a paragraph break between them (same fix as the
+ * anthropic-runner: without it "…summarizing.Here's the…" concatenates). */
+export async function runAgentSdkTurnStream(
+  input: PlannerTurnInput,
+  onChunk: (text: string) => void,
+): Promise<{ reply: string }> {
+  const model = input.model === "claude-fable-5" ? "claude-opus-4-8" : input.model;
+
+  const server = createSdkMcpServer({
+    name: "planner",
+    tools: input.tools.map((t) => adaptTool(t as unknown as PlannerToolLike)),
+  });
+
+  const env: Record<string, string | undefined> = { ...process.env };
+  delete env.ANTHROPIC_API_KEY;
+  delete env.ANTHROPIC_AUTH_TOKEN;
+  env.CLAUDE_CODE_OAUTH_TOKEN = input.secret;
+
+  const prompt = input.history.length
+    ? input.history.map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`).join("\n\n")
+    : "";
+
+  let full = "";
+  let resultReply: string | null = null;
+  let failed = false;
+  // Set at each message_start; consumed by the first text delta of that API
+  // message so a break lands between iterations, not inside one.
+  let pendingBreak = false;
+
+  for await (const message of query({
+    prompt,
+    options: {
+      env,
+      model,
+      systemPrompt: input.system,
+      tools: [],
+      mcpServers: { planner: server },
+      permissionMode: "bypassPermissions",
+      allowDangerouslySkipPermissions: true,
+      maxTurns: input.maxIterations,
+      includePartialMessages: true,
+    },
+  })) {
+    if (message.type === "stream_event" && message.parent_tool_use_id === null) {
+      const event = message.event;
+      if (event.type === "message_start") {
+        pendingBreak = true;
+      } else if (event.type === "content_block_delta" && event.delta.type === "text_delta" && event.delta.text) {
+        if (pendingBreak && full && !full.endsWith("\n\n")) {
+          full += "\n\n";
+          onChunk("\n\n");
+        }
+        pendingBreak = false;
+        full += event.delta.text;
+        onChunk(event.delta.text);
+      }
+    } else if (message.type === "result") {
+      if (message.subtype === "success") resultReply = message.result || null;
+      else failed = true;
+    }
+  }
+
+  if (failed && !full.trim()) {
+    const reply = "I couldn't reach the planner just now — nothing was changed. Please send that again.";
+    onChunk(reply);
+    return { reply };
+  }
+  // Deltas are the primary source; the result message is a fallback for the
+  // (unobserved) case where a turn succeeds without emitting any deltas.
+  return { reply: full.trim() || resultReply || "Done." };
+}
+
 export async function runAgentSdkTurn(input: PlannerTurnInput): Promise<{ reply: string }> {
   // The subscription plans this token authenticates don't include Fable 5 —
   // clamp defensively even though the settings picker should already keep

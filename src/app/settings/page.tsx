@@ -155,6 +155,7 @@ export default function SettingsPage() {
     last4?: string;
   }>({ hasSecret: false });
   const [plannerKeyInput, setPlannerKeyInput] = useState("");
+  const [credMode, setCredMode] = useState<PlannerCredentialProvider>("api_key");
   const [plannerCredBusy, setPlannerCredBusy] = useState(false);
   const [plannerCredError, setPlannerCredError] = useState<string | null>(null);
   const [tagLabels, setTagLabels] = useState({ task: "", research: "", deepFocus: "", block: "" });
@@ -460,6 +461,20 @@ export default function SettingsPage() {
   async function savePlannerKey(provider: PlannerCredentialProvider) {
     const secret = plannerKeyInput.trim();
     if (!secret) return;
+    // Catch pasting the wrong credential type into the wrong tab — the two
+    // token formats are distinguishable by prefix (oat01 = subscription).
+    if (provider === "oauth_token" && !secret.startsWith("sk-ant-oat")) {
+      setPlannerCredError(
+        "That doesn't look like a subscription token (expected sk-ant-oat01-…). If it's an API key, switch to the API key tab.",
+      );
+      return;
+    }
+    if (provider === "api_key" && secret.startsWith("sk-ant-oat")) {
+      setPlannerCredError(
+        "That looks like a subscription token, not an API key — switch to the Claude Pro/Max subscription tab to save it.",
+      );
+      return;
+    }
     setPlannerCredBusy(true);
     setPlannerCredError(null);
     const res = await fetch("/api/planner/credentials", {
@@ -499,31 +514,24 @@ export default function SettingsPage() {
           Back to schedule
         </Link>
 
-        <h1 className="text-base font-medium mb-1">Anthropic API key</h1>
+        <h1 className="text-base font-medium mb-1">Claude access</h1>
         <p className="text-xs text-muted mb-3 leading-relaxed">
-          Required to use either the assistant or the planner — one key covers both, there&apos;s no separate key for
-          each. Every account needs its own; there&apos;s no shared or fallback key, so usage only ever bills to your
-          own Anthropic account. This is a separate thing from a claude.ai subscription: it&apos;s billed per-token,
-          not a flat monthly fee.
-        </p>
-        <p className="text-xs text-muted mb-3 leading-relaxed">
-          To get one: go to{" "}
-          <a
-            href="https://console.anthropic.com"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-accent-text hover:underline"
-          >
-            console.anthropic.com
-          </a>
-          , sign in or create an account, add a payment method under Billing, then open{" "}
-          <span className="text-text">API Keys</span> and create a new key. Paste it below.
+          The assistant and planner need a Claude credential. Every account brings its own; there&apos;s no shared or
+          fallback credential, so usage only ever bills to you. Two options — you can switch anytime:
         </p>
         <div className="rounded-lg border border-border bg-panel p-3.5 mb-8">
           {plannerCred.hasSecret ? (
             <div className="flex items-center gap-2.5 text-xs">
               <span className="text-text">
-                Using your API key (ending <span className="font-mono">{plannerCred.last4}</span>)
+                {plannerCred.provider === "oauth_token" ? (
+                  <>
+                    Using your Claude subscription token (ending <span className="font-mono">{plannerCred.last4}</span>)
+                  </>
+                ) : (
+                  <>
+                    Using your API key (ending <span className="font-mono">{plannerCred.last4}</span>)
+                  </>
+                )}
               </span>
               <button
                 onClick={removePlannerKey}
@@ -534,22 +542,91 @@ export default function SettingsPage() {
               </button>
             </div>
           ) : (
-            <div className="flex gap-2">
-              <input
-                type="password"
-                value={plannerKeyInput}
-                onChange={(e) => setPlannerKeyInput(e.target.value)}
-                placeholder="sk-ant-…"
-                className="flex-1 rounded-md border border-border bg-surface px-2.5 py-1.5 text-xs text-text outline-none focus-visible:border-accent"
-              />
-              <button
-                onClick={() => savePlannerKey("api_key")}
-                disabled={plannerCredBusy || !plannerKeyInput.trim()}
-                className="rounded-md border border-accent text-accent px-3 py-1.5 text-xs font-medium hover:bg-accent/10 disabled:opacity-60"
-              >
-                Save
-              </button>
-            </div>
+            <>
+              <div className="flex gap-1.5 mb-3">
+                {(
+                  [
+                    { mode: "api_key", label: "API key" },
+                    { mode: "oauth_token", label: "Claude Pro/Max subscription" },
+                  ] as const
+                ).map(({ mode, label }) => (
+                  <button
+                    key={mode}
+                    onClick={() => {
+                      setCredMode(mode);
+                      setPlannerCredError(null);
+                    }}
+                    className="rounded-md px-2.5 py-1.5 text-xs font-medium border transition-colors"
+                    style={{
+                      borderColor: credMode === mode ? "var(--color-accent)" : "var(--color-border)",
+                      background: credMode === mode ? "rgba(145,132,217,0.08)" : "transparent",
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {credMode === "api_key" ? (
+                <p className="text-xs text-muted mb-3 leading-relaxed">
+                  Pay-per-use billing to your own Anthropic account (separate from a claude.ai subscription). Covers
+                  both the assistant and the planner, and unlocks every model including Fable 5. Get one at{" "}
+                  <a
+                    href="https://console.anthropic.com"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-accent-text hover:underline"
+                  >
+                    console.anthropic.com
+                  </a>{" "}
+                  — add a payment method under Billing, then create a key under{" "}
+                  <span className="text-text">API Keys</span> and paste it below.
+                </p>
+              ) : (
+                <div className="text-xs text-muted mb-3 leading-relaxed">
+                  <p className="mb-2">
+                    Uses the flat-rate claude.ai plan you already pay for — no per-message charges. Requires a paid
+                    plan (Pro or higher; the free plan doesn&apos;t qualify) and powers the{" "}
+                    <span className="text-text">Planner only</span> — the quick assistant still needs an API key.
+                    Usage draws from your plan&apos;s normal limits, shared with your own claude.ai and Claude Code
+                    use. Models up to Opus 4.8 (subscriptions don&apos;t include Fable 5).
+                  </p>
+                  <p>
+                    To mint your token, run <span className="font-mono text-text">claude setup-token</span> in a
+                    terminal (requires{" "}
+                    <a
+                      href="https://claude.com/claude-code"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-accent-text hover:underline"
+                    >
+                      Claude Code
+                    </a>
+                    ), log in with your claude.ai account, and paste the{" "}
+                    <span className="font-mono text-text">sk-ant-oat01-…</span> token below. Note: this option also
+                    requires the deployment&apos;s planner relay to be set up — see the README if planner replies say
+                    it isn&apos;t enabled.
+                  </p>
+                </div>
+              )}
+
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  value={plannerKeyInput}
+                  onChange={(e) => setPlannerKeyInput(e.target.value)}
+                  placeholder={credMode === "oauth_token" ? "sk-ant-oat01-…" : "sk-ant-…"}
+                  className="flex-1 rounded-md border border-border bg-surface px-2.5 py-1.5 text-xs text-text outline-none focus-visible:border-accent"
+                />
+                <button
+                  onClick={() => savePlannerKey(credMode)}
+                  disabled={plannerCredBusy || !plannerKeyInput.trim()}
+                  className="rounded-md border border-accent text-accent px-3 py-1.5 text-xs font-medium hover:bg-accent/10 disabled:opacity-60"
+                >
+                  Save
+                </button>
+              </div>
+            </>
           )}
           {plannerCredError && <p className="mt-2 text-xs text-red-300">{plannerCredError}</p>}
         </div>
@@ -557,7 +634,8 @@ export default function SettingsPage() {
         <h1 className="text-base font-medium mb-1">Assistant model</h1>
         <p className="text-xs text-muted mb-5">
           Pick which Claude model powers the chat assistant. Approximate monthly cost is based on typical personal
-          usage (20–50 short messages/day), billed to the API key above.
+          usage (20–50 short messages/day), billed per-use to an API key — the quick assistant requires the API key
+          option above (a subscription token covers the Planner only).
         </p>
 
         {loading ? (
@@ -595,7 +673,8 @@ export default function SettingsPage() {
           <h2 className="text-base font-medium mb-1">Planner AI</h2>
           <p className="text-xs text-muted mb-4">
             The Planner is a separate, longer-horizon chat for discussing projects and keeping notes — it uses its
-            own model choice, billed to the same API key from the top of this page.
+            own model choice, running on whichever credential you set at the top of this page (API key or Claude
+            subscription).
           </p>
 
           <div className="rounded-lg border border-border bg-panel p-3.5 mb-5 text-xs text-muted leading-relaxed">

@@ -28,5 +28,11 @@ RUN npx esbuild src/relay/server.ts --bundle --platform=node --format=cjs \
   --external:@anthropic-ai/claude-agent-sdk \
   --outfile=dist-relay/relay.js
 
+# The Agent SDK's bundled CLI refuses --dangerously-skip-permissions when
+# running as root (its own safety check), which failed every turn — run as
+# the unprivileged node user that the base image ships. $HOME becomes
+# /home/node, which is writable for the CLI's session/config files.
+USER node
+
 EXPOSE 8080
 CMD ["node", "dist-relay/relay.js"]

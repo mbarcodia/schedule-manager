@@ -8,12 +8,16 @@ import { useState } from "react";
 import Link from "next/link";
 import { CaretLeftIcon } from "@phosphor-icons/react";
 import { KanbanBoard } from "@/components/board/KanbanBoard";
+import { EisenhowerBoard } from "@/components/board/EisenhowerBoard";
 import { PlannerSidebar } from "@/components/planner/PlannerSidebar";
 import { useScheduleData } from "@/hooks/useScheduleData";
 
-type BoardView = "kanban";
+type BoardView = "kanban" | "eisenhower";
 
-const VIEWS: { id: BoardView; label: string }[] = [{ id: "kanban", label: "Kanban" }];
+const VIEWS: { id: BoardView; label: string }[] = [
+  { id: "kanban", label: "Kanban" },
+  { id: "eisenhower", label: "Eisenhower" },
+];
 
 export default function PlannerPage() {
   const scheduleData = useScheduleData();
@@ -51,6 +55,7 @@ export default function PlannerPage() {
       </div>
       <div className="flex-1 flex min-h-0">
         {view === "kanban" && <KanbanBoard scheduleData={scheduleData} onMutated={onMutated} />}
+        {view === "eisenhower" && <EisenhowerBoard scheduleData={scheduleData} onMutated={onMutated} />}
         <PlannerSidebar refreshKey={refreshKey} />
       </div>
     </div>

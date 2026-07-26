@@ -1,16 +1,26 @@
 "use client";
 
-import { useCallback, useState } from "react";
+// The planner tab is the visual board — kanban (and soon eisenhower/timeline/
+// archive views) over the same live schedule the calendar uses. The planner
+// CHAT lives on the calendar page (PlannerChatPanel); only notes + board here.
+
+import { useState } from "react";
 import Link from "next/link";
 import { CaretLeftIcon } from "@phosphor-icons/react";
-import { usePlannerChat } from "@/hooks/usePlannerChat";
-import { PlannerChat } from "@/components/planner/PlannerChat";
+import { KanbanBoard } from "@/components/board/KanbanBoard";
 import { PlannerSidebar } from "@/components/planner/PlannerSidebar";
+import { useScheduleData } from "@/hooks/useScheduleData";
+
+type BoardView = "kanban";
+
+const VIEWS: { id: BoardView; label: string }[] = [{ id: "kanban", label: "Kanban" }];
 
 export default function PlannerPage() {
-  const [refreshKey, setRefreshKey] = useState(0);
-  const onReplied = useCallback(() => setRefreshKey((k) => k + 1), []);
-  const { messages, busy, send } = usePlannerChat(onReplied);
+  const scheduleData = useScheduleData();
+  const [view, setView] = useState<BoardView>("kanban");
+  // Bumped by board mutations (drag-and-drop lands in a later phase) so the
+  // notes sidebar can refetch if a linked trackable changes.
+  const [refreshKey] = useState(0);
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
@@ -20,11 +30,26 @@ export default function PlannerPage() {
         </Link>
         <div className="font-medium text-[14px]">Planner</div>
         <div className="text-[11px] text-muted">
-          Long-horizon planning partner — it can do everything the assistant can, plus keep notes.
+          Board views of your projects, proposals, and goals — chat lives on the calendar page.
+        </div>
+        <div className="ml-auto flex gap-1">
+          {VIEWS.map((v) => (
+            <button
+              key={v.id}
+              onClick={() => setView(v.id)}
+              className="rounded-md px-2.5 py-1 text-[11px] font-medium border transition-colors"
+              style={{
+                borderColor: view === v.id ? "var(--color-accent)" : "var(--color-border)",
+                background: view === v.id ? "rgba(145,132,217,0.08)" : "transparent",
+              }}
+            >
+              {v.label}
+            </button>
+          ))}
         </div>
       </div>
       <div className="flex-1 flex min-h-0">
-        <PlannerChat messages={messages} busy={busy} onSend={send} />
+        {view === "kanban" && <KanbanBoard scheduleData={scheduleData} />}
         <PlannerSidebar refreshKey={refreshKey} />
       </div>
     </div>

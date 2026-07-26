@@ -10,14 +10,17 @@ import { CaretLeftIcon } from "@phosphor-icons/react";
 import { KanbanBoard } from "@/components/board/KanbanBoard";
 import { EisenhowerBoard } from "@/components/board/EisenhowerBoard";
 import { ArchiveView } from "@/components/board/ArchiveView";
+import { Timeline } from "@/components/board/Timeline";
+import { WeeklyReviewCard } from "@/components/board/WeeklyReviewCard";
 import { PlannerSidebar } from "@/components/planner/PlannerSidebar";
 import { useScheduleData } from "@/hooks/useScheduleData";
 
-type BoardView = "kanban" | "eisenhower" | "archive";
+type BoardView = "kanban" | "eisenhower" | "timeline" | "archive";
 
 const VIEWS: { id: BoardView; label: string }[] = [
   { id: "kanban", label: "Kanban" },
   { id: "eisenhower", label: "Eisenhower" },
+  { id: "timeline", label: "Timeline" },
   { id: "archive", label: "Archive" },
 ];
 
@@ -55,9 +58,11 @@ export default function PlannerPage() {
           ))}
         </div>
       </div>
+      <WeeklyReviewCard scheduleData={scheduleData} />
       <div className="flex-1 flex min-h-0">
         {view === "kanban" && <KanbanBoard scheduleData={scheduleData} onMutated={onMutated} />}
         {view === "eisenhower" && <EisenhowerBoard scheduleData={scheduleData} onMutated={onMutated} />}
+        {view === "timeline" && <Timeline scheduleData={scheduleData} />}
         {view === "archive" && (
           <ArchiveView
             onMutated={() => {

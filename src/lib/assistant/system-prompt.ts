@@ -6,6 +6,8 @@
 // projects, since every account starts empty.
 
 import { minToLabel, WEEKDAY_LABELS } from "@/lib/scheduling/time";
+import { deriveBoardStatuses, boardStatusFor } from "@/lib/planner/board-status";
+import { DEFAULT_WIP_LIMIT } from "@/lib/planner/board-constants";
 import type { ComputeScheduleResult, DayOverrides } from "@/lib/scheduling/types";
 import type { RawScheduleRows } from "@/lib/scheduling/from-db";
 import type { ScheduleInputs } from "@/lib/scheduling/types";
@@ -32,7 +34,18 @@ export function buildPromptContext(rows: RawScheduleRows, inputs: ScheduleInputs
 
   const categoryById = new Map(rows.categories.map((c) => [c.id, c.name]));
 
+  // Soft WIP accounting for the kanban board's In Progress column — surfaced
+  // in the snapshot so the planner can push back on starting new work while
+  // over the limit (same spirit as flagging overcommitted deadlines).
+  const boardIndex = deriveBoardStatuses(schedule);
+  const wipInProgressCount = rows.tasks.filter((t) => boardStatusFor(boardIndex, t.id) === "in_progress").length;
+
   const snapshot = {
+    wip: {
+      inProgressCount: wipInProgressCount,
+      limit: DEFAULT_WIP_LIMIT,
+      overLimit: wipInProgressCount > DEFAULT_WIP_LIMIT,
+    },
     categories: rows.categories.map((c) => c.name),
     tasks: rows.tasks.map((t) => ({
       title: t.title,

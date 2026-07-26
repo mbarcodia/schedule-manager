@@ -4,7 +4,7 @@
 // credential paths) presented as the calendar page's collapsible side rail —
 // the chrome the retired quick assistant used to own.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CaretLeftIcon, CaretRightIcon } from "@phosphor-icons/react";
 import { PlannerChat } from "@/components/planner/PlannerChat";
 import { usePlannerChat } from "@/hooks/usePlannerChat";
@@ -19,6 +19,20 @@ export function PlannerChatPanel({ scheduleData }: PlannerChatPanelProps) {
   const { data, schedule, refresh } = scheduleData;
   const { messages, busy, send } = usePlannerChat(refresh);
   const [collapsed, setCollapsed] = useState(false);
+  const [initialInput, setInitialInput] = useState<string | undefined>();
+
+  useEffect(() => {
+    // The board's "Discuss this week's review" link lands on /?review=1 —
+    // pre-fill (never auto-send) the review prompt. Read from the URL
+    // directly: this is client-only state, not worth a useSearchParams
+    // Suspense boundary.
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("review")) {
+      setInitialInput(
+        "Let's do a weekly review — what's overdue, what's stuck in progress too long, and what should I drop or reprioritize for next week?",
+      );
+    }
+  }, []);
 
   const chips =
     data && schedule
@@ -89,7 +103,7 @@ export function PlannerChatPanel({ scheduleData }: PlannerChatPanelProps) {
         </div>
       )}
 
-      <PlannerChat messages={messages} busy={busy} onSend={send} />
+      <PlannerChat messages={messages} busy={busy} onSend={send} initialInput={initialInput} />
     </div>
   );
 }

@@ -8,11 +8,19 @@ interface PlannerChatProps {
   messages: PlannerMessage[];
   busy: boolean;
   onSend: (text: string) => void;
+  /** Pre-fills the input once (e.g. the weekly-review deep link) — never
+   * auto-sends; the user still hits Send. */
+  initialInput?: string;
 }
 
-export function PlannerChat({ messages, busy, onSend }: PlannerChatProps) {
+export function PlannerChat({ messages, busy, onSend, initialInput }: PlannerChatProps) {
   const [input, setInput] = useState("");
   const listRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    // Arrives async (read from the URL after mount) — only seed an untouched box.
+    if (initialInput) setInput((prev) => prev || initialInput);
+  }, [initialInput]);
 
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight });

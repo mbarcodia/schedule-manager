@@ -1,25 +1,24 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { CaretLeftIcon, CaretRightIcon, PaperPlaneRightIcon } from "@phosphor-icons/react";
-import { useChat } from "@/hooks/useChat";
+// The one chat surface: the planner chat (full scheduling + notes tools, both
+// credential paths) presented as the calendar page's collapsible side rail —
+// the chrome the retired quick assistant used to own.
+
+import { useState } from "react";
+import { CaretLeftIcon, CaretRightIcon } from "@phosphor-icons/react";
+import { PlannerChat } from "@/components/planner/PlannerChat";
+import { usePlannerChat } from "@/hooks/usePlannerChat";
 import { computeTrackableChips } from "@/lib/scheduling/trackables";
 import type { UseScheduleDataResult } from "@/hooks/useScheduleData";
 
-interface AssistantPanelProps {
+interface PlannerChatPanelProps {
   scheduleData: UseScheduleDataResult;
 }
 
-export function AssistantPanel({ scheduleData }: AssistantPanelProps) {
+export function PlannerChatPanel({ scheduleData }: PlannerChatPanelProps) {
   const { data, schedule, refresh } = scheduleData;
-  const { messages, send } = useChat(refresh);
-  const [input, setInput] = useState("");
+  const { messages, busy, send } = usePlannerChat(refresh);
   const [collapsed, setCollapsed] = useState(false);
-  const listRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
-  }, [messages]);
 
   const chips =
     data && schedule
@@ -34,18 +33,12 @@ export function AssistantPanel({ scheduleData }: AssistantPanelProps) {
         )
       : [];
 
-  function handleSend() {
-    const text = input;
-    setInput("");
-    void send(text);
-  }
-
   if (collapsed) {
     return (
       <div className="flex-none w-9 border-l border-border flex flex-col items-center pt-3">
         <button
           onClick={() => setCollapsed(false)}
-          title="Expand assistant"
+          title="Expand chat"
           className="inline-flex items-center justify-center w-7 h-7 rounded-md hover:bg-white/5 text-muted"
         >
           <CaretLeftIcon size={13} weight="bold" />
@@ -58,12 +51,14 @@ export function AssistantPanel({ scheduleData }: AssistantPanelProps) {
     <div className="flex-none w-[400px] border-l border-border flex flex-col min-h-0">
       <div className="flex-none px-4 py-3.5 border-b border-border flex items-start justify-between gap-2">
         <div>
-          <div className="font-medium text-[13px]">Assistant</div>
-          <div className="mt-0.5 text-[11px] text-muted">Tell me a task. I&apos;ll fit it around your rules.</div>
+          <div className="font-medium text-[13px]">Planner</div>
+          <div className="mt-0.5 text-[11px] text-muted">
+            Discuss projects, priorities, and plans — it can schedule tasks and keep notes.
+          </div>
         </div>
         <button
           onClick={() => setCollapsed(true)}
-          title="Collapse assistant"
+          title="Collapse chat"
           className="flex-none inline-flex items-center justify-center w-6 h-6 rounded-md hover:bg-white/5 text-muted"
         >
           <CaretRightIcon size={12} weight="bold" />
@@ -94,45 +89,7 @@ export function AssistantPanel({ scheduleData }: AssistantPanelProps) {
         </div>
       )}
 
-      <div ref={listRef} className="flex-1 overflow-y-auto px-4 py-3.5 flex flex-col gap-2.5 min-h-0">
-        {messages.map((m, i) => (
-          <div key={i} className="max-w-[85%]" style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start" }}>
-            <div
-              className="rounded-lg px-2.5 py-2 text-[12.5px] leading-relaxed"
-              style={{
-                background: m.role === "user" ? "#423a6a" : "#232532",
-                border: `1px solid ${m.role === "user" ? "#796cbf" : "rgba(233,233,237,0.16)"}`,
-                color: "#e9e9ed",
-              }}
-            >
-              {m.text}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="flex-none px-3.5 py-3 border-t border-border flex gap-2">
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              handleSend();
-            }
-          }}
-          placeholder="e.g. finish report, high priority, 2h, due fri"
-          className="flex-1 rounded-md border border-border bg-surface px-2.5 py-2 text-text text-[13px] outline-none focus-visible:border-accent"
-          style={{ minHeight: 36 }}
-        />
-        <button
-          onClick={handleSend}
-          className="inline-flex items-center justify-center gap-1.5 border border-accent text-accent rounded-md px-3.5 text-[13px] font-medium hover:bg-accent/10"
-        >
-          <PaperPlaneRightIcon size={14} weight="fill" />
-          Send
-        </button>
-      </div>
+      <PlannerChat messages={messages} busy={busy} onSend={send} />
     </div>
   );
 }

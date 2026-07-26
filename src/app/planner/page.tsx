@@ -9,14 +9,16 @@ import Link from "next/link";
 import { CaretLeftIcon } from "@phosphor-icons/react";
 import { KanbanBoard } from "@/components/board/KanbanBoard";
 import { EisenhowerBoard } from "@/components/board/EisenhowerBoard";
+import { ArchiveView } from "@/components/board/ArchiveView";
 import { PlannerSidebar } from "@/components/planner/PlannerSidebar";
 import { useScheduleData } from "@/hooks/useScheduleData";
 
-type BoardView = "kanban" | "eisenhower";
+type BoardView = "kanban" | "eisenhower" | "archive";
 
 const VIEWS: { id: BoardView; label: string }[] = [
   { id: "kanban", label: "Kanban" },
   { id: "eisenhower", label: "Eisenhower" },
+  { id: "archive", label: "Archive" },
 ];
 
 export default function PlannerPage() {
@@ -56,6 +58,15 @@ export default function PlannerPage() {
       <div className="flex-1 flex min-h-0">
         {view === "kanban" && <KanbanBoard scheduleData={scheduleData} onMutated={onMutated} />}
         {view === "eisenhower" && <EisenhowerBoard scheduleData={scheduleData} onMutated={onMutated} />}
+        {view === "archive" && (
+          <ArchiveView
+            onMutated={() => {
+              // A restore puts the task back on the schedule — refetch it too.
+              void scheduleData.refresh();
+              onMutated();
+            }}
+          />
+        )}
         <PlannerSidebar refreshKey={refreshKey} />
       </div>
     </div>

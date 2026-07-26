@@ -260,6 +260,92 @@ function notesTools(ctx: ToolContext) {
   return [create_note, update_note, read_note, delete_note, list_notes];
 }
 
+function archiveTools(ctx: ToolContext) {
+  const { supabase, userId } = ctx;
+
+  const archive_task = betaTool({
+    name: "archive_task",
+    description:
+      "Archive a task instead of deleting it: it leaves the schedule and board but keeps its row and logged-hours history forever (restorable from the board's Archive view). PREFER this over remove_item when the user is done with a task — deletion destroys the record of the work.",
+    inputSchema: {
+      type: "object",
+      properties: { title: { type: "string", description: "Fuzzy title of the task to archive." } },
+      required: ["title"],
+    },
+    run: async ({ title }) => {
+      const { data: tasks } = await supabase
+        .from("tasks")
+        .select("id,title")
+        .eq("user_id", userId)
+        .is("archived_at", null);
+      const result = findByTitle(tasks ?? [], title);
+      if (result.ambiguous.length) {
+        return `"${title}" matches multiple tasks: ${result.ambiguous.map((t) => t.title).join(", ")}. Say which one (use its exact title).`;
+      }
+      if (!result.match) return `No active task matching "${title}".`;
+      await supabase.from("tasks").update({ archived_at: new Date().toISOString() }).eq("id", result.match.id);
+      markMutated(ctx);
+      return `Archived "${result.match.title}" — off the schedule, history kept. It can be restored from the board's Archive view.`;
+    },
+  });
+
+  const list_archived_tasks = betaTool({
+    name: "list_archived_tasks",
+    description:
+      "List archived (completed/retired) tasks with their logged hours, optionally within an archived-date range — the data source for retrospectives like 'what did I get done this semester?'.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        from: { type: "string", description: "Earliest archived date, YYYY-MM-DD (inclusive). Omit for no lower bound." },
+        to: { type: "string", description: "Latest archived date, YYYY-MM-DD (inclusive). Omit for no upper bound." },
+      },
+    },
+    run: async ({ from, to }) => {
+      let query = supabase
+        .from("tasks")
+        .select("id,title,duration_min,deadline_at,archived_at,category_id")
+        .eq("user_id", userId)
+        .not("archived_at", "is", null)
+        .order("archived_at", { ascending: false });
+      if (from) query = query.gte("archived_at", from);
+      if (to) query = query.lte("archived_at", `${to}T23:59:59Z`);
+      const [{ data: tasks }, { data: categories }] = await Promise.all([
+        query,
+        supabase.from("categories").select("id,name").eq("user_id", userId),
+      ]);
+      if (!tasks?.length) return "No archived tasks in that range.";
+
+      const { data: log } = await supabase
+        .from("progress_log")
+        .select("subject_id,start_min,end_min,minutes_done")
+        .eq("user_id", userId)
+        .eq("subject_type", "task")
+        .in(
+          "subject_id",
+          tasks.map((t) => t.id),
+        );
+      const minutesByTask = new Map<string, number>();
+      for (const row of log ?? []) {
+        const done = row.minutes_done ?? row.end_min - row.start_min;
+        minutesByTask.set(row.subject_id, (minutesByTask.get(row.subject_id) ?? 0) + done);
+      }
+      const catName = new Map((categories ?? []).map((c) => [c.id, c.name]));
+
+      return tasks
+        .map((t) => {
+          const logged = minutesByTask.get(t.id);
+          const cat = t.category_id ? catName.get(t.category_id) : null;
+          return `- ${t.title}${cat ? ` [${cat}]` : ""} — archived ${t.archived_at!.slice(0, 10)}${
+            logged ? `, ${Math.round((logged / 60) * 10) / 10}h logged` : ""
+          }${t.deadline_at ? `, was due ${t.deadline_at.slice(0, 10)}` : ""}`;
+        })
+        .join("\n");
+    },
+  });
+
+  return [archive_task, list_archived_tasks];
+}
+
 export function buildPlannerTools(ctx: ToolContext) {
-  return [...buildTools(ctx), ...notesTools(ctx)];
+  return [...buildTools(ctx), ...notesTools(ctx), ...archiveTools(ctx)];
 }

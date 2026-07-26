@@ -18,7 +18,10 @@ export function PlannerChat({ messages, busy, onSend, initialInput }: PlannerCha
   const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    // Arrives async (read from the URL after mount) — only seed an untouched box.
+    // Arrives async (read from the URL after mount) — only seed an untouched
+    // box. One-shot seeding, not a cascading-render risk (same caveat as
+    // useScheduleData's fetch-on-mount).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (initialInput) setInput((prev) => prev || initialInput);
   }, [initialInput]);
 

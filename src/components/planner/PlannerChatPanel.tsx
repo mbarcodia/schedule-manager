@@ -27,7 +27,10 @@ export function PlannerChatPanel({ scheduleData }: PlannerChatPanelProps) {
     // directly: this is client-only state, not worth a useSearchParams
     // Suspense boundary.
     const params = new URLSearchParams(window.location.search);
+    // One-shot mount-time seed from the URL (window doesn't exist during
+    // prerender, so this can't be a lazy initializer).
     if (params.get("review")) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setInitialInput(
         "Let's do a weekly review — what's overdue, what's stuck in progress too long, and what should I drop or reprioritize for next week?",
       );

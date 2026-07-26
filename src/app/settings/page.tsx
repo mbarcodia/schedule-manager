@@ -10,7 +10,6 @@ import type {
   Database,
   PlannerCredentialProvider,
   PlannerModel,
-  PreferredModel,
   WeeklyHoursJson,
 } from "@/lib/supabase/database.types";
 import { getPushSubscriptionStatus, subscribeToPush, unsubscribeFromPush } from "@/lib/push/subscribe";
@@ -79,32 +78,6 @@ interface NotifPrefs {
   weeklyTime: number;
 }
 
-const MODEL_OPTIONS: {
-  id: PreferredModel;
-  label: string;
-  cost: string;
-  description: string;
-}[] = [
-  {
-    id: "claude-haiku-4-5",
-    label: "Claude Haiku 4.5",
-    cost: "~$1–3/month",
-    description: "Cheapest. Fine for simple task capture; can misparse compound requests or give shallower planning advice.",
-  },
-  {
-    id: "claude-sonnet-5",
-    label: "Claude Sonnet 5",
-    cost: "~$3–7/month",
-    description: "Recommended default — reliable on compound requests, multi-step tool use, and genuine planning advice.",
-  },
-  {
-    id: "claude-opus-4-8",
-    label: "Claude Opus 4.8",
-    cost: "~$6–15/month",
-    description: "Most capable. Strongest reasoning, for anyone who wants that and doesn't mind paying more.",
-  },
-];
-
 const PLANNER_MODEL_OPTIONS: {
   id: PlannerModel;
   label: string;
@@ -129,8 +102,6 @@ const PLANNER_MODEL_OPTIONS: {
 
 export default function SettingsPage() {
   const router = useRouter();
-  const [current, setCurrent] = useState<PreferredModel | null>(null);
-  const [saving, setSaving] = useState<PreferredModel | null>(null);
   const [loading, setLoading] = useState(true);
   const [hours, setHours] = useState<WeeklyHoursJson | null>(null);
   const [categories, setCategories] = useState<CategoryRow[]>([]);
@@ -172,7 +143,7 @@ export default function SettingsPage() {
         supabase
           .from("profiles")
           .select(
-            "preferred_model,planner_model,weekly_hours,eod_checkin_enabled,eod_checkin_time,weekly_summary_enabled,weekly_summary_dow,weekly_summary_time,label_task,label_research,label_deep_focus,label_block",
+            "planner_model,weekly_hours,eod_checkin_enabled,eod_checkin_time,weekly_summary_enabled,weekly_summary_dow,weekly_summary_time,label_task,label_research,label_deep_focus,label_block",
           )
           .eq("id", user.id)
           .single(),
@@ -182,7 +153,6 @@ export default function SettingsPage() {
       ]);
       if (ignore) return;
       if (data) {
-        setCurrent(data.preferred_model);
         setPlannerModel(data.planner_model);
         setHours(data.weekly_hours);
         setNotif({
@@ -432,19 +402,6 @@ export default function SettingsPage() {
     void saveNotif({ ...notif, weeklyTime: minutes });
   }
 
-  async function choose(model: PreferredModel) {
-    setSaving(model);
-    const supabase = createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (user) {
-      await supabase.from("profiles").update({ preferred_model: model }).eq("id", user.id);
-      setCurrent(model);
-    }
-    setSaving(null);
-  }
-
   async function choosePlannerModel(model: PlannerModel) {
     setPlannerModelSaving(model);
     const supabase = createClient();
@@ -516,8 +473,8 @@ export default function SettingsPage() {
 
         <h1 className="text-base font-medium mb-1">Claude access</h1>
         <p className="text-xs text-muted mb-3 leading-relaxed">
-          The assistant and planner need a Claude credential. Every account brings its own; there&apos;s no shared or
-          fallback credential, so usage only ever bills to you. Two options — you can switch anytime:
+          The chat needs a Claude credential. Every account brings its own; there&apos;s no shared or fallback
+          credential, so usage only ever bills to you. Two options — you can switch anytime:
         </p>
         <div className="rounded-lg border border-border bg-panel p-3.5 mb-8">
           {plannerCred.hasSecret ? (
@@ -569,8 +526,8 @@ export default function SettingsPage() {
 
               {credMode === "api_key" ? (
                 <p className="text-xs text-muted mb-3 leading-relaxed">
-                  Pay-per-use billing to your own Anthropic account (separate from a claude.ai subscription). Covers
-                  both the assistant and the planner, and unlocks every model including Fable 5. Get one at{" "}
+                  Pay-per-use billing to your own Anthropic account (separate from a claude.ai subscription). Unlocks
+                  every model including Fable 5. Get one at{" "}
                   <a
                     href="https://console.anthropic.com"
                     target="_blank"
@@ -586,10 +543,9 @@ export default function SettingsPage() {
                 <div className="text-xs text-muted mb-3 leading-relaxed">
                   <p className="mb-2">
                     Uses the flat-rate claude.ai plan you already pay for — no per-message charges. Requires a paid
-                    plan (Pro or higher; the free plan doesn&apos;t qualify) and powers the{" "}
-                    <span className="text-text">Planner only</span> — the quick assistant still needs an API key.
-                    Usage draws from your plan&apos;s normal limits, shared with your own claude.ai and Claude Code
-                    use. Models up to Opus 4.8 (subscriptions don&apos;t include Fable 5).
+                    plan (Pro or higher; the free plan doesn&apos;t qualify). Usage draws from your plan&apos;s normal
+                    limits, shared with your own claude.ai and Claude Code use. Models up to Opus 4.8 (subscriptions
+                    don&apos;t include Fable 5).
                   </p>
                   <p>
                     To mint your token, run <span className="font-mono text-text">claude setup-token</span> in a
@@ -631,61 +587,21 @@ export default function SettingsPage() {
           {plannerCredError && <p className="mt-2 text-xs text-red-300">{plannerCredError}</p>}
         </div>
 
-        <h1 className="text-base font-medium mb-1">Assistant model</h1>
-        <p className="text-xs text-muted mb-5">
-          Pick which Claude model powers the chat assistant. Approximate monthly cost is based on typical personal
-          usage (20–50 short messages/day), billed per-use to an API key — the quick assistant requires the API key
-          option above (a subscription token covers the Planner only).
-        </p>
-
-        {loading ? (
-          <p className="text-xs text-muted">Loading…</p>
-        ) : (
-          <div className="flex flex-col gap-2.5">
-            {MODEL_OPTIONS.map((opt) => {
-              const selected = current === opt.id;
-              return (
-                <button
-                  key={opt.id}
-                  onClick={() => choose(opt.id)}
-                  disabled={saving != null}
-                  className="text-left rounded-lg border p-3.5 transition-colors disabled:opacity-70"
-                  style={{
-                    borderColor: selected ? "var(--color-accent)" : "var(--color-border)",
-                    background: selected ? "rgba(145,132,217,0.08)" : "var(--color-panel)",
-                  }}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium">{opt.label}</span>
-                      {selected && <CheckIcon size={14} weight="bold" className="text-accent" />}
-                    </div>
-                    <span className="text-xs text-accent-text font-medium">{opt.cost}</span>
-                  </div>
-                  <p className="mt-1.5 text-xs text-muted leading-relaxed">{opt.description}</p>
-                </button>
-              );
-            })}
-          </div>
-        )}
-
         <div className="mt-8 pt-5 border-t border-border">
           <h2 className="text-base font-medium mb-1">Planner AI</h2>
           <p className="text-xs text-muted mb-4">
-            The Planner is a separate, longer-horizon chat for discussing projects and keeping notes — it uses its
-            own model choice, running on whichever credential you set at the top of this page (API key or Claude
-            subscription).
+            The chat panel on your calendar is the planner — full scheduling plus notes tools, running on whichever
+            credential you set at the top of this page (API key or Claude subscription). Pick its model here.
           </p>
 
           <div className="rounded-lg border border-border bg-panel p-3.5 mb-5 text-xs text-muted leading-relaxed">
             <div className="text-sm font-medium text-text mb-1.5">How the Planner works</div>
             <p className="mb-2">
-              Open it from the calendar via the <span className="text-text">Planner</span> link. It has everything
-              the quick assistant has, plus notes: each note has a kind (idea, todo, paper, update, other) and can be
-              linked to a project/proposal/task or left unlinked. Create and edit notes either by asking the planner
-              in chat (&quot;add a note to ACE2 about…&quot;) or directly in the sidebar. The sidebar groups notes
-              under their linked project; &quot;Export notes&quot; in the sidebar header downloads everything as one
-              Markdown file.
+              Chat with it on the calendar page; the <span className="text-text">Planner</span> link opens the board
+              and notes. Each note has a kind (idea, todo, paper, update, other) and can be linked to a
+              project/proposal/task or left unlinked. Create and edit notes either by asking in chat (&quot;add a
+              note to ACE2 about…&quot;) or directly in the sidebar. The sidebar groups notes under their linked
+              project; &quot;Export notes&quot; in the sidebar header downloads everything as one Markdown file.
             </p>
             <p>The planner reads your existing notes when relevant, so you don&apos;t need to repeat context.</p>
           </div>

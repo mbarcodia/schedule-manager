@@ -44,7 +44,10 @@ export async function queryScheduleRows(
     supabase.from("projects").select("*").eq("user_id", userId),
     supabase.from("proposals").select("*").eq("user_id", userId),
     supabase.from("goals").select("*").eq("user_id", userId),
-    supabase.from("tasks").select("*").eq("user_id", userId),
+    // Archived tasks keep their rows + progress_log history forever, but are
+    // invisible to scheduling and the board (the archive view queries them
+    // separately with archived_at NOT null).
+    supabase.from("tasks").select("*").eq("user_id", userId).is("archived_at", null),
     supabase.from("recurring_rules").select("*").eq("user_id", userId),
     supabase.from("preference_notes").select("*").eq("user_id", userId),
     supabase

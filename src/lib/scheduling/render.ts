@@ -49,7 +49,7 @@ export interface BlockVisual {
 /** Derives a bg/border/text triplet from a single stored category color via
  * CSS color-mix — avoids hand-rolling hex math for what's essentially "a
  * muted fill, the pure color as border, a lightened text tone". */
-function categoryPalette(hex: string): { bg: string; border: string; textColor: string } {
+export function categoryPalette(hex: string): { bg: string; border: string; textColor: string } {
   return {
     bg: `color-mix(in srgb, ${hex} 32%, #232532)`,
     border: hex,

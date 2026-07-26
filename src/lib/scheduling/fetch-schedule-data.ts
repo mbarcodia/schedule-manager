@@ -3,7 +3,7 @@
 // converts it via buildScheduleInputs.
 
 import { createClient } from "@/lib/supabase/client";
-import { buildScheduleInputs } from "./from-db";
+import { buildScheduleInputs, type RawScheduleRows } from "./from-db";
 import { queryScheduleRows } from "./query-rows";
 import type { Category, Goal, Project, Proposal, ScheduleInputs } from "./types";
 
@@ -14,6 +14,10 @@ export interface ScheduleData {
   goals: Goal[];
   categories: Category[];
   preferredModel: string;
+  /** Raw task rows as stored — the board needs fields the engine's
+   * transformed Task drops (important, archived_at, raw deadline_at,
+   * project/proposal links). */
+  rawTasks: RawScheduleRows["tasks"];
 }
 
 export async function fetchScheduleData(): Promise<ScheduleData> {
@@ -39,5 +43,13 @@ export async function fetchScheduleData(): Promise<ScheduleData> {
   const now = new Date();
   const rows = await queryScheduleRows(supabase, user.id, now);
   const { inputs, projects, proposals, goals, categories } = buildScheduleInputs(rows, now);
-  return { inputs, projects, proposals, goals, categories, preferredModel: rows.profile.preferred_model };
+  return {
+    inputs,
+    projects,
+    proposals,
+    goals,
+    categories,
+    preferredModel: rows.profile.preferred_model,
+    rawTasks: rows.tasks,
+  };
 }

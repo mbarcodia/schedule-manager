@@ -166,6 +166,8 @@ export interface Database {
           pinned_start_min: number | null;
           pinned_length_min: number | null;
           time_of_day: TaskTimeOfDay | null;
+          important: boolean;
+          archived_at: string | null;
         },
         {
           id?: string;
@@ -187,6 +189,8 @@ export interface Database {
           pinned_start_min?: number | null;
           pinned_length_min?: number | null;
           time_of_day?: TaskTimeOfDay | null;
+          important?: boolean;
+          archived_at?: string | null;
         },
         Partial<{
           title: string;
@@ -206,6 +210,8 @@ export interface Database {
           pinned_start_min: number | null;
           pinned_length_min: number | null;
           time_of_day: TaskTimeOfDay | null;
+          important: boolean;
+          archived_at: string | null;
         }>
       >;
       recurring_rules: Table<

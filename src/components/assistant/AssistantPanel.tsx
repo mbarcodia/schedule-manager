@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { CaretLeftIcon, CaretRightIcon, PaperPlaneRightIcon } from "@phosphor-icons/react";
 import { useChat } from "@/hooks/useChat";
-import { computeTrackableChips } from "./trackables";
+import { computeTrackableChips } from "@/lib/scheduling/trackables";
 import type { UseScheduleDataResult } from "@/hooks/useScheduleData";
 
 interface AssistantPanelProps {

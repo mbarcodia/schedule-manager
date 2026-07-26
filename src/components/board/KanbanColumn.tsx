@@ -1,8 +1,10 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { useDroppable } from "@dnd-kit/core";
 
 interface KanbanColumnProps {
+  id: string;
   title: string;
   count: number;
   /** Extra header line, e.g. "clears each week" on Done. */
@@ -14,9 +16,15 @@ interface KanbanColumnProps {
   children: ReactNode;
 }
 
-export function KanbanColumn({ title, count, subtitle, warn, badge, children }: KanbanColumnProps) {
+export function KanbanColumn({ id, title, count, subtitle, warn, badge, children }: KanbanColumnProps) {
+  const { setNodeRef, isOver } = useDroppable({ id });
+
   return (
-    <div className="flex-1 min-w-[180px] flex flex-col min-h-0">
+    <div
+      ref={setNodeRef}
+      className="flex-1 min-w-[180px] flex flex-col min-h-0 transition-colors"
+      style={isOver ? { background: "rgba(145,132,217,0.05)" } : undefined}
+    >
       <div
         className="flex-none px-2.5 py-2 border-b flex items-baseline justify-between gap-1.5"
         style={{ borderColor: warn ? "#e0a94e" : "var(--color-border)" }}

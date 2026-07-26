@@ -18,9 +18,10 @@ const VIEWS: { id: BoardView; label: string }[] = [{ id: "kanban", label: "Kanba
 export default function PlannerPage() {
   const scheduleData = useScheduleData();
   const [view, setView] = useState<BoardView>("kanban");
-  // Bumped by board mutations (drag-and-drop lands in a later phase) so the
-  // notes sidebar can refetch if a linked trackable changes.
-  const [refreshKey] = useState(0);
+  // Bumped by board mutations (drops, star/archive toggles) so the notes
+  // sidebar can refetch if a linked trackable changes.
+  const [refreshKey, setRefreshKey] = useState(0);
+  const onMutated = () => setRefreshKey((k) => k + 1);
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
@@ -49,7 +50,7 @@ export default function PlannerPage() {
         </div>
       </div>
       <div className="flex-1 flex min-h-0">
-        {view === "kanban" && <KanbanBoard scheduleData={scheduleData} />}
+        {view === "kanban" && <KanbanBoard scheduleData={scheduleData} onMutated={onMutated} />}
         <PlannerSidebar refreshKey={refreshKey} />
       </div>
     </div>

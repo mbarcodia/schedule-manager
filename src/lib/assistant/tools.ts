@@ -20,7 +20,7 @@ import {
   parseRelativeMinutes,
 } from "./nlp-dates";
 import { statusReply } from "./status";
-import { gdayForDate, zonedTimeToUtc, zonedNow } from "@/lib/scheduling/time";
+import { gdayForDate, minToLabel, zonedTimeToUtc, zonedNow } from "@/lib/scheduling/time";
 import { computeSchedule } from "@/lib/scheduling/engine";
 import { buildScheduleInputs } from "@/lib/scheduling/from-db";
 import { queryScheduleRows } from "@/lib/scheduling/query-rows";
@@ -721,6 +721,72 @@ export function buildTools(ctx: ToolContext) {
     },
   });
 
+  const pin_research = betaTool({
+    name: "pin_research",
+    description:
+      'Fix a research project\'s time to an exact slot — ALWAYS use this (never add_event) when the user says they\'re working on a research project now or at a specific time ("I\'m doing ACE2-S2S right now for an hour", "put temp_thresh at 2pm tomorrow"). The block keeps its Research category and done-checkbox, its minutes count toward that project\'s weekly hours, and whatever was scheduled there reflows automatically. One pin per project per day — re-pinning the same day moves it.',
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: { type: "string", description: "fuzzy title of the research project" },
+        date: { type: "string", description: 'natural-language date, e.g. "today", "tomorrow", "monday". Defaults to today for "right now".' },
+        time: {
+          type: "string",
+          description: 'clock time, e.g. "2pm", "14:30". Also accepts "right now"/"asap" and relative phrases like "in 30 minutes".',
+        },
+        length_min: { type: "number", description: "minutes to fix at that time (default 60)" },
+        clear: { type: "boolean", description: "remove this project's pin on that date and let the engine place its research freely again" },
+      },
+      required: ["project"],
+    },
+    run: async (inp) => {
+      const { data: projects } = await supabase
+        .from("projects")
+        .select("id,title,weekly_min_min")
+        .eq("user_id", userId);
+      const { match, ambiguous } = findByTitle(projects ?? [], inp.project);
+      if (ambiguous.length) {
+        return `"${inp.project}" matches multiple projects: ${ambiguous.map((p) => p.title).join(", ")}. Say which one.`;
+      }
+      if (!match) return `No project matching "${inp.project}". Projects: ${(projects ?? []).map((p) => p.title).join(", ") || "none"}.`;
+
+      if (inp.clear) {
+        const pin = resolvePin(ctx, inp.date ?? "today", inp.time ?? "noon");
+        if (typeof pin === "string") return `Couldn't clear the pin: ${pin}`;
+        await supabase
+          .from("research_pins")
+          .delete()
+          .match({ user_id: userId, project_id: match.id, pinned_date: pin!.pinned_date });
+        markMutated(ctx);
+        return `Cleared the fixed ${match.title} research time on ${pin!.pinned_date} — it auto-schedules freely again.`;
+      }
+
+      const pin = resolvePin(ctx, inp.date, inp.time);
+      if (pin == null) return `Give a time for the ${match.title} research block, e.g. "right now" or "2pm today".`;
+      if (typeof pin === "string") return `Couldn't pin ${match.title}: ${pin}`;
+      const length = Math.max(15, Math.round((inp.length_min || 60) / 15) * 15);
+
+      const conflict = await pinConflict(ctx, pin, length);
+      if (conflict) return `Couldn't pin ${match.title}: ${conflict}`;
+
+      await supabase.from("research_pins").upsert(
+        {
+          user_id: userId,
+          project_id: match.id,
+          pinned_date: pin.pinned_date,
+          start_min: pin.pinned_start_min,
+          length_min: length,
+        },
+        { onConflict: "user_id,project_id,pinned_date" },
+      );
+      markMutated(ctx);
+      const notResearch = !match.weekly_min_min
+        ? ` Note: ${match.title} has no weekly research minimum set, so this time is additive rather than filling a quota.`
+        : "";
+      return `${match.title} research is now fixed on ${pin.pinned_date} at ${minToLabel(pin.pinned_start_min)} for ${length}m — anything that was there reflows automatically, and those minutes count toward its weekly hours. Check it off from the calendar when you're done.${notResearch}`;
+    },
+  });
+
   const update_recurring = betaTool({
     name: "update_recurring",
     description:
@@ -849,6 +915,7 @@ export function buildTools(ctx: ToolContext) {
     add_event,
     adjust_day_hours,
     record_progress,
+    pin_research,
     update_recurring,
     remember_rule,
     get_status,

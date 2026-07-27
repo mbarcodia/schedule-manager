@@ -37,6 +37,7 @@ export async function queryScheduleRows(
     eventsRes,
     progressRes,
     pinnedRes,
+    researchPinsRes,
     connectionsRes,
   ] = await Promise.all([
     supabase.from("profiles").select("*").eq("id", userId).single(),
@@ -74,6 +75,12 @@ export async function queryScheduleRows(
       .eq("user_id", userId)
       .gte("occurred_date", windowStartDate)
       .lte("occurred_date", windowEndDate),
+    supabase
+      .from("research_pins")
+      .select("*")
+      .eq("user_id", userId)
+      .gte("pinned_date", windowStartDate)
+      .lte("pinned_date", windowEndDate),
     supabase.from("calendar_connections").select("*").eq("user_id", userId),
   ]);
 
@@ -90,6 +97,7 @@ export async function queryScheduleRows(
     eventsRes,
     progressRes,
     pinnedRes,
+    researchPinsRes,
     connectionsRes,
   ]) {
     if (res.error) throw res.error;
@@ -108,6 +116,7 @@ export async function queryScheduleRows(
     events: eventsRes.data ?? [],
     progressLog: progressRes.data ?? [],
     pinnedChunks: pinnedRes.data ?? [],
+    researchPins: researchPinsRes.data ?? [],
     calendarConnections: connectionsRes.data ?? [],
   };
 }

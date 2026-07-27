@@ -339,6 +339,34 @@ export function computeSchedule(
     });
   });
 
+  // Research pins work the same way, but the target isn't a task row — it's
+  // the synthesized weekly chunk for that project (`research-<id>-w<N>`), so
+  // the reduction has to be keyed to the def id taskDefs() will generate for
+  // the pin's own week. Everything downstream (done-checkbox, progress
+  // logging via subjectFromTaskId, weekly credit) then treats it exactly
+  // like an auto-placed research block.
+  const projectById = new Map(inputs.projects.map((p) => [p.id, p]));
+  inputs.researchPins.forEach((rp) => {
+    const project = projectById.get(rp.projectId);
+    if (!project) return;
+    const abs = rp.gday * 1440 + rp.start;
+    markBusy(abs, rp.length, baseBusy);
+    const defId = `research-${rp.projectId}-w${Math.floor(rp.gday / 7)}`;
+    pinReduction[defId] = (pinReduction[defId] ?? 0) + rp.length;
+    taskPinChunks.push({
+      type: "task",
+      taskId: defId,
+      projectId: rp.projectId,
+      categoryId: project.categoryId ?? null,
+      tagLabel: inputs.tagLabels.research,
+      title: project.title,
+      gday: rp.gday,
+      start: rp.start,
+      end: rp.start + rp.length,
+      priority: "high",
+    });
+  });
+
   anchorDefs(inputs).forEach((a) => {
     const dayWindow = resolveDayWindow(a.gday, inputs.weeklyHours, inputs.dayOverrides);
     if (dayWindow == null) return; // day off entirely

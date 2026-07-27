@@ -227,6 +227,9 @@ export interface ScheduleInputs {
   events: CalendarEvent[];
   recurringRules: RecurringRule[];
   dayOverrides: DayOverrides;
+  /** Research time the user fixed to an exact slot (see research_pins).
+   * Reduces that week's auto-placed chunk for the same project. */
+  researchPins: ResearchPin[];
   /** Keyed by `${taskId}@${gday}-${start}`. */
   completed: Record<string, boolean>;
   partial: Record<string, number>;
@@ -235,6 +238,13 @@ export interface ScheduleInputs {
    * Settings. Always fully resolved (defaults already applied) by the time
    * they reach the engine. */
   tagLabels: TagLabels;
+}
+
+export interface ResearchPin {
+  projectId: string;
+  gday: GDay;
+  start: MinuteOfDay;
+  length: number;
 }
 
 export interface TagLabels {

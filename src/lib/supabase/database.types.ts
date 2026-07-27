@@ -458,6 +458,19 @@ export interface Database {
         { id?: string; user_id: string; role: ChatRole; content: string },
         Record<string, never>
       >;
+      research_pins: Table<
+        {
+          id: string;
+          user_id: string;
+          project_id: string;
+          pinned_date: string;
+          start_min: number;
+          length_min: number;
+          created_at: string;
+        },
+        { id?: string; user_id: string; project_id: string; pinned_date: string; start_min: number; length_min: number },
+        Partial<{ pinned_date: string; start_min: number; length_min: number }>
+      >;
       google_credentials: Table<
         {
           user_id: string;

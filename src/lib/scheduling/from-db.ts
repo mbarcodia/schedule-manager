@@ -15,6 +15,7 @@ import type {
   Proposal,
   Goal,
   RecurringRule,
+  ResearchPin,
   ScheduleInputs,
   TagLabels,
   Task,
@@ -38,6 +39,7 @@ export interface RawScheduleRows {
   events: Row<"events">[];
   progressLog: Row<"progress_log">[];
   pinnedChunks: Row<"pinned_chunks">[];
+  researchPins: Row<"research_pins">[];
   calendarConnections: Row<"calendar_connections">[];
 }
 
@@ -226,6 +228,16 @@ export function buildScheduleInputs(
     };
   }
 
+  // Research time fixed to an exact slot. Pins older than this week are
+  // stale (their week was already reconciled) and ones past the horizon
+  // can't be placed — drop both rather than making callers filter.
+  const researchPins: ResearchPin[] = [];
+  for (const rp of rows.researchPins) {
+    const gday = gdayForDate(timezone, dateParts(rp.pinned_date), now);
+    if (gday < 0 || gday >= horizonWeeks * 7) continue;
+    researchPins.push({ projectId: rp.project_id, gday, start: rp.start_min, length: rp.length_min });
+  }
+
   const weeklyHours: WeeklyHours = {};
   for (let dow = 0; dow < 7; dow++) {
     weeklyHours[dow] = rows.profile.weekly_hours[String(dow)] ?? null;
@@ -247,6 +259,7 @@ export function buildScheduleInputs(
     events,
     recurringRules,
     dayOverrides,
+    researchPins,
     completed,
     partial,
     pinned,

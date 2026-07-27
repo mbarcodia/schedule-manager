@@ -26,14 +26,21 @@ export function usePlannerChat(onReplied: () => void) {
         data: { user },
       } = await supabase.auth.getUser();
       if (!user) return;
+      // Newest-first + limit, then reverse — loading ascending would pin the
+      // panel to the OLDEST 100 messages, so every reload looked like recent
+      // turns had vanished while the model (which reads newest-first) still
+      // remembered them.
       const { data } = await supabase
         .from("planner_messages")
         .select("role,content")
         .eq("user_id", user.id)
-        .order("created_at", { ascending: true })
+        .order("created_at", { ascending: false })
         .limit(100);
       if (ignore) return;
-      const history = (data ?? []).map((m) => ({ role: m.role, text: m.content }));
+      const history = (data ?? [])
+        .slice()
+        .reverse()
+        .map((m) => ({ role: m.role, text: m.content }));
       setMessages(
         history.length
           ? history

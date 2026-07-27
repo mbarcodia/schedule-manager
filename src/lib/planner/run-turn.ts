@@ -16,12 +16,22 @@ import type { buildPlannerTools } from "./tools";
 
 export type PlannerProvider = "user_api_key" | "subscription_oauth";
 
+/** The system prompt split at its stability boundary. `persona` is byte-identical
+ * every turn, so it sits before the prompt-cache breakpoint and is re-read
+ * instead of re-processed; `context` (clock time, schedule snapshot, notes
+ * index) changes every turn and must follow it. Prompt caching is a prefix
+ * match — putting the volatile half first would cache nothing. */
+export interface PlannerSystemPrompt {
+  persona: string;
+  context: string;
+}
+
 export interface PlannerTurnInput {
   provider: PlannerProvider;
   /** Resolved server-side; never sent to or from the client. */
   secret: string;
   model: string;
-  system: string;
+  system: PlannerSystemPrompt;
   history: { role: "user" | "assistant"; content: string }[];
   tools: ReturnType<typeof buildPlannerTools>;
   maxIterations: number;

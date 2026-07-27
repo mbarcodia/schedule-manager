@@ -3,7 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { queryScheduleRows } from "@/lib/scheduling/query-rows";
 import { buildScheduleInputs } from "@/lib/scheduling/from-db";
 import { computeSchedule } from "@/lib/scheduling/engine";
-import { buildPlannerSystemPrompt } from "@/lib/planner/system-prompt";
+import { buildPlannerPersonaPrompt, buildPlannerDynamicContext } from "@/lib/planner/system-prompt";
+import { pickTurnModel } from "@/lib/planner/model-routing";
 import { buildPlannerTools } from "@/lib/planner/tools";
 import { runPlannerTurnStream } from "@/lib/planner/run-turn";
 import { runRelayTurnStream } from "@/lib/planner/relay-runner";
@@ -51,7 +52,7 @@ export async function POST(request: Request) {
             {
               userId: user.id,
               secret: credential.secret,
-              model: profile?.planner_model ?? "claude-opus-4-8",
+              model: pickTurnModel(message, profile?.planner_model ?? "claude-opus-4-8"),
             },
             (chunk) => controller.enqueue(encoder.encode(chunk)),
           ));
@@ -62,7 +63,12 @@ export async function POST(request: Request) {
           ]);
           const { inputs } = buildScheduleInputs(rows);
           const schedule = computeSchedule(inputs);
-          const systemPrompt = buildPlannerSystemPrompt(rows, inputs, schedule, noteRows ?? []);
+          // Split rather than concatenated: the persona half is cacheable
+          // (see PlannerSystemPrompt), the context half changes every turn.
+          const systemPrompt = {
+            persona: buildPlannerPersonaPrompt(),
+            context: buildPlannerDynamicContext(rows, inputs, schedule, noteRows ?? []),
+          };
 
           const z = zonedNow(rows.profile.timezone);
           const today = new Date(z.year, z.month - 1, z.day);
@@ -94,7 +100,7 @@ export async function POST(request: Request) {
             {
               provider: credential.provider,
               secret: credential.secret,
-              model: rows.profile.planner_model,
+              model: pickTurnModel(message, rows.profile.planner_model),
               system: systemPrompt,
               history,
               tools,

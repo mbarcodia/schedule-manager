@@ -12,7 +12,7 @@ import { createRelayAdminClient } from "./admin-client";
 import { queryScheduleRows } from "@/lib/scheduling/query-rows";
 import { buildScheduleInputs } from "@/lib/scheduling/from-db";
 import { computeSchedule } from "@/lib/scheduling/engine";
-import { buildPlannerSystemPrompt } from "@/lib/planner/system-prompt";
+import { buildPlannerPersonaPrompt, buildPlannerDynamicContext } from "@/lib/planner/system-prompt";
 import { buildPlannerTools } from "@/lib/planner/tools";
 import { runAgentSdkTurn, runAgentSdkTurnStream } from "@/lib/planner/agent-runner";
 import type { PlannerTurnInput } from "@/lib/planner/run-turn";
@@ -42,7 +42,10 @@ async function prepareTurnInput(userId: string, secret: string, model: string): 
   ]);
   const { inputs } = buildScheduleInputs(rows);
   const schedule = computeSchedule(inputs);
-  const systemPrompt = buildPlannerSystemPrompt(rows, inputs, schedule, noteRows ?? []);
+  const systemPrompt = {
+    persona: buildPlannerPersonaPrompt(),
+    context: buildPlannerDynamicContext(rows, inputs, schedule, noteRows ?? []),
+  };
 
   const z = zonedNow(rows.profile.timezone);
   const today = new Date(z.year, z.month - 1, z.day);

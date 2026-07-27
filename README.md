@@ -19,8 +19,12 @@ instance is below. No account or access from the original author is required.
 - External calendar sync (ICS feeds) merged onto your schedule
 - Web push notifications (end-of-day check-ins, weekly summaries)
 - An AI assistant for fast, single-message schedule edits
-- A **Planner**: a separate chat for discussing ongoing projects, building
-  execution plans, and keeping notes — see "The Planner" below
+- A **Planner**: a board (kanban, Eisenhower, months-long timeline, archive)
+  plus a chat for discussing projects, building execution plans, and keeping
+  notes — see "The Planner" below
+- A **public booking page** (Calendly-style): share a link, visitors book from
+  your real availability, meetings land on your calendar — see "Booking page"
+- Deliberately token-frugal AI usage — see ["Running this efficiently"](#running-this-efficiently)
 
 ## What you'll need
 
@@ -272,6 +276,90 @@ persists across sessions.
 - Pick which Claude model the planner uses under **Settings → Planner AI**.
   The planner runs on whichever credential you set up — an Anthropic API key
   or your Claude Pro/Max subscription (see "Connecting Claude" above).
+
+## Booking page
+
+A public link (like Calendly) anyone can use to book time with you. Availability
+is computed from your working hours, your connected calendars, your recurring
+blocks, and — optionally — task categories you mark as protected. Booked
+meetings appear on your calendar immediately, which also blocks the slot for the
+next visitor and reflows flexible task time around the meeting.
+
+Each account sets this up for itself in **Settings → Booking page**, which shows
+a checklist of what's still missing:
+
+1. **Your name** — invitations are titled "Guest name &lt;&gt; your name".
+2. **A meeting location** — a video-room URL (e.g. your personal Zoom room)
+   and/or an in-person location. Links can offer either or both; when both are
+   offered the visitor chooses, and video guests are told the link will be
+   emailed rather than having it shown on a public page.
+3. **Google Calendar (optional)** — connect it and each booking is also created
+   on your real Google Calendar with the visitor invited, so Google sends them
+   a normal calendar invitation. Without it, bookings still appear in this app
+   and you still get a push notification; the visitor gets an on-screen
+   confirmation plus a downloadable `.ics` invite.
+4. **A booking link** — set the meeting lengths on offer, which days/times are
+   bookable, buffers, minimum notice, and a per-day cap. Copy its URL and share
+   it.
+
+Either side can cancel or reschedule: every booking has a private management
+link (in the confirmation and the calendar invite), and your own bookings are
+listed in Settings with the same controls.
+
+### Enabling Google Calendar for your deployment
+
+Google integration needs one OAuth client, created once per deployment (not per
+user), on a Google account you control:
+
+1. [console.cloud.google.com](https://console.cloud.google.com) → new project.
+2. Enable the **Google Calendar API**.
+3. **OAuth consent screen**: External; add the scopes
+   `.../auth/calendar.events`, `.../auth/userinfo.email`, and `openid`; then
+   **Publish app**. Publishing matters — in "Testing" mode Google expires
+   refresh tokens after 7 days and the connection silently breaks weekly.
+4. **Credentials** → OAuth client ID → Web application, with redirect URIs
+   `https://<your-app>/api/google/callback` and
+   `http://localhost:3000/api/google/callback`.
+5. Put the client ID and secret in Vercel as `GOOGLE_CLIENT_ID` and
+   `GOOGLE_CLIENT_SECRET`, and set `APP_ORIGIN` to your deployed URL.
+
+Because the app stays unverified by Google, each person connecting sees a
+one-time "Google hasn't verified this app" warning (**Advanced → Go to… →
+Allow**). That's expected for a self-hosted tool used by its own author;
+verification is only required past 100 users. The only scope requested is
+calendar events — the app can create and update the meetings it books, and
+nothing else.
+
+## Running this efficiently
+
+AI inference costs energy, and most of that cost is invisible at the point of
+use. This app is built to ask for as few tokens as it can while still giving
+complete answers — the goal is no wasted computation, not shorter or worse
+replies. Concretely:
+
+- **Prompt caching.** The planner's persona and its whole tool schema are
+  identical on every turn, so they sit before an explicit cache breakpoint and
+  are re-read rather than reprocessed. Only the part that genuinely changed
+  (clock time, your schedule snapshot, notes index) is processed fresh.
+- **Right-sized model per turn.** A mechanical one-liner ("log 45 minutes on
+  grading") is routed to a smaller model; anything that asks a question, weighs
+  a trade-off, or spans multiple clauses stays on the model you chose. The
+  router is deliberately conservative — it only steps down on requests it can
+  recognise as a single edit, because a wrong downgrade costs answer quality
+  while a missed one only costs tokens.
+- **No filler generated.** The planner is instructed to skip preamble,
+  restating your question, sign-offs, and recaps of what a tool already
+  confirmed. Every token generated should carry information.
+- **Nothing polled.** Calendar sync and digests run on a schedule rather than
+  continuously, and the booking relay scales to zero when idle.
+
+Further ideas, not yet built, if you want to push this further: batch the
+non-urgent digest/summary jobs through the Batch API (half the tokens' cost and
+scheduled off-peak); shrink the per-turn schedule snapshot to only the fields a
+turn actually needs; cache the planner's tool schema across users; and prefer
+the smallest model that passes your own evaluation for each surface rather than
+defaulting to the largest. If you extend this app, the general principle worth
+keeping: send only what changed, generate only what informs.
 
 ## License
 

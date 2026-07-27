@@ -14,7 +14,14 @@
 
 import { query, tool, createSdkMcpServer, type SdkMcpToolDefinition } from "@anthropic-ai/claude-agent-sdk";
 import { z, type ZodTypeAny } from "zod";
-import type { PlannerTurnInput } from "./run-turn";
+import type { PlannerSystemPrompt, PlannerTurnInput } from "./run-turn";
+
+/** The Agent SDK takes one system string and handles its own prompt caching
+ * inside the Claude Code CLI, so the persona/context split (which exists to
+ * place an explicit cache breakpoint on the direct-API path) collapses here. */
+function flattenSystem(system: PlannerSystemPrompt): string {
+  return `${system.persona}\n${system.context}`;
+}
 
 /** Every planner tool is built via betaTool() with a plain JSON-object
  * schema (see buildPlannerTools) — never one of the Anthropic-defined
@@ -116,7 +123,7 @@ export async function runAgentSdkTurnStream(
     options: {
       env,
       model,
-      systemPrompt: input.system,
+      systemPrompt: flattenSystem(input.system),
       tools: [],
       mcpServers: { planner: server },
       permissionMode: "bypassPermissions",
@@ -172,7 +179,7 @@ export async function runAgentSdkTurn(input: PlannerTurnInput): Promise<{ reply:
     options: {
       env,
       model,
-      systemPrompt: input.system,
+      systemPrompt: flattenSystem(input.system),
       tools: [], // disable every built-in tool (Bash, Read, Write, ...) — only our own MCP tools run
       mcpServers: { planner: server },
       permissionMode: "bypassPermissions",

@@ -4,7 +4,19 @@
 // pin every user to whichever key initialized it first.
 
 import Anthropic from "@anthropic-ai/sdk";
-import type { PlannerTurnInput } from "./run-turn";
+import type { PlannerSystemPrompt, PlannerTurnInput } from "./run-turn";
+
+/** Tools render before system, so a breakpoint on the persona block caches the
+ * whole tool set plus the persona — by far the largest stable span in the
+ * request. The per-turn context block follows it, uncached. Repeat turns in a
+ * conversation then re-read that prefix at a fraction of the input cost (and
+ * the energy) of reprocessing it. */
+function systemBlocks(system: PlannerSystemPrompt): Anthropic.Beta.Messages.BetaTextBlockParam[] {
+  return [
+    { type: "text", text: system.persona, cache_control: { type: "ephemeral" } },
+    { type: "text", text: system.context },
+  ];
+}
 
 export async function runAnthropicTurn(input: PlannerTurnInput): Promise<{ reply: string }> {
   const anthropic = new Anthropic({ apiKey: input.secret });
@@ -12,7 +24,7 @@ export async function runAnthropicTurn(input: PlannerTurnInput): Promise<{ reply
   const finalMessage = await anthropic.beta.messages.toolRunner({
     model: input.model,
     max_tokens: 8000,
-    system: input.system,
+    system: systemBlocks(input.system),
     messages: input.history.map((m) => ({ role: m.role, content: m.content })),
     tools: input.tools,
     max_iterations: input.maxIterations,
@@ -49,7 +61,7 @@ export async function runAnthropicTurnStream(
   const runner = anthropic.beta.messages.toolRunner({
     model: input.model,
     max_tokens: 8000,
-    system: input.system,
+    system: systemBlocks(input.system),
     messages: input.history.map((m) => ({ role: m.role, content: m.content })),
     tools: input.tools,
     max_iterations: input.maxIterations,

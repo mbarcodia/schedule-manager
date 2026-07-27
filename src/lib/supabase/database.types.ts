@@ -21,6 +21,11 @@ export type WeeklyHoursJson = Record<string, { start: number; end: number } | nu
  * null (or missing key) = that weekday not bookable. */
 export type BookingDayWindowsJson = WeeklyHoursJson;
 
+/** Where a booked meeting happens. 'zoom' uses the owner's static meeting
+ * room URL, 'office' their office_location text. */
+export type BookingLocationMode = "zoom" | "office";
+export type BookingStatus = "confirmed" | "cancelled";
+
 // Supabase's client generics require every table to carry a `Relationships`
 // array (used for typed joins) and the schema to declare Views/Functions —
 // even empty, since @supabase/postgrest-js's GenericTable/GenericSchema
@@ -54,6 +59,8 @@ export interface Database {
           label_deep_focus: string | null;
           label_block: string | null;
           booking_meeting_url: string | null;
+          display_name: string | null;
+          office_location: string | null;
         },
         { id: string } & Partial<{
           preferred_model: PreferredModel;
@@ -70,6 +77,8 @@ export interface Database {
           label_deep_focus: string | null;
           label_block: string | null;
           booking_meeting_url: string | null;
+          display_name: string | null;
+          office_location: string | null;
         }>,
         Partial<{
           preferred_model: PreferredModel;
@@ -86,6 +95,8 @@ export interface Database {
           label_deep_focus: string | null;
           label_block: string | null;
           booking_meeting_url: string | null;
+          display_name: string | null;
+          office_location: string | null;
         }>
       >;
       categories: Table<
@@ -495,6 +506,7 @@ export interface Database {
           min_notice_hours: number;
           max_per_day: number;
           active: boolean;
+          location_modes: BookingLocationMode[];
           created_at: string;
         },
         {
@@ -509,6 +521,7 @@ export interface Database {
           min_notice_hours?: number;
           max_per_day?: number;
           active?: boolean;
+          location_modes?: BookingLocationMode[];
         },
         Partial<{
           slug: string;
@@ -520,6 +533,7 @@ export interface Database {
           min_notice_hours: number;
           max_per_day: number;
           active: boolean;
+          location_modes: BookingLocationMode[];
         }>
       >;
       bookings: Table<
@@ -535,6 +549,10 @@ export interface Database {
           visitor_name: string;
           visitor_email: string;
           visitor_note: string | null;
+          location_mode: BookingLocationMode;
+          status: BookingStatus;
+          cancelled_at: string | null;
+          last_changed_by: "owner" | "visitor" | null;
           created_at: string;
         },
         {
@@ -549,8 +567,18 @@ export interface Database {
           visitor_name: string;
           visitor_email: string;
           visitor_note?: string | null;
+          location_mode?: BookingLocationMode;
         },
-        Partial<{ google_event_id: string | null; event_id: string | null }>
+        Partial<{
+          google_event_id: string | null;
+          event_id: string | null;
+          starts_at: string;
+          ends_at: string;
+          duration_min: number;
+          status: BookingStatus;
+          cancelled_at: string | null;
+          last_changed_by: "owner" | "visitor" | null;
+        }>
       >;
     };
     Views: Record<string, never>;

@@ -6,10 +6,19 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import type { Database, BookingDayWindowsJson } from "@/lib/supabase/database.types";
+import type { Database, BookingDayWindowsJson, BookingLocationMode } from "@/lib/supabase/database.types";
 
 type BookingLinkRow = Database["public"]["Tables"]["booking_links"]["Row"];
 type CategoryRow = Database["public"]["Tables"]["categories"]["Row"];
+
+interface UpcomingBooking {
+  id: string;
+  starts_at: string;
+  duration_min: number;
+  visitor_name: string;
+  visitor_email: string;
+  location_mode: BookingLocationMode;
+}
 
 interface GoogleStatus {
   connected: boolean;
@@ -37,7 +46,10 @@ function minToLabel(m: number): string {
 export function BookingSection({ categories }: { categories: CategoryRow[] }) {
   const [google, setGoogle] = useState<GoogleStatus | null>(null);
   const [meetingUrl, setMeetingUrl] = useState("");
-  const [meetingUrlSaved, setMeetingUrlSaved] = useState(false);
+  const [displayName, setDisplayName] = useState("");
+  const [officeLocation, setOfficeLocation] = useState("");
+  const [profileSaved, setProfileSaved] = useState(false);
+  const [bookings, setBookings] = useState<UpcomingBooking[]>([]);
   const [links, setLinks] = useState<BookingLinkRow[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -49,14 +61,28 @@ export function BookingSection({ categories }: { categories: CategoryRow[] }) {
       data: { user },
     } = await supabase.auth.getUser();
     if (!user) return;
-    const [statusRes, { data: profile }, { data: linkRows }] = await Promise.all([
+    const [statusRes, { data: profile }, { data: linkRows }, { data: bookingRows }] = await Promise.all([
       fetch("/api/google/status").then((r) => (r.ok ? r.json() : null)),
-      supabase.from("profiles").select("booking_meeting_url").eq("id", user.id).single(),
+      supabase
+        .from("profiles")
+        .select("booking_meeting_url,display_name,office_location")
+        .eq("id", user.id)
+        .single(),
       supabase.from("booking_links").select("*").order("created_at"),
+      supabase
+        .from("bookings")
+        .select("id,starts_at,duration_min,visitor_name,visitor_email,location_mode")
+        .eq("status", "confirmed")
+        .gte("starts_at", new Date().toISOString())
+        .order("starts_at")
+        .limit(20),
     ]);
     if (statusRes) setGoogle(statusRes);
     setMeetingUrl(profile?.booking_meeting_url ?? "");
+    setDisplayName(profile?.display_name ?? "");
+    setOfficeLocation(profile?.office_location ?? "");
     setLinks(linkRows ?? []);
+    setBookings(bookingRows ?? []);
   }, []);
 
   useEffect(() => {
@@ -65,7 +91,7 @@ export function BookingSection({ categories }: { categories: CategoryRow[] }) {
     void load();
   }, [load]);
 
-  async function saveMeetingUrl() {
+  async function saveProfile() {
     const supabase = createClient();
     const {
       data: { user },
@@ -73,10 +99,14 @@ export function BookingSection({ categories }: { categories: CategoryRow[] }) {
     if (!user) return;
     await supabase
       .from("profiles")
-      .update({ booking_meeting_url: meetingUrl.trim() || null })
+      .update({
+        booking_meeting_url: meetingUrl.trim() || null,
+        display_name: displayName.trim() || null,
+        office_location: officeLocation.trim() || null,
+      })
       .eq("id", user.id);
-    setMeetingUrlSaved(true);
-    setTimeout(() => setMeetingUrlSaved(false), 2000);
+    setProfileSaved(true);
+    setTimeout(() => setProfileSaved(false), 2000);
   }
 
   async function disconnectGoogle() {
@@ -139,6 +169,34 @@ export function BookingSection({ categories }: { categories: CategoryRow[] }) {
         connected calendars, and protected task categories — booked meetings land on your calendar automatically.
       </p>
 
+      {/* Setup checklist — guides a brand-new account through its own setup
+          rather than assuming everything is already configured. */}
+      {(() => {
+        const steps = [
+          { done: displayName.trim().length > 0, label: "Add your name" },
+          { done: meetingUrl.trim().length > 0 || officeLocation.trim().length > 0, label: "Add a meeting location" },
+          { done: !!google?.connected, label: "Connect Google Calendar (optional — sends email invites)" },
+          { done: links.length > 0, label: "Create a booking link" },
+        ];
+        const remaining = steps.filter((st) => !st.done);
+        if (remaining.length === 0) return null;
+        return (
+          <div className="rounded-lg border border-border bg-panel p-3.5 mb-3">
+            <div className="text-xs text-text mb-1.5">Finish setting up your booking page</div>
+            <ul className="flex flex-col gap-1">
+              {steps.map((st) => (
+                <li key={st.label} className="text-[11px] flex items-center gap-1.5">
+                  <span style={{ color: st.done ? "#3dd68c" : "var(--color-muted-2, #75798c)" }}>
+                    {st.done ? "✓" : "○"}
+                  </span>
+                  <span className={st.done ? "text-muted-2 line-through" : "text-muted"}>{st.label}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        );
+      })()}
+
       {/* Google connection */}
       <div className="rounded-lg border border-border bg-panel p-3.5 mb-3">
         {google === null ? (
@@ -181,27 +239,51 @@ export function BookingSection({ categories }: { categories: CategoryRow[] }) {
         )}
       </div>
 
-      {/* Meeting room URL */}
-      <div className="rounded-lg border border-border bg-panel p-3.5 mb-3">
-        <div className="text-xs text-text mb-1.5">Meeting link attached to every booking</div>
-        <p className="text-[11px] text-muted mb-2">
-          Your personal meeting room URL (e.g. Zoom). Included on the calendar event, the Google invite, and the
-          visitor&apos;s confirmation.
-        </p>
-        <div className="flex gap-2">
+      {/* Your details: name + the two meeting locations */}
+      <div className="rounded-lg border border-border bg-panel p-3.5 mb-3 flex flex-col gap-3">
+        <div>
+          <div className="text-xs text-text mb-1">Your name, as guests should see it</div>
+          <p className="text-[11px] text-muted mb-1.5">
+            Invitations are titled &ldquo;Guest name &lt;&gt; your name&rdquo;. Without this they fall back to the
+            link&apos;s title.
+          </p>
+          <input
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+            placeholder="e.g. Marybeth Arcodia"
+            className="w-full rounded-md border border-border bg-surface px-2.5 py-1.5 text-xs text-text outline-none focus-visible:border-accent"
+          />
+        </div>
+        <div>
+          <div className="text-xs text-text mb-1">Video meeting link</div>
+          <p className="text-[11px] text-muted mb-1.5">
+            Your personal meeting room (e.g. Zoom). Emailed with the invitation rather than shown on the public page.
+          </p>
           <input
             value={meetingUrl}
             onChange={(e) => setMeetingUrl(e.target.value)}
-            placeholder="https://miami.zoom.us/j/…"
-            className="flex-1 rounded-md border border-border bg-surface px-2.5 py-1.5 text-xs text-text outline-none focus-visible:border-accent"
+            placeholder="https://your-org.zoom.us/j/…"
+            className="w-full rounded-md border border-border bg-surface px-2.5 py-1.5 text-xs text-text outline-none focus-visible:border-accent"
           />
-          <button
-            onClick={saveMeetingUrl}
-            className="rounded-md border border-accent text-accent px-3 py-1.5 text-xs font-medium hover:bg-accent/10"
-          >
-            {meetingUrlSaved ? "Saved" : "Save"}
-          </button>
         </div>
+        <div>
+          <div className="text-xs text-text mb-1">In-person location</div>
+          <p className="text-[11px] text-muted mb-1.5">
+            Shown to guests who choose to meet in person, and written onto the calendar event.
+          </p>
+          <input
+            value={officeLocation}
+            onChange={(e) => setOfficeLocation(e.target.value)}
+            placeholder="e.g. Cox Science Center, room 412"
+            className="w-full rounded-md border border-border bg-surface px-2.5 py-1.5 text-xs text-text outline-none focus-visible:border-accent"
+          />
+        </div>
+        <button
+          onClick={saveProfile}
+          className="self-start rounded-md border border-accent text-accent px-3 py-1.5 text-xs font-medium hover:bg-accent/10"
+        >
+          {profileSaved ? "Saved" : "Save details"}
+        </button>
       </div>
 
       {/* Links */}
@@ -364,6 +446,41 @@ export function BookingSection({ categories }: { categories: CategoryRow[] }) {
                   </div>
                 </div>
 
+                {/* Locations offered */}
+                <div>
+                  <div className="text-[11px] text-muted mb-1">
+                    Where can this meeting happen? (guests pick when both are offered)
+                  </div>
+                  <div className="flex gap-1.5 flex-wrap">
+                    {(["zoom", "office"] as BookingLocationMode[]).map((m) => {
+                      const on = link.location_modes.includes(m);
+                      const missing = m === "zoom" ? !meetingUrl.trim() : !officeLocation.trim();
+                      return (
+                        <button
+                          key={m}
+                          onClick={() => {
+                            const next = on
+                              ? link.location_modes.filter((x) => x !== m)
+                              : [...link.location_modes, m];
+                            if (next.length === 0) return; // at least one
+                            void updateLink(link.id, { location_modes: next });
+                          }}
+                          title={missing ? "Add this location above first" : undefined}
+                          className="rounded-md px-2 py-1 text-[11px] border"
+                          style={{
+                            borderColor: on ? "var(--color-accent)" : "var(--color-border)",
+                            background: on ? "rgba(145,132,217,0.08)" : "transparent",
+                            opacity: on && missing ? 0.6 : 1,
+                          }}
+                        >
+                          {m === "zoom" ? "Video call" : "In person"}
+                          {on && missing ? " (not set up)" : ""}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
                 {/* Numbers */}
                 <div className="flex gap-4 flex-wrap items-center">
                   <label className="flex items-center gap-1.5 text-muted">
@@ -422,6 +539,43 @@ export function BookingSection({ categories }: { categories: CategoryRow[] }) {
           + New booking link
         </button>
       </div>
+
+      {/* Upcoming bookings */}
+      {bookings.length > 0 && (
+        <div className="mt-5">
+          <div className="text-xs text-text mb-2">Upcoming bookings</div>
+          <div className="flex flex-col gap-1.5">
+            {bookings.map((b) => (
+              <div
+                key={b.id}
+                className="rounded-md border border-border bg-surface px-3 py-2 flex items-center gap-3 text-xs"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="text-text truncate">
+                    {b.visitor_name} · {b.duration_min}m · {b.location_mode === "office" ? "in person" : "video"}
+                  </div>
+                  <div className="text-[10.5px] text-muted-2">
+                    {new Date(b.starts_at).toLocaleString(undefined, {
+                      weekday: "short",
+                      month: "short",
+                      day: "numeric",
+                      hour: "numeric",
+                      minute: "2-digit",
+                    })}{" "}
+                    · {b.visitor_email}
+                  </div>
+                </div>
+                <a
+                  href={`/book/manage/${b.id}`}
+                  className="flex-none text-accent-text hover:underline whitespace-nowrap"
+                >
+                  Reschedule / cancel
+                </a>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

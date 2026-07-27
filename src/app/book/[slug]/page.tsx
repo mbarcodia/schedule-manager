@@ -11,11 +11,28 @@ export default async function BookPage({ params }: { params: Promise<{ slug: str
   const admin = createAdminClient();
   const { data: link } = await admin
     .from("booking_links")
-    .select("title,durations")
+    .select("title,durations,location_modes,user_id")
     .eq("slug", slug)
     .eq("active", true)
     .maybeSingle();
   if (!link) notFound();
 
-  return <BookingClient slug={slug} title={link.title} durations={link.durations} />;
+  // Office location is safe to show publicly; the meeting-room URL is not —
+  // guests receive that with their invitation instead.
+  const { data: profile } = await admin
+    .from("profiles")
+    .select("office_location,display_name")
+    .eq("id", link.user_id)
+    .single();
+
+  return (
+    <BookingClient
+      slug={slug}
+      title={link.title}
+      durations={link.durations}
+      locationModes={link.location_modes}
+      officeLocation={profile?.office_location ?? null}
+      ownerName={profile?.display_name ?? null}
+    />
+  );
 }

@@ -24,21 +24,33 @@ export function buildIcs(input: {
   startIso: string;
   endIso: string;
   description: string;
+  /** Join link for video meetings — becomes URL:. */
   meetingUrl: string | null;
+  /** Where it happens (office text or the join link) — becomes LOCATION:. */
+  location?: string | null;
+  /** Bumped on reschedule so calendars replace rather than duplicate. */
+  sequence?: number;
+  /** METHOD:CANCEL + STATUS:CANCELLED, so importing removes the meeting. */
+  cancelled?: boolean;
 }): string {
   const lines = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
     "PRODID:-//ScheduleManager//Booking//EN",
-    "METHOD:PUBLISH",
+    `METHOD:${input.cancelled ? "CANCEL" : "PUBLISH"}`,
     "BEGIN:VEVENT",
+    // Stable UID + rising SEQUENCE: a rescheduled or cancelled booking
+    // updates the guest's existing entry instead of adding a second one.
     `UID:booking-${input.bookingId}@schedule-manager`,
+    `SEQUENCE:${input.sequence ?? 0}`,
     `DTSTAMP:${icsUtc(new Date().toISOString())}`,
     `DTSTART:${icsUtc(input.startIso)}`,
     `DTEND:${icsUtc(input.endIso)}`,
     `SUMMARY:${icsEscape(input.title)}`,
     `DESCRIPTION:${icsEscape(input.description)}`,
-    ...(input.meetingUrl ? [`LOCATION:${icsEscape(input.meetingUrl)}`, `URL:${icsEscape(input.meetingUrl)}`] : []),
+    ...(input.location ? [`LOCATION:${icsEscape(input.location)}`] : []),
+    ...(input.meetingUrl ? [`URL:${icsEscape(input.meetingUrl)}`] : []),
+    ...(input.cancelled ? ["STATUS:CANCELLED"] : []),
     "END:VEVENT",
     "END:VCALENDAR",
   ];

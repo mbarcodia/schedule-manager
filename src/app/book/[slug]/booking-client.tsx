@@ -14,16 +14,31 @@ interface Slot {
 interface Confirmation {
   startIso: string;
   endIso: string;
-  meetingUrl: string | null;
   title: string;
+  locationMode: LocationMode;
+  locationText: string | null;
+  joinUrl: string | null;
+  manageUrl: string;
   googleInviteSent: boolean;
   ics: string;
 }
 
+type LocationMode = "zoom" | "office";
+
 const visitorTz = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-export function BookingClient({ slug, title, durations }: { slug: string; title: string; durations: number[] }) {
+interface BookingClientProps {
+  slug: string;
+  title: string;
+  durations: number[];
+  locationModes: LocationMode[];
+  officeLocation: string | null;
+  ownerName: string | null;
+}
+
+export function BookingClient({ slug, title, durations, locationModes, officeLocation }: BookingClientProps) {
   const [duration, setDuration] = useState(durations[0]);
+  const [locationMode, setLocationMode] = useState<LocationMode>(locationModes[0] ?? "zoom");
   const [week, setWeek] = useState(0);
   const [slots, setSlots] = useState<Slot[] | null>(null);
   const [selected, setSelected] = useState<Slot | null>(null);
@@ -77,6 +92,7 @@ export function BookingClient({ slug, title, durations }: { slug: string; title:
         name: name.trim(),
         email: email.trim(),
         note: note.trim() || undefined,
+        locationMode,
       }),
     });
     setSubmitting(false);
@@ -122,25 +138,34 @@ export function BookingClient({ slug, title, durations }: { slug: string; title:
           <p className="text-sm text-muted mb-4">
             {confirmed.title} — {fmtFull(confirmed.startIso)} ({visitorTz()})
           </p>
-          {confirmed.meetingUrl && (
-            <div className="rounded-lg border border-border bg-panel p-3.5 mb-3 text-sm">
-              <div className="text-xs text-muted mb-1">Join link</div>
-              <a href={confirmed.meetingUrl} className="text-accent-text hover:underline break-all">
-                {confirmed.meetingUrl}
+          <div className="rounded-lg border border-border bg-panel p-3.5 mb-3 text-sm">
+            <div className="text-xs text-muted mb-1">Where</div>
+            {confirmed.locationMode === "office" ? (
+              <div className="text-text">{confirmed.locationText || "In person"}</div>
+            ) : confirmed.joinUrl ? (
+              <a href={confirmed.joinUrl} className="text-accent-text hover:underline break-all">
+                {confirmed.joinUrl}
               </a>
-            </div>
-          )}
+            ) : (
+              <div className="text-text">Video call — your meeting link will be emailed to you.</div>
+            )}
+          </div>
           <p className="text-xs text-muted mb-4">
             {confirmed.googleInviteSent
               ? "A calendar invitation is on its way to your email."
               : "Save the details — add the meeting to your calendar below."}
           </p>
-          <button
-            onClick={downloadIcs}
-            className="rounded-md border border-accent text-accent px-3.5 py-2 text-sm font-medium hover:bg-accent/10"
-          >
-            Add to calendar (.ics)
-          </button>
+          <div className="flex flex-col gap-3 items-start">
+            <button
+              onClick={downloadIcs}
+              className="rounded-md border border-accent text-accent px-3.5 py-2 text-sm font-medium hover:bg-accent/10"
+            >
+              Add to calendar (.ics)
+            </button>
+            <a href={confirmed.manageUrl} className="text-xs text-muted hover:text-text underline underline-offset-2">
+              Need to reschedule or cancel?
+            </a>
+          </div>
         </div>
       </div>
     );
@@ -168,6 +193,35 @@ export function BookingClient({ slug, title, durations }: { slug: string; title:
                 {d} min
               </button>
             ))}
+          </div>
+        )}
+
+        {/* Location picker — only shown when the link offers a choice */}
+        {locationModes.length > 1 && (
+          <div className="mb-5">
+            <div className="text-xs text-muted mb-1.5">Where should this meeting happen?</div>
+            <div className="flex gap-1.5 flex-wrap">
+              {locationModes.map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setLocationMode(m)}
+                  className="rounded-md px-3 py-1.5 text-sm border"
+                  style={{
+                    borderColor: locationMode === m ? "var(--color-accent)" : "var(--color-border)",
+                    background: locationMode === m ? "rgba(145,132,217,0.08)" : "transparent",
+                  }}
+                >
+                  {m === "office" ? "In person" : "Video call"}
+                </button>
+              ))}
+            </div>
+            <p className="mt-1.5 text-xs text-muted">
+              {locationMode === "office"
+                ? officeLocation
+                  ? `We'll meet at ${officeLocation}.`
+                  : "We'll meet in person."
+                : "Your meeting link will be emailed to you."}
+            </p>
           </div>
         )}
 

@@ -38,8 +38,13 @@ export async function updateSession(request: NextRequest) {
     request.nextUrl.pathname === "/sw.js";
   // Cron routes authenticate with CRON_SECRET, not a session cookie.
   const isCronRoute = request.nextUrl.pathname.startsWith("/api/cron/");
+  // Public booking pages/APIs: visitors have no session. The route handlers
+  // do all data access via the service-role client, scoped by slug lookup —
+  // nothing session-derived is reachable on these paths.
+  const isPublicBooking =
+    request.nextUrl.pathname.startsWith("/book/") || request.nextUrl.pathname.startsWith("/api/book/");
 
-  if (!user && !isAuthRoute && !isPublicAsset && !isCronRoute) {
+  if (!user && !isAuthRoute && !isPublicAsset && !isCronRoute && !isPublicBooking) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);

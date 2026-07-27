@@ -42,7 +42,13 @@ export default function PlannerPage() {
         <div className="text-[11px] text-muted">
           Board views of your projects, proposals, and goals — chat lives on the calendar page.
         </div>
-        <div className="ml-auto flex gap-1">
+        <Link
+          href="/?plan=1"
+          className="ml-auto rounded-md border border-accent text-accent px-2.5 py-1 text-[11px] font-medium hover:bg-accent/10 whitespace-nowrap"
+        >
+          Time to plan
+        </Link>
+        <div className="flex gap-1">
           {VIEWS.map((v) => (
             <button
               key={v.id}

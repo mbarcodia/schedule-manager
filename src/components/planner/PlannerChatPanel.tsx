@@ -34,6 +34,8 @@ export function PlannerChatPanel({ scheduleData }: PlannerChatPanelProps) {
       setInitialInput(
         "Let's do a weekly review — what's overdue, what's stuck in progress too long, and what should I drop or reprioritize for next week?",
       );
+    } else if (params.get("plan")) {
+      setInitialInput("Time to plan.");
     }
   }, []);
 
@@ -68,7 +70,7 @@ export function PlannerChatPanel({ scheduleData }: PlannerChatPanelProps) {
     <div className="flex-none w-[400px] border-l border-border flex flex-col min-h-0">
       <div className="flex-none px-4 py-3.5 border-b border-border flex items-start justify-between gap-2">
         <div>
-          <div className="font-medium text-[13px]">Planner</div>
+          <div className="font-medium text-[13px]">Chat</div>
           <div className="mt-0.5 text-[11px] text-muted">
             Discuss projects, priorities, and plans — it can schedule tasks and keep notes.
           </div>

@@ -279,6 +279,11 @@ export function buildTools(ctx: ToolContext) {
             'Use whenever the user names a general part of the day without an exact clock time. "morning" = before noon, "afternoon" = noon or later, "none" clears any existing constraint.',
         },
         work_on_next: { type: "boolean", description: "schedule this task at the next available time, before other flexible tasks" },
+        important: {
+          type: "boolean",
+          description:
+            "mark (true) or unmark (false) this task as important — the Eisenhower flag on the planning board. Independent of priority, which controls scheduling order.",
+        },
         pin_date: { type: "string", description: 'force part of this task onto an exact date, natural language, e.g. "monday", "july 24" — pairs with pin_time. Anything else scheduled there moves automatically; the rest of the task (if any) is still auto-placed.' },
         pin_time: {
           type: "string",
@@ -310,6 +315,7 @@ export function buildTools(ctx: ToolContext) {
         patch.category_id = categoryId;
       }
       if (inp.time_of_day) patch.time_of_day = inp.time_of_day === "none" ? null : inp.time_of_day;
+      if (inp.important != null) patch.important = inp.important;
       if (inp.due) {
         const deadline_at = titleToDeadlineAt(ctx, inp.due.toLowerCase());
         // Fail loudly rather than silently no-op-ing: an unparseable date

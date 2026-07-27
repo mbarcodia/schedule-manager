@@ -155,7 +155,7 @@ function findSlot(
 // Marks every minute in the range busy (not 15-min steps) so a block whose
 // start/end isn't itself grid-aligned — e.g. an 11:59 "right now" pin —
 // still correctly blocks any grid-aligned candidate slot that overlaps it.
-function markBusy(abs: AbsMinute, len: number, busy: Set<AbsMinute>): void {
+export function markBusy(abs: AbsMinute, len: number, busy: Set<AbsMinute>): void {
   for (let k = 0; k < len; k += 1) busy.add(abs + k);
 }
 

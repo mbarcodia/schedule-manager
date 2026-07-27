@@ -49,6 +49,10 @@ export function BookingSection({ categories }: { categories: CategoryRow[] }) {
   const [displayName, setDisplayName] = useState("");
   const [officeLocation, setOfficeLocation] = useState("");
   const [profileSaved, setProfileSaved] = useState(false);
+  /** False until the profile row is actually in hand. Saving before that would
+   * write the empty initial state over real values — which is exactly how a
+   * previously-saved meeting URL got wiped. */
+  const [profileLoaded, setProfileLoaded] = useState(false);
   const [bookings, setBookings] = useState<UpcomingBooking[]>([]);
   const [links, setLinks] = useState<BookingLinkRow[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -78,9 +82,12 @@ export function BookingSection({ categories }: { categories: CategoryRow[] }) {
         .limit(20),
     ]);
     if (statusRes) setGoogle(statusRes);
-    setMeetingUrl(profile?.booking_meeting_url ?? "");
-    setDisplayName(profile?.display_name ?? "");
-    setOfficeLocation(profile?.office_location ?? "");
+    if (profile) {
+      setMeetingUrl(profile.booking_meeting_url ?? "");
+      setDisplayName(profile.display_name ?? "");
+      setOfficeLocation(profile.office_location ?? "");
+      setProfileLoaded(true);
+    }
     setLinks(linkRows ?? []);
     setBookings(bookingRows ?? []);
   }, []);
@@ -92,6 +99,7 @@ export function BookingSection({ categories }: { categories: CategoryRow[] }) {
   }, [load]);
 
   async function saveProfile() {
+    if (!profileLoaded) return; // never overwrite with un-loaded state
     const supabase = createClient();
     const {
       data: { user },
@@ -128,6 +136,12 @@ export function BookingSection({ categories }: { categories: CategoryRow[] }) {
     // Default: Mon-Fri 10:00-16:00, 30-minute meetings.
     const day_windows: BookingDayWindowsJson = {};
     for (let d = 0; d < 7; d++) day_windows[String(d)] = d < 5 ? { start: 600, end: 960 } : null;
+    // Offer whichever locations are set up — a link with both is what makes the
+    // visitor-facing "where should this happen?" choice appear.
+    const location_modes: BookingLocationMode[] = [
+      ...(meetingUrl.trim() ? (["zoom"] as const) : []),
+      ...(officeLocation.trim() ? (["office"] as const) : []),
+    ];
     for (let attempt = 0; attempt < 3; attempt++) {
       const { error } = await supabase.from("booking_links").insert({
         user_id: user.id,
@@ -135,6 +149,7 @@ export function BookingSection({ categories }: { categories: CategoryRow[] }) {
         title: "Meeting",
         durations: [20, 30, 60],
         day_windows,
+        ...(location_modes.length ? { location_modes } : {}),
       });
       if (!error) break; // unique slug collision is ~impossible; retry anyway
     }
@@ -163,7 +178,7 @@ export function BookingSection({ categories }: { categories: CategoryRow[] }) {
 
   return (
     <div className="mt-8 pt-5 border-t border-border">
-      <h2 className="text-base font-medium mb-1">Booking page</h2>
+      <h2 id="booking" className="text-base font-medium mb-1 scroll-mt-4">Booking page</h2>
       <p className="text-xs text-muted mb-4">
         A public link (like Calendly) where anyone can book time with you. Slots come from your working hours,
         connected calendars, and protected task categories — booked meetings land on your calendar automatically.
@@ -280,7 +295,9 @@ export function BookingSection({ categories }: { categories: CategoryRow[] }) {
         </div>
         <button
           onClick={saveProfile}
-          className="self-start rounded-md border border-accent text-accent px-3 py-1.5 text-xs font-medium hover:bg-accent/10"
+          disabled={!profileLoaded}
+          title={profileLoaded ? undefined : "Still loading your current settings"}
+          className="self-start rounded-md border border-accent text-accent px-3 py-1.5 text-xs font-medium hover:bg-accent/10 disabled:opacity-50"
         >
           {profileSaved ? "Saved" : "Save details"}
         </button>
@@ -299,6 +316,13 @@ export function BookingSection({ categories }: { categories: CategoryRow[] }) {
                 style={{ width: `${Math.max(link.title.length, 8)}ch` }}
               />
               <span className="text-[10px] text-muted-2 font-mono truncate">/book/{link.slug}</span>
+              <span className="text-[10px] text-muted-2 flex-none">
+                {link.location_modes.length > 1
+                  ? "guest picks video or in person"
+                  : link.location_modes[0] === "office"
+                    ? "in person only"
+                    : "video only — enable “In person” in edit to let guests choose"}
+              </span>
               <div className="ml-auto flex items-center gap-2.5 text-[11px]">
                 <button onClick={() => copyUrl(link.slug)} className="text-accent-text hover:underline">
                   {copied === link.slug ? "Copied!" : "Copy URL"}

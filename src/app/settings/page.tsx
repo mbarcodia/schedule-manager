@@ -101,6 +101,19 @@ const PLANNER_MODEL_OPTIONS: {
   },
 ];
 
+/** Left-hand jump list. Order matches the page. */
+const SECTIONS: { id: string; label: string }[] = [
+  { id: "claude-access", label: "Claude access" },
+  { id: "planner-ai", label: "Planner AI" },
+  { id: "planner-guide", label: "How the planner works" },
+  { id: "block-labels", label: "Block labels" },
+  { id: "standard-hours", label: "Standard hours" },
+  { id: "categories", label: "Categories" },
+  { id: "calendars", label: "Connected calendars" },
+  { id: "booking", label: "Booking page" },
+  { id: "notifications", label: "Notifications" },
+];
+
 export default function SettingsPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -465,14 +478,42 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="flex-1 flex justify-center overflow-y-auto">
-      <div className="w-full max-w-lg px-6 py-8">
-        <Link href="/" className="inline-flex items-center gap-1.5 text-xs text-muted hover:text-text mb-6">
+    <div className="flex-1 flex flex-col min-h-0">
+      {/* Sits OUTSIDE the scroll container, so getting back to the calendar and
+          re-syncing are one click away from anywhere in the page. */}
+      <div className="flex-none border-b border-border px-6 py-2.5 flex items-center gap-4">
+        <Link href="/" className="inline-flex items-center gap-1.5 text-xs text-muted hover:text-text">
           <CaretLeftIcon size={12} weight="bold" />
           Back to schedule
         </Link>
+        <span className="text-xs text-muted-2">Settings</span>
+        <button
+          onClick={syncNow}
+          disabled={syncing || connections.length === 0}
+          title={connections.length === 0 ? "No calendars connected yet" : "Re-fetch every connected calendar feed"}
+          className="ml-auto text-xs text-accent hover:underline disabled:opacity-50 disabled:no-underline"
+        >
+          {syncing ? "Syncing…" : "Sync now"}
+        </button>
+      </div>
 
-        <h1 className="text-base font-medium mb-1">Claude access</h1>
+      <div className="flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-4xl px-6 py-8 flex gap-10">
+          {/* Jump list — sticky so it stays put while the content scrolls. */}
+          <nav className="hidden lg:flex flex-none w-44 flex-col gap-0.5 sticky top-0 self-start">
+            {SECTIONS.map((sec) => (
+              <button
+                key={sec.id}
+                onClick={() => document.getElementById(sec.id)?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                className="text-left text-xs text-muted hover:text-text rounded-md px-2 py-1.5 hover:bg-white/5"
+              >
+                {sec.label}
+              </button>
+            ))}
+          </nav>
+
+          <div className="flex-1 min-w-0 max-w-lg">
+        <h1 id="claude-access" className="text-base font-medium mb-1 scroll-mt-4">Claude access</h1>
         <p className="text-xs text-muted mb-3 leading-relaxed">
           The chat needs a Claude credential. Every account brings its own; there&apos;s no shared or fallback
           credential, so usage only ever bills to you. Two options — you can switch anytime:
@@ -589,7 +630,7 @@ export default function SettingsPage() {
         </div>
 
         <div className="mt-8 pt-5 border-t border-border">
-          <h2 className="text-base font-medium mb-1">Planner AI</h2>
+          <h2 id="planner-ai" className="text-base font-medium mb-1 scroll-mt-4">Planner AI</h2>
           <p className="text-xs text-muted mb-4">
             The chat panel on your calendar is the planner — full scheduling plus notes tools, running on whichever
             credential you set at the top of this page (API key or Claude subscription). Pick its model here.
@@ -638,8 +679,62 @@ export default function SettingsPage() {
           )}
         </div>
 
+        <div id="planner-guide" className="mt-8 pt-5 border-t border-border scroll-mt-4">
+          <h2 className="text-base font-medium mb-1">How the planner works</h2>
+          <p className="text-xs text-muted mb-4 leading-relaxed">
+            The <span className="text-text">Planner</span> link opens a board with four views of the same data, plus
+            your notes. None of them are separate to-do lists you maintain by hand — every view reads the live
+            schedule, so what you see there and what&apos;s on your calendar can never drift apart.
+          </p>
+
+          <div className="rounded-lg border border-border bg-panel p-3.5 mb-3 text-xs text-muted leading-relaxed flex flex-col gap-2.5">
+            <div>
+              <span className="text-text font-medium">Kanban</span> — your tasks grouped by what the schedule says
+              about them this week. A task is in <span className="text-text">Backlog</span> when no time is booked for
+              it this week, <span className="text-text">This Week</span> when time is booked but nothing has started,{" "}
+              <span className="text-text">In Progress</span> when a block is running now or partly logged, and{" "}
+              <span className="text-text">Done</span> when everything scheduled for it this week is checked off.
+              Dragging a card changes the actual schedule: In Progress pins the task to today, This Week moves it up
+              the queue, Backlog unpins it. Done is display-only on purpose — completion comes from checking blocks
+              off on the calendar, so your logged hours stay honest. Because the engine re-plans each week, Done
+              clears every Monday; archive a task when it&apos;s genuinely finished.
+            </div>
+            <div>
+              <span className="text-text font-medium">Eisenhower</span> — the same tasks split by importance against
+              urgency. You set importance with the ★ on any card; urgency is derived from the deadline (within three
+              days counts, no deadline never does). The useful signal is the quadrants you&apos;d rather not be in:
+              urgent-but-unimportant work eating the week, and important-but-not-urgent work that never gets booked.
+            </div>
+            <div>
+              <span className="text-text font-medium">Timeline</span> — one bar per dated project or proposal over the
+              next six months, coloured by whether the hours booked can still cover what&apos;s left; overdue turns
+              red. Goals have a cadence rather than a deadline, so they sit in a separate lane.
+            </div>
+            <div>
+              <span className="text-text font-medium">Archive</span> — finished tasks, kept rather than deleted so
+              their logged hours survive. The weekly review archives anything fully done with nothing left scheduled;
+              you can archive or restore by hand any time. Because the record stays intact, the chat can answer
+              &ldquo;what did I get done this semester?&rdquo; from real hours.
+            </div>
+            <div>
+              <span className="text-text font-medium">The strip along the top</span> shows this week live: done out of
+              total, how many tasks are in progress against a soft limit of three, missed blocks, and at-risk
+              deadlines. <span className="text-text">Time to plan</span> and{" "}
+              <span className="text-text">Discuss this week&apos;s review</span> both drop you into the chat with a
+              prompt filled in — they never send on their own, so you can edit first.
+            </div>
+          </div>
+
+          <p className="text-xs text-muted leading-relaxed">
+            Where the chat fits: it sits beside your calendar and shares every one of these tools. Saying &ldquo;I&apos;m
+            working on ACE2 right now for an hour&rdquo; puts a real block on the calendar and reflows the rest;
+            &ldquo;time to plan&rdquo; starts a short interview that fills the board out for you. The board is for
+            seeing where things stand; the chat is for changing it.
+          </p>
+        </div>
+
         <div className="mt-8 pt-5 border-t border-border">
-          <h2 className="text-base font-medium mb-1">Block labels</h2>
+          <h2 id="block-labels" className="text-base font-medium mb-1 scroll-mt-4">Block labels</h2>
           <p className="text-xs text-muted mb-4 leading-relaxed">
             Every calendar block shows a small tag naming what kind of item it is. What each one actually means:
           </p>
@@ -692,7 +787,7 @@ export default function SettingsPage() {
         </div>
 
         <div className="mt-8 pt-5 border-t border-border">
-          <h2 className="text-base font-medium mb-1">Standard hours</h2>
+          <h2 id="standard-hours" className="text-base font-medium mb-1 scroll-mt-4">Standard hours</h2>
           <p className="text-xs text-muted mb-4">
             Your normal working window for each day of the week — this is what the calendar compares against for
             &quot;starts early/late&quot; and what the assistant schedules within by default. Turn on a day
@@ -748,7 +843,7 @@ export default function SettingsPage() {
         </div>
 
         <div className="mt-8 pt-5 border-t border-border">
-          <h2 className="text-base font-medium mb-1">Categories</h2>
+          <h2 id="categories" className="text-base font-medium mb-1 scroll-mt-4">Categories</h2>
           <p className="text-xs text-muted mb-4">
             Groups your tasks and projects for the calendar&apos;s block color (research chunks pick up their
             project&apos;s category). Add, rename, recolor, or remove any of these anytime. &quot;Min chunk&quot;
@@ -821,7 +916,7 @@ export default function SettingsPage() {
 
         <div className="mt-8 pt-5 border-t border-border">
           <div className="flex items-center justify-between gap-2 mb-1">
-            <h2 className="text-base font-medium">Connected calendars</h2>
+            <h2 id="calendars" className="text-base font-medium scroll-mt-4">Connected calendars</h2>
             <button
               onClick={syncNow}
               disabled={syncing || connections.length === 0}
@@ -940,7 +1035,7 @@ export default function SettingsPage() {
         <BookingSection categories={categories} />
 
         <div className="mt-8 pt-5 border-t border-border">
-          <h2 className="text-base font-medium mb-1">Notifications</h2>
+          <h2 id="notifications" className="text-base font-medium mb-1 scroll-mt-4">Notifications</h2>
           <p className="text-xs text-muted mb-4">
             Real push notifications from your browser. Delivery is checked hourly by the server, so times below are
             rounded to the hour rather than exact-minute.
@@ -1040,6 +1135,8 @@ export default function SettingsPage() {
           <button onClick={signOut} className="text-xs text-muted underline underline-offset-2 hover:text-text">
             Sign out
           </button>
+        </div>
+          </div>
         </div>
       </div>
     </div>

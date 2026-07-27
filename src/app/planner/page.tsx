@@ -12,6 +12,7 @@ import { EisenhowerBoard } from "@/components/board/EisenhowerBoard";
 import { ArchiveView } from "@/components/board/ArchiveView";
 import { Timeline } from "@/components/board/Timeline";
 import { WeeklyReviewCard } from "@/components/board/WeeklyReviewCard";
+import { BoardViewIntro } from "@/components/board/BoardViewIntro";
 import { PlannerSidebar } from "@/components/planner/PlannerSidebar";
 import { useScheduleData } from "@/hooks/useScheduleData";
 
@@ -64,6 +65,7 @@ export default function PlannerPage() {
           ))}
         </div>
       </div>
+      <BoardViewIntro view={view} />
       <WeeklyReviewCard scheduleData={scheduleData} />
       <div className="flex-1 flex min-h-0">
         {view === "kanban" && <KanbanBoard scheduleData={scheduleData} onMutated={onMutated} />}

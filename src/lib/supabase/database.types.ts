@@ -17,6 +17,10 @@ export type CalendarProvider = "outlook_ics" | "icloud_ics" | "google_ics";
 /** Keys are "0".."6" (0=Mon..6=Sun). null = day off by default. */
 export type WeeklyHoursJson = Record<string, { start: number; end: number } | null>;
 
+/** booking_links.day_windows — same shape/convention as WeeklyHoursJson;
+ * null (or missing key) = that weekday not bookable. */
+export type BookingDayWindowsJson = WeeklyHoursJson;
+
 // Supabase's client generics require every table to carry a `Relationships`
 // array (used for typed joins) and the schema to declare Views/Functions —
 // even empty, since @supabase/postgrest-js's GenericTable/GenericSchema
@@ -49,6 +53,7 @@ export interface Database {
           label_research: string | null;
           label_deep_focus: string | null;
           label_block: string | null;
+          booking_meeting_url: string | null;
         },
         { id: string } & Partial<{
           preferred_model: PreferredModel;
@@ -64,6 +69,7 @@ export interface Database {
           label_research: string | null;
           label_deep_focus: string | null;
           label_block: string | null;
+          booking_meeting_url: string | null;
         }>,
         Partial<{
           preferred_model: PreferredModel;
@@ -79,6 +85,7 @@ export interface Database {
           label_research: string | null;
           label_deep_focus: string | null;
           label_block: string | null;
+          booking_meeting_url: string | null;
         }>
       >;
       categories: Table<
@@ -450,6 +457,87 @@ export interface Database {
         },
         { id?: string; user_id: string; role: ChatRole; content: string },
         Record<string, never>
+      >;
+      google_credentials: Table<
+        {
+          user_id: string;
+          google_email: string;
+          refresh_token: string;
+          needs_reconnect: boolean;
+          created_at: string;
+        },
+        { user_id: string; google_email: string; refresh_token: string; needs_reconnect?: boolean },
+        Partial<{ google_email: string; refresh_token: string; needs_reconnect: boolean }>
+      >;
+      booking_links: Table<
+        {
+          id: string;
+          user_id: string;
+          slug: string;
+          title: string;
+          durations: number[];
+          day_windows: BookingDayWindowsJson;
+          blocking_category_ids: string[];
+          buffer_min: number;
+          min_notice_hours: number;
+          max_per_day: number;
+          active: boolean;
+          created_at: string;
+        },
+        {
+          id?: string;
+          user_id: string;
+          slug: string;
+          title: string;
+          durations?: number[];
+          day_windows?: BookingDayWindowsJson;
+          blocking_category_ids?: string[];
+          buffer_min?: number;
+          min_notice_hours?: number;
+          max_per_day?: number;
+          active?: boolean;
+        },
+        Partial<{
+          slug: string;
+          title: string;
+          durations: number[];
+          day_windows: BookingDayWindowsJson;
+          blocking_category_ids: string[];
+          buffer_min: number;
+          min_notice_hours: number;
+          max_per_day: number;
+          active: boolean;
+        }>
+      >;
+      bookings: Table<
+        {
+          id: string;
+          user_id: string;
+          link_id: string;
+          event_id: string | null;
+          google_event_id: string | null;
+          starts_at: string;
+          ends_at: string;
+          duration_min: number;
+          visitor_name: string;
+          visitor_email: string;
+          visitor_note: string | null;
+          created_at: string;
+        },
+        {
+          id?: string;
+          user_id: string;
+          link_id: string;
+          event_id?: string | null;
+          google_event_id?: string | null;
+          starts_at: string;
+          ends_at: string;
+          duration_min: number;
+          visitor_name: string;
+          visitor_email: string;
+          visitor_note?: string | null;
+        },
+        Partial<{ google_event_id: string | null; event_id: string | null }>
       >;
     };
     Views: Record<string, never>;

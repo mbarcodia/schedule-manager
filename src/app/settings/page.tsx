@@ -13,6 +13,7 @@ import type {
   WeeklyHoursJson,
 } from "@/lib/supabase/database.types";
 import { getPushSubscriptionStatus, subscribeToPush, unsubscribeFromPush } from "@/lib/push/subscribe";
+import { BookingSection } from "@/components/settings/BookingSection";
 
 type CategoryRow = Database["public"]["Tables"]["categories"]["Row"];
 type ConnectionRow = Database["public"]["Tables"]["calendar_connections"]["Row"];
@@ -935,6 +936,8 @@ export default function SettingsPage() {
             </div>
           </div>
         </div>
+
+        <BookingSection categories={categories} />
 
         <div className="mt-8 pt-5 border-t border-border">
           <h2 className="text-base font-medium mb-1">Notifications</h2>

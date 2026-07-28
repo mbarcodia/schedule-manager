@@ -23,6 +23,8 @@ Everything below is built and working — this is the whole feature set, not a r
 - External calendars merged in read-only via ICS feed (Outlook, Google, iCloud) — nothing is ever written back to them
 - Check blocks off, log partial progress, or pin a block to an exact time; missed time reschedules itself later in the week
 - Research projects get weekly-hours targets and claim mornings by priority
+- Sliding view: show 1, 3, 5 or 7 days at a time and shift the window a day at
+  a time, so a "week" can start on any weekday
 
 **Chat (beside the calendar)**
 - Plain-language edits: "push my gym block to 6pm", "add 3h of grading due Friday, max 1h/day"
@@ -56,14 +58,16 @@ hosting, Anthropic for the AI), plus GitHub to get the code — so you need
 **four separate free-to-start accounts**, not one. Nothing auto-creates the
 others for you.
 
-| Account | What it's for | Signup time | Cost |
-|---|---|---|---|
-| [GitHub](https://github.com) | Hosts the code you'll deploy from | ~2 min (skip if you have one) | Free |
-| [Supabase](https://supabase.com) | Your database (tasks, schedule, notes) + login system | ~2 min signup, ~2 min for the project to spin up | Free tier is enough for personal use |
-| [Vercel](https://vercel.com) | Hosts the actual running app at a URL | ~2 min, plus linking GitHub | Free (Hobby plan) |
-| AI access — see ["Connecting Claude"](#connecting-claude-two-options) | Powers the chat and planner | varies | **Option A:** Anthropic API key, pay-per-use (see the cost table below). **Option B:** your existing Claude Pro/Max subscription + a tiny relay server (~$0.15–1/month on Fly.io) |
-| [Google Cloud](https://console.cloud.google.com) *(optional — booking page only)* | Lets booked meetings appear on your real Google Calendar and email the guest an invite | ~15 min | Free (the Calendar API has no charge at personal volume) |
-| [Fly.io](https://fly.io) *(optional — Option B only)* | Hosts the small relay that lets the Planner run on your Claude subscription | ~3 min, requires a payment method | Scale-to-zero: **well under $1/month** (pennies of storage while idle, per-second compute only during planner turns) |
+| Account | What it's for | Signup time |
+|---|---|---|
+| [GitHub](https://github.com) | Hosts the code you deploy from | ~2 min (skip if you have one) |
+| [Supabase](https://supabase.com) | Your database (tasks, schedule, notes) + login | ~2 min, plus ~2 min for the project to spin up |
+| [Vercel](https://vercel.com) | Hosts the running app at a URL | ~2 min, plus linking GitHub |
+| AI access — see ["Connecting Claude"](#connecting-claude-two-options) | Powers the chat and planner | varies by option |
+| [Google Cloud](https://console.cloud.google.com) *(optional — booking page)* | Puts booked meetings on your real Google Calendar and emails the guest an invite | ~15 min |
+| [Fly.io](https://fly.io) *(optional — AI Option B)* | Hosts the small relay for running the AI on a Claude subscription | ~3 min, needs a payment method |
+
+Costs for all of these are in one place below.
 
 Total hands-on setup time is roughly **20–30 minutes** for the core app, most
 of which is waiting for accounts/projects to provision rather than active
@@ -232,32 +236,52 @@ Thursdays 9:30–10:45"*, *"add 6 hours of ACE2 analysis a week"*, *"3h grading
 due Friday, no more than 1h a day"*. It creates the projects, tasks, and
 recurring blocks for you — you don't have to fill anything in by hand.
 
-## What you do every time you use it
+After this, day-to-day use is just opening the app and logging in; sessions
+persist. Nothing in the setup above repeats, and there's no maintenance beyond
+redeploying if you pull code updates.
 
-Nothing from the setup above. Once deployed, using the app is just:
+## Install it as a Mac app (optional, ~30 seconds)
 
-- Open your Vercel URL and log in (or stay logged in — sessions persist).
-- Use the calendar, chat, and planner board normally.
+The app ships as an installable web app, so you can run it in its own window
+with a Dock icon — no separate download, no extra build, nothing to maintain.
 
-The only "maintenance" you'd ever touch again is redeploying if you pull code
-updates from upstream, or checking your Anthropic billing occasionally — both
-optional, neither required to keep using the app.
+**In Chrome on macOS:**
+
+1. Open your deployed URL in Chrome and sign in.
+2. Reload once with **⌘⇧R** (Chrome caches web manifests).
+3. **⋮ menu → Cast, Save and Share → Install Schedule** → confirm **Install**.
+4. Right-click the new Dock icon → **Options → Keep in Dock**.
+
+You get a standalone window with no tabs or address bar, ⌘-Tab switching, and
+right-click Dock shortcuts straight to the planner board and settings. Safari
+17+ offers the same thing via **File → Add to Dock**.
+
+Two things worth knowing:
+
+- **Updates are automatic.** The window points at your deployment, so a
+  `git push` that Vercel deploys reaches it on next open — there's no bundle to
+  rebuild or reinstall. Only a change to the app's name, icon, or manifest
+  identity would need reinstalling. If a *notification* change seems missing,
+  quit with **⌘Q** and reopen so the service worker updates.
+- **Everything server-side keeps working while it's closed** — calendar sync,
+  digest notifications, and your booking page all run on a schedule
+  independently of your Mac.
+
+You won't see an install icon in Chrome's address bar: Chrome only shows that
+automatic prompt for apps with an offline-capable service worker, and this app's
+data is entirely server-side, so it deliberately doesn't pretend to work
+offline. Installing from the menu is unaffected.
 
 ## Connecting Claude: two options
 
-The assistant and planner need a Claude credential. There's no env var for
-this — every user, including you, adds their own from inside the app, once,
-after signing up. **Nothing is ever shared or billed across accounts**: no
-shared key, no fallback, and no way for one user's AI usage to land on
-another user's (or the deployer's) bill.
-
-You have two options. They can coexist — pick per person, and switch anytime
-in Settings.
+Every user adds their own Claude credential from inside the app after signing
+up — there's no env var for it, and no way for one account's usage to reach
+another's bill (see ["Isolation model"](#isolation-model-who-pays-for-what)).
+The two options coexist; pick per person and switch anytime in Settings. Costs
+are in ["What it costs to run"](#what-it-costs-to-run).
 
 | | **Option A: Anthropic API key** | **Option B: Claude Pro/Max subscription** |
 |---|---|---|
-| Billing | Pay-per-token to Anthropic (typically $1–15/month personal use) | Covered by the flat subscription you may already pay for ([claude.ai](https://claude.ai) Pro/Max) |
-| Works with | Everything | Everything (the app has one chat surface) |
 | Models | All, including Claude Fable 5 | Up to Claude Opus 4.8 (subscription plans don't include Fable 5) |
 | Extra infrastructure | None | A tiny relay server you deploy once on your own Fly.io account (see below) |
 | Requires | An [Anthropic Console](https://console.anthropic.com) account with a payment method | A paid claude.ai plan (Pro or higher — the free plan doesn't qualify) + [Claude Code](https://claude.com/claude-code) installed once to mint the token |
@@ -265,16 +289,10 @@ in Settings.
 
 ### Option A: Anthropic API key
 
-1. Sign up and log in to your deployed app.
-2. Go to **Settings** → **Anthropic API key**.
-3. Go to [console.anthropic.com](https://console.anthropic.com) and sign in
-   or create an account. (This is separate from a claude.ai subscription —
-   it's billed per-token usage, not a flat monthly fee.)
-4. Add a payment method under **Billing**, then go to **API Keys** and
-   create a new key.
-5. Paste it into Settings.
-
-One key covers the whole app.
+At [console.anthropic.com](https://console.anthropic.com) — a separate,
+per-token-billed account from a claude.ai subscription — add a payment method
+under **Billing**, create a key under **API Keys**, then paste it into your
+app's **Settings → Claude access**. That one key covers everything.
 
 ### Option B: your Claude Pro/Max subscription (via a self-hosted relay)
 

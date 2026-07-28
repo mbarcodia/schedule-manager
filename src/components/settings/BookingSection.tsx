@@ -265,7 +265,7 @@ export function BookingSection({ categories }: { categories: CategoryRow[] }) {
           <input
             value={displayName}
             onChange={(e) => setDisplayName(e.target.value)}
-            placeholder="e.g. Marybeth Arcodia"
+            placeholder="e.g. Jordan Ellis"
             className="w-full rounded-md border border-border bg-surface px-2.5 py-1.5 text-xs text-text outline-none focus-visible:border-accent"
           />
         </div>
@@ -289,7 +289,7 @@ export function BookingSection({ categories }: { categories: CategoryRow[] }) {
           <input
             value={officeLocation}
             onChange={(e) => setOfficeLocation(e.target.value)}
-            placeholder="e.g. Cox Science Center, room 412"
+            placeholder="e.g. Science Building, room 412"
             className="w-full rounded-md border border-border bg-surface px-2.5 py-1.5 text-xs text-text outline-none focus-visible:border-accent"
           />
         </div>

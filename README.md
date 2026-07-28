@@ -5,7 +5,7 @@
 > commits. Expect rough edges if you deploy your own instance today.
 
 A personal scheduling app: a week calendar with tasks, projects, and time budgets, an
-AI assistant for quick edits ("push my gym block to 6pm"), and a Planner — a
+AI chat for quick edits ("push my gym block to 6pm"), and a Planner — a
 longer-horizon AI chat for talking through projects and keeping notes tied to
 your schedule. Built with Next.js, Supabase (Postgres + Auth), and deployed on
 Vercel.
@@ -13,18 +13,40 @@ Vercel.
 This repo is self-serve: everything you need to run your own independent
 instance is below. No account or access from the original author is required.
 
-## Features
+## What it does
 
-- Week calendar with tasks, recurring commitments, and per-day working-hours limits
-- External calendar sync (ICS feeds) merged onto your schedule
-- Web push notifications (end-of-day check-ins, weekly summaries)
-- An AI assistant for fast, single-message schedule edits
-- A **Planner**: a board (kanban, Eisenhower, months-long timeline, archive)
-  plus a chat for discussing projects, building execution plans, and keeping
-  notes — see "The Planner" below
-- A **public booking page** (Calendly-style): share a link, visitors book from
-  your real availability, meetings land on your calendar — see "Booking page"
-- Deliberately token-frugal AI usage — see ["Running this efficiently"](#running-this-efficiently)
+Everything below is built and working — this is the whole feature set, not a roadmap.
+
+**Calendar and scheduling engine**
+- Week view of tasks, recurring commitments, and meetings, with per-day working hours
+- You describe work (hours needed, deadline, pacing, chunk size) and the engine places it; change anything and the whole week re-solves around it
+- External calendars merged in read-only via ICS feed (Outlook, Google, iCloud) — nothing is ever written back to them
+- Check blocks off, log partial progress, or pin a block to an exact time; missed time reschedules itself later in the week
+- Research projects get weekly-hours targets and claim mornings by priority
+
+**Chat (beside the calendar)**
+- Plain-language edits: "push my gym block to 6pm", "add 3h of grading due Friday, max 1h/day"
+- Can also plan: it reads your real capacity and pushes back when a week is overcommitted
+- Keeps durable notes per project (kinds: idea, todo, paper, update, other), exportable as one Markdown file
+- Runs on your own Anthropic API key **or** your existing Claude Pro/Max subscription
+
+**Planner board** (four views over the same live schedule — nothing is a hand-maintained list)
+- **Kanban** — Backlog / This Week / In Progress / Done, derived from what the schedule actually says; drag a card to change the schedule
+- **Eisenhower** — importance (you set it) against urgency (read from deadlines)
+- **Timeline** — six months of project and proposal deadlines, coloured by whether booked hours can still cover them
+- **Archive** — finished work is archived, never deleted, so logged hours survive for "what did I get done this semester?"
+- A live weekly-review strip (done/total, work-in-progress limit, missed blocks, at-risk deadlines) and a guided "Time to plan" interview
+
+**Public booking page** (Calendly-style, optional)
+- Share a link; visitors see only free slots computed from your working hours, calendars, and protected task categories
+- Per-link meeting lengths, bookable days/times, buffers, minimum notice, and a daily cap
+- Visitors choose video or in person when you offer both; bookings land on your calendar (and optionally your real Google Calendar, which emails them an invite)
+- Either side can cancel or reschedule from a private link
+
+**Notifications**
+- Web push: end-of-day check-in and weekly review, at your chosen local hour
+
+**Deliberately efficient AI use** — prompt caching, small-model routing for routine edits, and a no-filler output rule; see ["Running this efficiently"](#running-this-efficiently)
 
 ## What you'll need
 
@@ -39,11 +61,41 @@ others for you.
 | [GitHub](https://github.com) | Hosts the code you'll deploy from | ~2 min (skip if you have one) | Free |
 | [Supabase](https://supabase.com) | Your database (tasks, schedule, notes) + login system | ~2 min signup, ~2 min for the project to spin up | Free tier is enough for personal use |
 | [Vercel](https://vercel.com) | Hosts the actual running app at a URL | ~2 min, plus linking GitHub | Free (Hobby plan) |
-| AI access — see ["Connecting Claude"](#connecting-claude-two-options) | Powers the AI assistant/planner | varies | **Option A:** Anthropic API key, pay-per-use (~$1–15/month typical). **Option B:** your existing Claude Pro/Max subscription + a tiny relay server (~$0.15–1/month on Fly.io) |
+| AI access — see ["Connecting Claude"](#connecting-claude-two-options) | Powers the chat and planner | varies | **Option A:** Anthropic API key, pay-per-use (see the cost table below). **Option B:** your existing Claude Pro/Max subscription + a tiny relay server (~$0.15–1/month on Fly.io) |
+| [Google Cloud](https://console.cloud.google.com) *(optional — booking page only)* | Lets booked meetings appear on your real Google Calendar and email the guest an invite | ~15 min | Free (the Calendar API has no charge at personal volume) |
 | [Fly.io](https://fly.io) *(optional — Option B only)* | Hosts the small relay that lets the Planner run on your Claude subscription | ~3 min, requires a payment method | Scale-to-zero: **well under $1/month** (pennies of storage while idle, per-second compute only during planner turns) |
 
-Total hands-on setup time is roughly **20–30 minutes**, most of which is
-waiting for accounts/projects to provision rather than active work.
+Total hands-on setup time is roughly **20–30 minutes** for the core app, most
+of which is waiting for accounts/projects to provision rather than active
+work. The two optional extras add about **15 minutes each**: the booking
+page's Google connection, and the relay if you want to run the AI on a Claude
+subscription instead of an API key.
+
+### What it costs to run
+
+| | Monthly cost | Notes |
+|---|---|---|
+| Supabase, Vercel, GitHub | **$0** | Free tiers are comfortably enough for one person's schedule |
+| Fly.io relay *(only if using a Claude subscription)* | **under $1** | Scales to zero: pennies of storage while idle, per-second compute only during a planner turn |
+| Google Cloud *(only if using the booking page)* | **$0** | Calendar API is free at this volume |
+| **Option A — your own Anthropic API key** | typically **$3–15** | Depends entirely on how much you chat; see below |
+| **Option B — existing Claude Pro/Max subscription** | **$0 extra** | Uses quota you already pay for, shared with your normal Claude usage |
+
+Model rates on Option A (per million tokens, **as of July 2026** — check
+[Anthropic's pricing page](https://platform.claude.com/docs/en/pricing) for
+current numbers):
+
+| Model | Input | Output | Good for |
+|---|---|---|---|
+| Claude Haiku 4.5 | $1 | $5 | Simple task capture |
+| Claude Sonnet 5 | $3 | $15 | Recommended default; strong on multi-step work |
+| Claude Opus 4.8 | $5 | $25 | Deepest planning conversations |
+
+A typical day of quick edits plus one real planning conversation lands in the
+low tens of cents. Three things in this app hold that down without degrading
+answers: the unchanging half of the prompt is cached rather than reprocessed,
+routine one-line commands are routed to a smaller model, and the AI is
+instructed not to generate filler.
 
 ## One-time setup
 
@@ -81,6 +133,10 @@ Fill in `.env.local`:
 | `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | Run `npx web-push generate-vapid-keys`; optional — only needed for push notifications |
 | `VAPID_SUBJECT` | `mailto:you@example.com` — required alongside the VAPID keys |
 | `CRON_SECRET` | Any random string, e.g. `openssl rand -hex 32`. Authenticates the cron/notification routes |
+| `APP_ORIGIN` | Your app's base URL — `http://localhost:3000` locally, your Vercel URL in production. Used for booking links and OAuth redirects |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Optional — only for the booking page's Google Calendar connection. See ["Enabling Google Calendar"](#enabling-google-calendar-for-your-deployment) |
+| `PLANNER_RELAY_URL`, `PLANNER_RELAY_SECRET` | Optional — only if you run the AI on a Claude subscription (Option B) |
+| `ALERT_SECRET`, `ALERT_OWNER_USER_ID` | Optional — used by the cron-drift alert described in `CRON_SECRET_RUNBOOK.md` |
 
 There's no Anthropic key here — every user (including you) adds their own
 from inside the app after signing up. See "Getting an Anthropic API key"
@@ -119,6 +175,10 @@ default), and you should land on an empty calendar.
 - Set the project **Root Directory** to `web`.
 - Add all the same environment variables from `.env.local` in the Vercel
   project's Settings → Environment Variables.
+- **Change `APP_ORIGIN`** to your deployed URL (e.g.
+  `https://your-app.vercel.app`) — not `http://localhost:3000`. Booking links
+  and OAuth redirects are built from it, so a stale value silently sends guests
+  to localhost.
 - Deploy.
 
 The included `vercel.json` sets up one daily cron (`sync-calendars`) — that's
@@ -142,12 +202,41 @@ If you don't set these up, the app still works — you just won't get the
 hourly-precision digest notifications (daily calendar sync still runs via
 Vercel's cron).
 
+## First run: getting set up inside the app
+
+The steps above get the app running; these get *you* running. All of it lives
+in **Settings**, which has a jump-list down the left side.
+
+1. **Sign up** at your deployed URL (email + password). You land on an empty
+   calendar.
+2. **Claude access** — paste an Anthropic API key, or a Claude Pro/Max
+   subscription token. Nothing AI-related works until this is set, and it's
+   per-account: your credential is never shared with or billed to anyone else
+   who uses your deployment.
+3. **Standard hours** — the working window for each weekday. Everything the
+   scheduler does is bounded by this, so it's worth getting roughly right
+   before adding work.
+4. **Categories** — colour-coded buckets (Teaching, Research, Admin…). Blocks
+   are coloured by category, and the booking page can protect specific
+   categories from being booked over.
+5. **Connected calendars** — paste the ICS feed URL from Outlook / Google /
+   iCloud so existing meetings block time. Read-only: nothing is written back.
+6. **Notifications** *(optional)* — turn on push and pick the end-of-day and
+   weekly-review hours.
+7. **Booking page** *(optional)* — add your name, a video-meeting URL and/or an
+   in-person location, then create a link. See ["Booking page"](#booking-page).
+
+Then just talk to the chat beside the calendar: *"I teach Tuesdays and
+Thursdays 9:30–10:45"*, *"add 6 hours of ACE2 analysis a week"*, *"3h grading
+due Friday, no more than 1h a day"*. It creates the projects, tasks, and
+recurring blocks for you — you don't have to fill anything in by hand.
+
 ## What you do every time you use it
 
 Nothing from the setup above. Once deployed, using the app is just:
 
 - Open your Vercel URL and log in (or stay logged in — sessions persist).
-- Use the calendar, assistant, and planner normally.
+- Use the calendar, chat, and planner board normally.
 
 The only "maintenance" you'd ever touch again is redeploying if you pull code
 updates from upstream, or checking your Anthropic billing occasionally — both
@@ -167,7 +256,7 @@ in Settings.
 | | **Option A: Anthropic API key** | **Option B: Claude Pro/Max subscription** |
 |---|---|---|
 | Billing | Pay-per-token to Anthropic (typically $1–15/month personal use) | Covered by the flat subscription you may already pay for ([claude.ai](https://claude.ai) Pro/Max) |
-| Works with | Quick assistant **and** Planner | **Planner only** (the quick assistant still needs an API key) |
+| Works with | Everything | Everything (the app has one chat surface) |
 | Models | All, including Claude Fable 5 | Up to Claude Opus 4.8 (subscription plans don't include Fable 5) |
 | Extra infrastructure | None | A tiny relay server you deploy once on your own Fly.io account (see below) |
 | Requires | An [Anthropic Console](https://console.anthropic.com) account with a payment method | A paid claude.ai plan (Pro or higher — the free plan doesn't qualify) + [Claude Code](https://claude.com/claude-code) installed once to mint the token |
@@ -184,7 +273,7 @@ in Settings.
    create a new key.
 5. Paste it into Settings.
 
-One key covers both the assistant and the planner.
+One key covers the whole app.
 
 ### Option B: your Claude Pro/Max subscription (via a self-hosted relay)
 
@@ -200,8 +289,13 @@ large for Vercel functions — hence the separate tiny server).
   app is a reasonable personal use, but it's your account — Anthropic could
   change policy, and heavy automated use draws from the same usage pool as
   your own claude.ai and Claude Code sessions.
-- The token is planner-only; keep (or add) an API key if you also want the
-  quick assistant.
+- Subscription tokens cap out at Claude Opus 4.8 — the Fable 5 model option
+  needs an API key. You can switch between the two at any time in Settings.
+
+> **Before deploying the relay:** open `fly.toml` and change the `app` name.
+> Fly app names are globally unique, so the name in this repo is already taken
+> and `fly deploy` will fail until you pick your own (e.g.
+> `yourname-planner-relay`).
 
 **B1. Mint your token** (on your own computer, once):
 
@@ -258,21 +352,21 @@ optional sub-$1 relay).
 
 ## The Planner
 
-The Planner (`/planner` in the app) is a separate, longer-horizon chat from
-the quick-edit assistant — for discussing ongoing projects, building
-execution plans, and keeping notes tied to your schedule, with state that
-persists across sessions.
+There is one AI chat, and it sits beside your calendar — it handles both quick
+edits and long-horizon planning. The **Planner** link (`/planner`) opens the
+board views described above, plus your notes sidebar. Settings → "How the
+planner works" explains each view and how it maps onto the real schedule.
 
-- It has everything the quick assistant has (create/edit tasks and events,
-  log progress), plus notes.
+- The chat can do everything: create/edit tasks and events, log progress, pin
+  research time, archive finished work, and keep notes.
 - Each note has a kind (idea, todo, paper, update, other) and can be linked
   to a project/proposal/goal/task, or left unlinked.
-- Create and edit notes either by asking the planner in chat ("add a note to
-  ACE2 about the new element we need to design") or directly in the sidebar.
+- Create and edit notes either by asking in chat ("add a note to ACE2 about
+  the new element we need to design") or directly in the sidebar.
 - The sidebar groups notes under their linked project; **Export notes** in
   the sidebar header downloads everything as one Markdown file.
-- The planner reads your existing notes when relevant, so you don't need to
-  re-explain context every session.
+- It reads your existing notes when relevant, so you don't need to re-explain
+  context every session.
 - Pick which Claude model the planner uses under **Settings → Planner AI**.
   The planner runs on whichever credential you set up — an Anthropic API key
   or your Claude Pro/Max subscription (see "Connecting Claude" above).

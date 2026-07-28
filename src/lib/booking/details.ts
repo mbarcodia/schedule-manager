@@ -19,9 +19,9 @@ export interface BookingDetailInput {
   manageUrl: string;
 }
 
-/** "Jane Doe <> Marybeth Arcodia" — the form she asked for on invites. Falls
- * back to the link's own title when the owner hasn't set a display name yet,
- * so a half-configured account still produces a sensible invite. */
+/** "Jane Doe <> Owner Name" — the invite title format. Falls back to the link's
+ * own title when the owner hasn't set a display name yet, so a
+ * half-configured account still produces a sensible invite. */
 export function bookingTitle(input: BookingDetailInput): string {
   return input.ownerName ? `${input.visitorName} <> ${input.ownerName}` : `${input.linkTitle}: ${input.visitorName}`;
 }

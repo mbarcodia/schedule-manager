@@ -34,7 +34,7 @@ memory for the 2026-07-24 incident this replaces the silent-failure-email for).
    ```bash
    H=$(date -u +%-H)
    curl -s -o /dev/null -w "%{http_code}\n" \
-     "https://schedule-manager-puce.vercel.app/api/cron/eod-checkin?hour=$H" \
+     "$PROD_BASE_URL/api/cron/eod-checkin?hour=$H" \
      -H "Authorization: Bearer $LOCAL_SECRET"
    # should print 200
    gh workflow run digest-notifications.yml --repo mbarcodia/schedule-manager

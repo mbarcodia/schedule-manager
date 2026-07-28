@@ -12,7 +12,7 @@ alter table public.profiles
   -- Shown in booking invites as "<visitor> <> <display_name>". Falls back to
   -- the link title when unset, so a fresh account still works.
   add column display_name text,
-  -- Free text, e.g. "Cox Science Center, room 412". Shown to the visitor
+  -- Free text, e.g. "Science Building, room 412". Shown to the visitor
   -- when they pick the office option and written to the calendar event.
   add column office_location text;
 

@@ -4,12 +4,14 @@ import { CheckIcon } from "@phosphor-icons/react";
 import { computeBlockVisual, type BlockLane } from "@/lib/scheduling/render";
 import type { Category, ScheduleBlock } from "@/lib/scheduling/types";
 
-// A block shorter than this (e.g. a 15-min Emails anchor) renders at this
-// height instead of its true proportional one — otherwise there's no room
-// for legible text at all. It'll visually extend a bit past its real end
-// time into whatever's next; same tradeoff every calendar UI (Google
-// Calendar included) makes for very short events.
-const MIN_BLOCK_HEIGHT_PX = 26;
+// Blocks render at their true proportional height, inset 1px top and bottom so
+// the gap between consecutive blocks is visible. There used to be a 26px floor
+// for legibility, but a 15-minute block is only 18px, so the floor overran the
+// following block by ~9px and swallowed the separation entirely — a 9:00-9:15
+// block looked like it ran into whatever came next. Short blocks already switch
+// to a compact layout (see ContentDensity), so they stay readable at their real
+// height; this floor only keeps a pathologically short one clickable.
+const ABSOLUTE_MIN_HEIGHT_PX = 8;
 
 interface BlockProps {
   block: ScheduleBlock;
@@ -80,7 +82,8 @@ export function Block({
         // anchors sharing an edge) show a visible sliver of separation
         // instead of their borders touching and blending together.
         top: visual.top + 1,
-        height: Math.max(MIN_BLOCK_HEIGHT_PX, visual.height - 2),
+        // -2 = the 1px inset top and bottom that draws the separation.
+        height: Math.max(ABSOLUTE_MIN_HEIGHT_PX, visual.height - 2),
         background: visual.bg,
         border: `${visual.borderWidth}px ${visual.borderStyle} ${visual.border}`,
         borderRadius: 8,

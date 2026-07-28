@@ -95,6 +95,37 @@ export function parseTimeStr(s: string | null | undefined): number | null {
   return h * 60 + mi;
 }
 
+/** Finds an explicit clock time inside a longer phrase — "due by 2pm on Nov 10",
+ * "november 10 at 14:30". Deliberately stricter than parseTimeStr: a bare
+ * number is NOT treated as a time, because "november 10" would otherwise parse
+ * as 10 o'clock and silently move the deadline. */
+export function parseTimeInText(text: string | null | undefined): number | null {
+  if (text == null) return null;
+  const lower = String(text).toLowerCase();
+  if (/\b(noon|midday)\b/.test(lower)) return 720;
+  if (/\bmidnight\b/.test(lower)) return 0;
+
+  const meridiem = lower.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/);
+  if (meridiem) {
+    let h = parseInt(meridiem[1], 10);
+    const mi = meridiem[2] ? parseInt(meridiem[2], 10) : 0;
+    if (h > 12) return null;
+    if (meridiem[3] === "pm" && h < 12) h += 12;
+    if (meridiem[3] === "am" && h === 12) h = 0;
+    return h * 60 + mi;
+  }
+
+  // 24-hour "14:30" — the colon is what makes it unambiguous.
+  const explicit = lower.match(/\b(\d{1,2}):(\d{2})\b/);
+  if (explicit) {
+    const h = parseInt(explicit[1], 10);
+    const mi = parseInt(explicit[2], 10);
+    if (h > 23 || mi > 59) return null;
+    return h * 60 + mi;
+  }
+  return null;
+}
+
 /** Matches phrases meaning "start this immediately" — "now", "right now",
  * "immediately", "asap", "right away", "straight away". */
 export function isNowPhrase(s: string | null | undefined): boolean {

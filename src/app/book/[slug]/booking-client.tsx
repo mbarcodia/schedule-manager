@@ -36,7 +36,7 @@ interface BookingClientProps {
   ownerName: string | null;
 }
 
-export function BookingClient({ slug, title, durations, locationModes, officeLocation }: BookingClientProps) {
+export function BookingClient({ slug, title, durations, locationModes, officeLocation, ownerName }: BookingClientProps) {
   const [duration, setDuration] = useState(durations[0]);
   const [locationMode, setLocationMode] = useState<LocationMode>(locationModes[0] ?? "zoom");
   const [week, setWeek] = useState(0);
@@ -174,8 +174,12 @@ export function BookingClient({ slug, title, durations, locationModes, officeLoc
   return (
     <div className="flex-1 overflow-y-auto flex justify-center px-6 py-10">
       <div className="w-full max-w-2xl">
-        <h1 className="text-lg font-medium mb-1">{title}</h1>
-        <p className="text-xs text-muted mb-5">Times shown in your timezone ({visitorTz()}).</p>
+        <h1 className="text-lg font-medium mb-1">
+          {ownerName ? `Book a Meeting with ${ownerName}` : title}
+        </h1>
+        <p className="text-xs text-muted mb-5">
+          {ownerName ? `${title} · ` : ""}Times shown in your timezone ({visitorTz()}).
+        </p>
 
         {/* Duration picker */}
         {durations.length > 1 && (

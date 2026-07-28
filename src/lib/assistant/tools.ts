@@ -15,6 +15,7 @@ import {
   parseTimeStr,
   fuzzyFindByTitle,
   findByTitle,
+  parseTimeInText,
   normTitle,
   isNowPhrase,
   parseRelativeMinutes,
@@ -62,7 +63,25 @@ export function markMutated(ctx: ToolContext): void {
 function titleToDeadlineAt(ctx: ToolContext, dueLower: string): string | null {
   const d = parseDeadlineDate(dueLower, ctx.today);
   if (!d) return null;
-  return zonedTimeToUtc(d.getFullYear(), d.getMonth() + 1, d.getDate(), 17, 0, ctx.timezone).toISOString();
+  // Honour an explicit clock time ("due by 2pm November 10"); 5pm otherwise,
+  // which is the sane default for "due Friday" with no time given.
+  const minute = parseTimeInText(dueLower);
+  const hour = minute != null ? Math.floor(minute / 60) : 17;
+  const min = minute != null ? minute % 60 : 0;
+  return zonedTimeToUtc(d.getFullYear(), d.getMonth() + 1, d.getDate(), hour, min, ctx.timezone).toISOString();
+}
+
+/** Earliest date the engine may place a task — the missing counterpart to a
+ * deadline. Without it, "tomorrow morning" could only be expressed as
+ * time_of_day=morning, which happily placed the work THIS morning. Resolves to
+ * the start of that day in the account's timezone. */
+function titleToFloorAt(ctx: ToolContext, rawLower: string): string | null {
+  const d = parseDeadlineDate(rawLower, ctx.today);
+  if (!d) return null;
+  const minute = parseTimeInText(rawLower);
+  const hour = minute != null ? Math.floor(minute / 60) : 0;
+  const min = minute != null ? minute % 60 : 0;
+  return zonedTimeToUtc(d.getFullYear(), d.getMonth() + 1, d.getDate(), hour, min, ctx.timezone).toISOString();
 }
 
 export type TrackableLookup =
@@ -177,7 +196,16 @@ export function buildTools(ctx: ToolContext) {
           description:
             'Use whenever the user names a general part of the day without an exact clock time (e.g. "schedule this in the afternoon"). "morning" = before noon, "afternoon" = noon or later. For an exact time instead, use pin_date/pin_time.',
         },
-        due: { type: "string", description: 'deadline in natural language, e.g. "july 24", "friday", "in 2 weeks", "end of month"' },
+        due: {
+          type: "string",
+          description:
+            'Deadline in natural language, e.g. "july 24", "friday", "in 2 weeks". A clock time is honoured when given ("2pm november 10", "friday at noon"); with no time it lands at 5pm that day.',
+        },
+        not_before: {
+          type: "string",
+          description:
+            'EARLIEST date this may be scheduled ("tomorrow", "monday", "november 9"). Use whenever the user says when work should START, not when it is due — "tomorrow morning" means not_before="tomorrow" WITH time_of_day="morning". Omitting it lets the engine place the work today.',
+        },
         project: { type: "string", description: "title of project/proposal to link to" },
         category: { type: "string", description: "name of the category to color this task by (e.g. Research, Teaching, Tasks) — omit to leave uncategorized" },
         pin_date: { type: "string", description: 'force part of this task onto an exact date, natural language, e.g. "monday", "july 24" — pairs with pin_time. Anything else scheduled there moves automatically; the rest of this task (if any) is still auto-placed.' },
@@ -208,6 +236,8 @@ export function buildTools(ctx: ToolContext) {
       const categoryId = inp.category ? await findCategoryId(ctx, inp.category) : null;
       const deadline_at = inp.due ? titleToDeadlineAt(ctx, inp.due.toLowerCase()) : null;
       const deadlineNotUnderstood = !!inp.due && !deadline_at;
+      const notBeforeAt = inp.not_before ? titleToFloorAt(ctx, inp.not_before.toLowerCase()) : null;
+      const notBeforeNotUnderstood = !!inp.not_before && !notBeforeAt;
       const priority = inp.priority || "medium";
       const chunk_min = inp.chunk_min || (duration > 90 ? 60 : duration);
 
@@ -227,7 +257,7 @@ export function buildTools(ctx: ToolContext) {
         tag: inp.deep_focus ? "deep-focus" : null,
         time_of_day: inp.time_of_day ?? null,
         deadline_at,
-        floor_at: new Date().toISOString(),
+        floor_at: notBeforeAt ?? new Date().toISOString(),
         max_per_day_min: inp.max_per_day_min || null,
         project_id: link?.projectId ?? null,
         proposal_id: link?.proposalId ?? null,
@@ -236,7 +266,7 @@ export function buildTools(ctx: ToolContext) {
         pinned_start_min: pin?.pinned_start_min ?? null,
         pinned_length_min: pinLength,
       };
-      const summary = `(${duration}m, ${priority} priority${link ? ", linked to " + link.title : ""}).${pin ? ` ${pinLength}m pinned to ${inp.pin_date} at ${inp.pin_time} — anything else scheduled there moves automatically.` : inp.time_of_day ? ` Placed in the ${inp.time_of_day}.` : " Placed on the calendar."}${deadlineNotUnderstood ? ` Couldn't understand the deadline "${inp.due}", so no deadline was set — try a format like "july 24" or "in 2 weeks".` : ""}`;
+      const summary = `(${duration}m, ${priority} priority${link ? ", linked to " + link.title : ""}).${pin ? ` ${pinLength}m pinned to ${inp.pin_date} at ${inp.pin_time} — anything else scheduled there moves automatically.` : inp.time_of_day ? ` Placed in the ${inp.time_of_day}.` : " Placed on the calendar."}${deadlineNotUnderstood ? ` Couldn't understand the deadline "${inp.due}", so no deadline was set — try a format like "july 24" or "in 2 weeks".` : ""}${notBeforeNotUnderstood ? ` Couldn't understand the start date "${inp.not_before}", so it may be scheduled as early as today.` : notBeforeAt ? ` Not scheduled before ${inp.not_before}.` : ""}`;
 
       // Dedupe on exact (normalized) title — re-declaring a task with the
       // same title updates it in place instead of creating a duplicate.
@@ -270,7 +300,16 @@ export function buildTools(ctx: ToolContext) {
         duration_min: { type: "number" },
         chunk_min: { type: "number" },
         max_per_day_min: { type: "number" },
-        due: { type: "string", description: "new deadline, natural language" },
+        due: {
+          type: "string",
+          description:
+            "new deadline, natural language; a clock time is honoured when given (else 5pm that day)",
+        },
+        not_before: {
+          type: "string",
+          description:
+            'earliest date this may be scheduled ("tomorrow", "monday", "november 9") — use for "start it tomorrow" style requests, which a deadline alone cannot express',
+        },
         category: { type: "string", description: "name of the category to recolor this task by" },
         time_of_day: {
           type: "string",
@@ -316,6 +355,13 @@ export function buildTools(ctx: ToolContext) {
       }
       if (inp.time_of_day) patch.time_of_day = inp.time_of_day === "none" ? null : inp.time_of_day;
       if (inp.important != null) patch.important = inp.important;
+      if (inp.not_before) {
+        const floorAt = titleToFloorAt(ctx, inp.not_before.toLowerCase());
+        if (!floorAt) {
+          return `Couldn't understand the start date "${inp.not_before}" — try "tomorrow", "monday", or "november 9". Nothing was changed.`;
+        }
+        patch.floor_at = floorAt;
+      }
       if (inp.due) {
         const deadline_at = titleToDeadlineAt(ctx, inp.due.toLowerCase());
         // Fail loudly rather than silently no-op-ing: an unparseable date

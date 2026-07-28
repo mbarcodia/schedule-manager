@@ -3,7 +3,7 @@
 // history, build the prompt and tools, run the Agent SDK); Vercel only
 // forwards the three plain-string fields a turn needs.
 
-export async function runRelayTurn(input: { userId: string; secret: string; model: string }): Promise<{ reply: string }> {
+export async function runRelayTurn(input: { userId: string; secret: string; model: string; mode?: string }): Promise<{ reply: string }> {
   const relayUrl = process.env.PLANNER_RELAY_URL;
   const relaySecret = process.env.PLANNER_RELAY_SECRET;
   if (!relayUrl || !relaySecret) {
@@ -23,7 +23,7 @@ export async function runRelayTurn(input: { userId: string; secret: string; mode
  * as they arrive and returns the assembled reply for persistence — the same
  * contract as runAnthropicTurnStream on the API-key path. */
 export async function runRelayTurnStream(
-  input: { userId: string; secret: string; model: string },
+  input: { userId: string; secret: string; model: string; mode?: string },
   onChunk: (text: string) => void,
 ): Promise<{ reply: string }> {
   const relayUrl = process.env.PLANNER_RELAY_URL;

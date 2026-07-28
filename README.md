@@ -26,9 +26,10 @@ Everything below is built and working — this is the whole feature set, not a r
 - Sliding view: show 1, 3, 5 or 7 days at a time and shift the window a day at
   a time, so a "week" can start on any weekday
 
-**Chat (beside the calendar)**
-- Plain-language edits: "push my gym block to 6pm", "add 3h of grading due Friday, max 1h/day"
-- Can also plan: it reads your real capacity and pushes back when a week is overcommitted
+**Chat (beside the calendar)** — two explicit modes, chosen with a toggle so it's never ambiguous which you're in:
+- **Quick task** — one change, executed immediately, no questions: "push my gym block to 6pm", "add 3h of grading due Friday, max 1h/day". Routine one-liners are routed to a smaller model.
+- **Planning session** — a guided interview for a semester, a month, or a new proposal: it asks a few questions at a time and fills your planner boards as you answer, working outward from fixed commitments to flexible work, and saves standing scheduling rules it learns. Always uses your chosen model.
+- Reads your real capacity either way, and pushes back when a stretch is overcommitted
 - Keeps durable notes per project (kinds: idea, todo, paper, update, other), exportable as one Markdown file
 - Runs on your own Anthropic API key **or** your existing Claude Pro/Max subscription
 

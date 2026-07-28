@@ -6,6 +6,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { DEFAULT_CHAT_MODE, type ChatMode } from "@/lib/planner/modes";
 
 export interface PlannerMessage {
   role: "user" | "assistant";
@@ -60,7 +61,7 @@ export function usePlannerChat(onReplied: () => void) {
   }, []);
 
   const send = useCallback(
-    async (text: string) => {
+    async (text: string, mode: ChatMode = DEFAULT_CHAT_MODE) => {
       const trimmed = text.trim();
       if (!trimmed) return;
       setBusy(true);
@@ -69,7 +70,7 @@ export function usePlannerChat(onReplied: () => void) {
         const res = await fetch("/api/planner", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message: trimmed }),
+          body: JSON.stringify({ message: trimmed, mode }),
         });
         if (!res.ok || !res.body) throw new Error("bad response");
 

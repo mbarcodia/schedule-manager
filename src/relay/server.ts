@@ -13,6 +13,7 @@ import { queryScheduleRows } from "@/lib/scheduling/query-rows";
 import { buildScheduleInputs } from "@/lib/scheduling/from-db";
 import { computeSchedule } from "@/lib/scheduling/engine";
 import { buildPlannerPersonaPrompt, buildPlannerDynamicContext } from "@/lib/planner/system-prompt";
+import { DEFAULT_CHAT_MODE, isChatMode, modeInstruction, type ChatMode } from "@/lib/planner/modes";
 import { buildPlannerTools } from "@/lib/planner/tools";
 import { runAgentSdkTurn, runAgentSdkTurnStream } from "@/lib/planner/agent-runner";
 import type { PlannerTurnInput } from "@/lib/planner/run-turn";
@@ -33,7 +34,7 @@ async function readJsonBody(req: http.IncomingMessage): Promise<unknown> {
   return raw ? JSON.parse(raw) : {};
 }
 
-async function prepareTurnInput(userId: string, secret: string, model: string): Promise<PlannerTurnInput> {
+async function prepareTurnInput(userId: string, secret: string, model: string, mode: ChatMode): Promise<PlannerTurnInput> {
   const admin = createRelayAdminClient();
 
   const [rows, { data: noteRows }] = await Promise.all([
@@ -44,7 +45,7 @@ async function prepareTurnInput(userId: string, secret: string, model: string): 
   const schedule = computeSchedule(inputs);
   const systemPrompt = {
     persona: buildPlannerPersonaPrompt(),
-    context: buildPlannerDynamicContext(rows, inputs, schedule, noteRows ?? []),
+    context: `${buildPlannerDynamicContext(rows, inputs, schedule, noteRows ?? [])}\n${modeInstruction(mode)}`,
   };
 
   const z = zonedNow(rows.profile.timezone);
@@ -84,8 +85,8 @@ async function prepareTurnInput(userId: string, secret: string, model: string): 
   };
 }
 
-async function handleTurn(userId: string, secret: string, model: string): Promise<{ reply: string }> {
-  return runAgentSdkTurn(await prepareTurnInput(userId, secret, model));
+async function handleTurn(userId: string, secret: string, model: string, mode: ChatMode): Promise<{ reply: string }> {
+  return runAgentSdkTurn(await prepareTurnInput(userId, secret, model, mode));
 }
 
 const server = http.createServer(async (req, res) => {
@@ -103,14 +104,18 @@ const server = http.createServer(async (req, res) => {
   }
 
   try {
-    const body = (await readJsonBody(req)) as { userId?: string; secret?: string; model?: string };
+    const body = (await readJsonBody(req)) as { userId?: string; secret?: string; model?: string; mode?: string };
     if (!body.userId || !body.secret || !body.model) {
       res.writeHead(400, { "Content-Type": "application/json" }).end(JSON.stringify({ error: "Missing userId/secret/model" }));
       return;
     }
 
+    // Older callers omit mode; default rather than reject so a Vercel deploy
+    // and a relay deploy don't have to land in the same instant.
+    const mode: ChatMode = isChatMode(body.mode) ? body.mode : DEFAULT_CHAT_MODE;
+
     if (isStream) {
-      const input = await prepareTurnInput(body.userId, body.secret, body.model);
+      const input = await prepareTurnInput(body.userId, body.secret, body.model, mode);
       res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
       try {
         await runAgentSdkTurnStream(input, (chunk) => res.write(chunk));
@@ -124,7 +129,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    const result = await handleTurn(body.userId, body.secret, body.model);
+    const result = await handleTurn(body.userId, body.secret, body.model, mode);
     res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify(result));
   } catch (err) {
     console.error("relay turn error", err);

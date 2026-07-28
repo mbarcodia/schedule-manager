@@ -3,11 +3,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { PaperPlaneRightIcon } from "@phosphor-icons/react";
 import type { PlannerMessage } from "@/hooks/usePlannerChat";
+import { CHAT_MODES, type ChatMode } from "@/lib/planner/modes";
 
 interface PlannerChatProps {
   messages: PlannerMessage[];
   busy: boolean;
-  onSend: (text: string) => void;
+  onSend: (text: string, mode: ChatMode) => void;
+  /** Which job the chat is doing — chosen explicitly, never guessed. */
+  mode: ChatMode;
+  onModeChange: (mode: ChatMode) => void;
   /** Pre-fills the input once (e.g. the weekly-review deep link) — never
    * auto-sends; the user still hits Send. */
   initialInput?: string;
@@ -20,7 +24,7 @@ const COMPOSE_H_KEY = "planner-compose-height";
 /** Treat "within this many px of the bottom" as reading the newest message. */
 const PIN_SLACK = 48;
 
-export function PlannerChat({ messages, busy, onSend, initialInput }: PlannerChatProps) {
+export function PlannerChat({ messages, busy, onSend, mode, onModeChange, initialInput }: PlannerChatProps) {
   const [input, setInput] = useState("");
   const [composeH, setComposeH] = useState(DEFAULT_COMPOSE_H);
   const listRef = useRef<HTMLDivElement>(null);
@@ -90,7 +94,7 @@ export function PlannerChat({ messages, busy, onSend, initialInput }: PlannerCha
     if (busy) return;
     const text = input;
     setInput("");
-    onSend(text);
+    onSend(text, mode);
   }
 
   function onListScroll() {
@@ -160,6 +164,40 @@ export function PlannerChat({ messages, busy, onSend, initialInput }: PlannerCha
         <div className="h-0.5 w-8 rounded-full bg-border group-hover:bg-accent transition-colors" />
       </div>
 
+      <div className="flex-none px-4 pt-2 flex flex-col gap-2">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {(["quick", "planning"] as ChatMode[]).map((m) => (
+            <button
+              key={m}
+              onClick={() => onModeChange(m)}
+              className="rounded-md px-2.5 py-1 text-[11px] font-medium border transition-colors"
+              style={{
+                borderColor: mode === m ? "var(--color-accent)" : "var(--color-border)",
+                background: mode === m ? "rgba(145,132,217,0.1)" : "transparent",
+              }}
+            >
+              {CHAT_MODES[m].label}
+            </button>
+          ))}
+          <span className="text-[10.5px] text-muted-2 min-w-0 truncate">{CHAT_MODES[mode].blurb}</span>
+        </div>
+
+        {CHAT_MODES[mode].starters.length > 0 && (
+          <div className="flex gap-1.5 overflow-x-auto pb-0.5">
+            {CHAT_MODES[mode].starters.map((s) => (
+              <button
+                key={s.label}
+                onClick={() => setInput(s.prompt)}
+                title="Fills the box below — you can edit before sending"
+                className="flex-none rounded-full border border-border px-2.5 py-1 text-[10.5px] text-muted hover:text-text hover:border-accent transition-colors"
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
       <div className="flex-none px-4 pb-3.5 pt-2 flex gap-2 items-end">
         <textarea
           value={input}
@@ -170,7 +208,7 @@ export function PlannerChat({ messages, busy, onSend, initialInput }: PlannerCha
               handleSend();
             }
           }}
-          placeholder="Discuss projects, priorities, and plans — Shift+Enter for a new line"
+          placeholder={CHAT_MODES[mode].placeholder}
           style={{ height: composeH }}
           className="flex-1 rounded-md border border-border bg-surface px-3 py-2 text-text text-[13px] outline-none focus-visible:border-accent resize-none"
         />

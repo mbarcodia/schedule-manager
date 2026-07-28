@@ -11,6 +11,8 @@
 // costs answer quality, while a missed downgrade only costs tokens — so the
 // asymmetry is priced in.
 
+import type { ChatMode } from "./modes";
+
 /** The step-down target. Sonnet 5 handles single-action tool calls at Opus
  * quality; only Opus/Fable-tier choices are ever downgraded to it. */
 const SIMPLE_TURN_MODEL = "claude-sonnet-5";
@@ -28,8 +30,11 @@ const NEEDS_JUDGEMENT =
   /\b(why|how|should|could|would|plan|planning|review|think|thoughts|advice|advise|suggest|recommend|compare|explain|summar|draft|write|analy[sz]e|prioriti[sz]e|realistic|feasible|worried|help me|what if|options?|trade-?offs?|instead of)\b/i;
 
 /** Choose the model for one turn. `preferred` is the user's Settings choice —
- * returned unchanged for anything that isn't plainly mechanical. */
-export function pickTurnModel(message: string, preferred: string): string {
+ * returned unchanged for anything that isn't plainly mechanical, and always
+ * returned unchanged in a planning session (the whole point of that mode is the
+ * thinking, so it must never be quietly downgraded). */
+export function pickTurnModel(message: string, preferred: string, mode: ChatMode = "quick"): string {
+  if (mode === "planning") return preferred;
   if (!HEAVY_MODELS.has(preferred)) return preferred; // already small; never upgrade
   const text = message.trim();
 

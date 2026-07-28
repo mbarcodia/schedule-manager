@@ -9,6 +9,7 @@ import { CaretLeftIcon, CaretRightIcon } from "@phosphor-icons/react";
 import { PlannerChat } from "@/components/planner/PlannerChat";
 import { usePlannerChat } from "@/hooks/usePlannerChat";
 import { computeTrackableChips } from "@/lib/scheduling/trackables";
+import { DEFAULT_CHAT_MODE, type ChatMode } from "@/lib/planner/modes";
 import type { UseScheduleDataResult } from "@/hooks/useScheduleData";
 
 interface PlannerChatPanelProps {
@@ -26,6 +27,7 @@ export function PlannerChatPanel({ scheduleData }: PlannerChatPanelProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [width, setWidth] = useState(DEFAULT_WIDTH);
   const [initialInput, setInitialInput] = useState<string | undefined>();
+  const [mode, setMode] = useState<ChatMode>(DEFAULT_CHAT_MODE);
 
   useEffect(() => {
     const stored = Number(window.localStorage.getItem(WIDTH_KEY));
@@ -69,8 +71,10 @@ export function PlannerChatPanel({ scheduleData }: PlannerChatPanelProps) {
       setInitialInput(
         "Let's do a weekly review — what's overdue, what's stuck in progress too long, and what should I drop or reprioritize for next week?",
       );
+      setMode("planning");
     } else if (params.get("plan")) {
       setInitialInput("Time to plan.");
+      setMode("planning");
     }
   }, []);
 
@@ -155,7 +159,14 @@ export function PlannerChatPanel({ scheduleData }: PlannerChatPanelProps) {
         </div>
       )}
 
-        <PlannerChat messages={messages} busy={busy} onSend={send} initialInput={initialInput} />
+        <PlannerChat
+          messages={messages}
+          busy={busy}
+          onSend={send}
+          mode={mode}
+          onModeChange={setMode}
+          initialInput={initialInput}
+        />
       </div>
     </div>
   );

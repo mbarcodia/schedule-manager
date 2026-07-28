@@ -771,6 +771,29 @@ export default function SettingsPage() {
             </div>
           </div>
 
+          <div className="rounded-lg border border-border bg-panel p-3.5 mb-3 text-xs text-muted leading-relaxed">
+            <div className="text-sm font-medium text-text mb-1.5">Two modes in the chat</div>
+            <p className="mb-2">
+              The buttons above the message box pick which job the chat is doing, because the two want opposite
+              behaviour:
+            </p>
+            <p className="mb-2">
+              <span className="text-text">Quick task</span> — for a single change. It acts immediately with no
+              questions and no plan: &ldquo;log 45 minutes on grading&rdquo;, &ldquo;move my gym block to 6pm&rdquo;,
+              &ldquo;archive the dev app task&rdquo;. Routine one-liners are also sent to a smaller model here, which
+              is cheaper and quicker at no cost to the answer.
+            </p>
+            <p>
+              <span className="text-text">Planning session</span> — for a stretch of time: a semester, a month, a new
+              proposal. It interviews you a few questions at a time and fills the board in as your answers land,
+              working outward from what can&apos;t move (term dates, teaching, deadlines, travel) to what can
+              (research hours, writing). It always uses your chosen model, never a smaller one. The suggested
+              openers beneath the buttons fill the box for you — edit them before sending. A semester plan is a real
+              conversation, so expect to spend a few minutes on it, and expect to be told when the term you&apos;ve
+              described doesn&apos;t fit the hours you actually have.
+            </p>
+          </div>
+
           <p className="text-xs text-muted leading-relaxed">
             Where the chat fits: it sits beside your calendar and shares every one of these tools. Saying &ldquo;I&apos;m
             working on ACE2 right now for an hour&rdquo; puts a real block on the calendar and reflows the rest;

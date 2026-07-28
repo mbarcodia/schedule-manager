@@ -5,6 +5,7 @@ import { buildScheduleInputs } from "@/lib/scheduling/from-db";
 import { computeSchedule } from "@/lib/scheduling/engine";
 import { buildPlannerPersonaPrompt, buildPlannerDynamicContext } from "@/lib/planner/system-prompt";
 import { pickTurnModel } from "@/lib/planner/model-routing";
+import { DEFAULT_CHAT_MODE, isChatMode, modeInstruction } from "@/lib/planner/modes";
 import { buildPlannerTools } from "@/lib/planner/tools";
 import { runPlannerTurnStream } from "@/lib/planner/run-turn";
 import { runRelayTurnStream } from "@/lib/planner/relay-runner";
@@ -26,6 +27,8 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => null);
   const message = typeof body?.message === "string" ? body.message.trim() : "";
   if (!message) return NextResponse.json({ error: "Missing message" }, { status: 400 });
+  // Which job the user asked for: a single edit, or a guided planning session.
+  const mode = isChatMode(body?.mode) ? body.mode : DEFAULT_CHAT_MODE;
 
   // Persist the user's message immediately (planner history survives reloads).
   await supabase.from("planner_messages").insert({ user_id: user.id, role: "user", content: message });
@@ -52,7 +55,8 @@ export async function POST(request: Request) {
             {
               userId: user.id,
               secret: credential.secret,
-              model: pickTurnModel(message, profile?.planner_model ?? "claude-opus-4-8"),
+              model: pickTurnModel(message, profile?.planner_model ?? "claude-opus-4-8", mode),
+              mode,
             },
             (chunk) => controller.enqueue(encoder.encode(chunk)),
           ));
@@ -67,7 +71,9 @@ export async function POST(request: Request) {
           // (see PlannerSystemPrompt), the context half changes every turn.
           const systemPrompt = {
             persona: buildPlannerPersonaPrompt(),
-            context: buildPlannerDynamicContext(rows, inputs, schedule, noteRows ?? []),
+            // The mode contract belongs in the volatile half — it changes per
+            // turn, and putting it in the persona would break the cache prefix.
+            context: `${buildPlannerDynamicContext(rows, inputs, schedule, noteRows ?? [])}\n${modeInstruction(mode)}`,
           };
 
           const z = zonedNow(rows.profile.timezone);
@@ -100,7 +106,7 @@ export async function POST(request: Request) {
             {
               provider: credential.provider,
               secret: credential.secret,
-              model: pickTurnModel(message, rows.profile.planner_model),
+              model: pickTurnModel(message, rows.profile.planner_model, mode),
               system: systemPrompt,
               history,
               tools,

@@ -106,7 +106,7 @@ that, using the app day-to-day is just opening the URL — none of this repeats.
 
 ```bash
 git clone https://github.com/mbarcodia/schedule-manager.git
-cd schedule-manager/web
+cd schedule-manager
 npm install
 ```
 
@@ -172,7 +172,8 @@ default), and you should land on an empty calendar.
 ### 6. Deploy to Vercel
 
 - Import the repo at [vercel.com/new](https://vercel.com/new).
-- Set the project **Root Directory** to `web`.
+- Leave **Root Directory** at the repository root (the Next.js app lives there;
+  Vercel detects it automatically).
 - Add all the same environment variables from `.env.local` in the Vercel
   project's Settings → Environment Variables.
 - **Change `APP_ORIGIN`** to your deployed URL (e.g.

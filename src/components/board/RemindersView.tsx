@@ -29,6 +29,9 @@ function describeLead(minutes: number): string {
 export function RemindersView() {
   const [reminders, setReminders] = useState<ReminderRow[] | null>(null);
   const [showPast, setShowPast] = useState(false);
+  /** Captured when data loads rather than read during render — reading the
+   * clock mid-render makes the output non-deterministic. */
+  const [now, setNow] = useState(0);
   const [title, setTitle] = useState("");
   const [heading, setHeading] = useState("");
   const [due, setDue] = useState("");
@@ -41,6 +44,7 @@ export function RemindersView() {
     } = await supabase.auth.getUser();
     if (!user) return;
     const { data } = await supabase.from("reminders").select("*").order("due_at");
+    setNow(Date.now());
     setReminders(data ?? []);
   }, []);
 
@@ -77,7 +81,6 @@ export function RemindersView() {
 
   if (reminders === null) return <div className="px-5 py-4 text-[12px] text-muted">Loading…</div>;
 
-  const now = Date.now();
   const visible = reminders.filter((r) => showPast || new Date(r.due_at).getTime() >= now - 24 * 60 * 60 * 1000);
   const groups = new Map<string, ReminderRow[]>();
   for (const r of visible) {

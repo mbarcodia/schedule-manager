@@ -20,7 +20,10 @@ jobs:
         run: |
           H=$(date -u +%-H)
           fail=0
-          for route in eod-checkin weekly-summary; do
+          # reminders takes no ?hour= (it compares each lead against the
+          # clock), but the extra param is harmless, so one loop covers all
+          # three routes.
+          for route in eod-checkin weekly-summary reminders; do
             status=$(curl -s -o /tmp/resp.json -w "%{http_code}" --max-time 120 \
               "$BASE_URL/api/cron/$route?hour=$H" \
               -H "Authorization: Bearer $CRON_SECRET")

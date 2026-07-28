@@ -7,6 +7,7 @@
 import { betaTool } from "@anthropic-ai/sdk/helpers/beta/json-schema";
 import { buildTools, findTrackableId, markMutated, type ToolContext } from "@/lib/assistant/tools";
 import { findByTitle } from "@/lib/assistant/nlp-dates";
+import { buildTodoReminderTools } from "./todo-reminder-tools";
 import type { Database } from "@/lib/supabase/database.types";
 
 type NoteRow = Database["public"]["Tables"]["notes"]["Row"];
@@ -347,5 +348,5 @@ function archiveTools(ctx: ToolContext) {
 }
 
 export function buildPlannerTools(ctx: ToolContext) {
-  return [...buildTools(ctx), ...notesTools(ctx), ...archiveTools(ctx)];
+  return [...buildTools(ctx), ...notesTools(ctx), ...archiveTools(ctx), ...buildTodoReminderTools(ctx)];
 }

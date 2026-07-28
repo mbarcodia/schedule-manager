@@ -469,6 +469,56 @@ export interface Database {
         { id?: string; user_id: string; role: ChatRole; content: string },
         Record<string, never>
       >;
+      todo_lists: Table<
+        { id: string; user_id: string; name: string; sort_order: number; created_at: string },
+        { id?: string; user_id: string; name: string; sort_order?: number },
+        Partial<{ name: string; sort_order: number }>
+      >;
+      todo_items: Table<
+        {
+          id: string;
+          user_id: string;
+          list_id: string;
+          text: string;
+          done: boolean;
+          completed_at: string | null;
+          sort_order: number;
+          created_at: string;
+        },
+        { id?: string; user_id: string; list_id: string; text: string; done?: boolean; sort_order?: number },
+        Partial<{ text: string; done: boolean; completed_at: string | null; sort_order: number; list_id: string }>
+      >;
+      reminders: Table<
+        {
+          id: string;
+          user_id: string;
+          heading: string | null;
+          title: string;
+          due_at: string;
+          notes: string | null;
+          lead_minutes: number[];
+          sent_leads: number[];
+          created_at: string;
+        },
+        {
+          id?: string;
+          user_id: string;
+          heading?: string | null;
+          title: string;
+          due_at: string;
+          notes?: string | null;
+          lead_minutes?: number[];
+          sent_leads?: number[];
+        },
+        Partial<{
+          heading: string | null;
+          title: string;
+          due_at: string;
+          notes: string | null;
+          lead_minutes: number[];
+          sent_leads: number[];
+        }>
+      >;
       research_pins: Table<
         {
           id: string;

@@ -6,7 +6,7 @@
 
 import { useEffect, useState } from "react";
 
-export type BoardViewId = "kanban" | "eisenhower" | "timeline" | "archive";
+export type BoardViewId = "kanban" | "eisenhower" | "timeline" | "todos" | "reminders" | "archive";
 
 const INTROS: Record<BoardViewId, { title: string; body: string }> = {
   kanban: {
@@ -23,6 +23,16 @@ const INTROS: Record<BoardViewId, { title: string; body: string }> = {
     title: "Timeline — the next six months",
     body:
       "One bar per project and proposal that has a deadline, running from today to that date, coloured by whether the hours you've booked can realistically cover what's left. Overdue bars turn red. Goals have a cadence rather than a deadline, so they sit in their own lane on top. This is the view for spotting two deadlines landing in the same fortnight while there's still time to move something.",
+  },
+  todos: {
+    title: "To-dos — things to do, not hours to schedule",
+    body:
+      "Named checklists that deliberately hold no time. Nothing here is placed on your calendar and nothing competes for your working hours — it's for the small stuff you just need to remember to do. Tell the chat \"add write email to Rich to my This week list\" and it lands here, creating the list if it doesn't exist. When an item turns out to need real time, ask for it as work instead and the scheduler will book hours for it.",
+  },
+  reminders: {
+    title: "Reminders — dated nudges, delivered as notifications",
+    body:
+      "A reminder is a date you want to be told about in advance, grouped under whatever headings you like (Presentations, Reviews, Deadlines). Each one can have several lead times, so a seminar can nudge you a week before and again the day before. Reminders take no calendar time either — if you also want hours to prepare, ask for that separately and both will exist: the nudge and the booked work.",
   },
   archive: {
     title: "Archive — everything you've finished",

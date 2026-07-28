@@ -1,8 +1,10 @@
 {
+  "id": "/",
   "name": "Schedule",
   "short_name": "Schedule",
   "description": "Personal AI schedule manager",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#161826",
   "theme_color": "#161826",
@@ -15,5 +17,9 @@
       "type": "image/png",
       "purpose": "maskable"
     }
+  ],
+  "shortcuts": [
+    { "name": "Planner board", "short_name": "Planner", "url": "/planner" },
+    { "name": "Settings", "short_name": "Settings", "url": "/settings" }
   ]
 }

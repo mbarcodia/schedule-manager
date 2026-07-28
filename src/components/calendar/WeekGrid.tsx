@@ -13,7 +13,11 @@ import type { Category, ComputeScheduleResult, DayOverrides, ScheduleBlock, Week
 const VIEW_HEIGHT = (DAY_END_MIN - DAY_START_MIN) * PX_PER_MIN;
 
 interface WeekGridProps {
-  weekOffset: number;
+  /** First day shown, in grid days (0 = Monday of the current week). The view
+   * is a sliding window, so this need not land on a Monday. */
+  startGday: number;
+  /** How many day columns to render (1, 3, 5 or 7). */
+  viewDays: number;
   timezone: string;
   weeklyHours: WeeklyHours;
   dayOverrides: DayOverrides;
@@ -102,7 +106,8 @@ function applyProgress(
 }
 
 export function WeekGrid({
-  weekOffset,
+  startGday,
+  viewDays,
   timezone,
   weeklyHours,
   dayOverrides,
@@ -125,25 +130,25 @@ export function WeekGrid({
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const todayInView = todayGday >= weekOffset * 7 && todayGday < weekOffset * 7 + 7;
+    const todayInView = todayGday >= startGday && todayGday < startGday + viewDays;
     const nowMinuteOfDay = NOW - todayGday * 1440;
     const targetMin = todayInView ? Math.max(0, nowMinuteOfDay - 90) : DEFAULT_SCROLL_MIN;
     el.scrollTop = targetMin * PX_PER_MIN;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [weekOffset]);
+  }, [startGday, viewDays]);
 
   return (
     <div ref={scrollRef} className="flex-1 flex flex-col min-w-0 overflow-y-auto">
       {/* Sticky day header row */}
-      <div className="flex-none grid sticky top-0 z-[5] bg-bg border-b border-border" style={{ gridTemplateColumns: "56px repeat(7,1fr)" }}>
+      <div className="flex-none grid sticky top-0 z-[5] bg-bg border-b border-border" style={{ gridTemplateColumns: `56px repeat(${viewDays},1fr)` }}>
         <div />
-        {Array.from({ length: 7 }, (_, i) => {
-          const gday = weekOffset * 7 + i;
+        {Array.from({ length: viewDays }, (_, i) => {
+          const gday = startGday + i;
           const isToday = gday === todayGday;
           const date = dateForGday(timezone, gday, now);
           return (
             <div key={i} className="py-2.5 pl-2.5 border-l border-border-grid">
-              <div className="text-[10px] tracking-wider text-muted uppercase">{WEEKDAY_LABELS[i]}</div>
+              <div className="text-[10px] tracking-wider text-muted uppercase">{WEEKDAY_LABELS[((gday % 7) + 7) % 7]}</div>
               <div className="mt-0.5 text-[15px] font-medium" style={{ color: isToday ? "var(--color-accent)" : "var(--color-text)" }}>
                 {date.day}
               </div>
@@ -153,7 +158,7 @@ export function WeekGrid({
       </div>
 
       {/* Grid body */}
-      <div className="flex-none grid relative" style={{ gridTemplateColumns: "56px repeat(7,1fr)" }}>
+      <div className="flex-none grid relative" style={{ gridTemplateColumns: `56px repeat(${viewDays},1fr)` }}>
         <div className="relative" style={{ height: VIEW_HEIGHT }}>
           {hourLabels.map((hl) => (
             <div
@@ -166,8 +171,8 @@ export function WeekGrid({
           ))}
         </div>
 
-        {Array.from({ length: 7 }, (_, i) => {
-          const gday = weekOffset * 7 + i;
+        {Array.from({ length: viewDays }, (_, i) => {
+          const gday = startGday + i;
           const isToday = gday === todayGday;
           const defaultWindow = defaultDayWindow(gday, weeklyHours);
           const effWindow = resolveDayWindow(gday, weeklyHours, dayOverrides);

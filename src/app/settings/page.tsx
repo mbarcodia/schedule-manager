@@ -14,6 +14,14 @@ import type {
 } from "@/lib/supabase/database.types";
 import { getPushSubscriptionStatus, subscribeToPush, unsubscribeFromPush } from "@/lib/push/subscribe";
 import { BookingSection } from "@/components/settings/BookingSection";
+import {
+  DEFAULT_VIEW_DAYS,
+  VIEW_DAY_OPTIONS,
+  onViewDaysChange,
+  readViewDays,
+  writeViewDays,
+  type ViewDays,
+} from "@/lib/calendar/view-prefs";
 
 type CategoryRow = Database["public"]["Tables"]["categories"]["Row"];
 type ConnectionRow = Database["public"]["Tables"]["calendar_connections"]["Row"];
@@ -108,6 +116,7 @@ const SECTIONS: { id: string; label: string }[] = [
   { id: "planner-guide", label: "How the planner works" },
   { id: "block-labels", label: "Block labels" },
   { id: "standard-hours", label: "Standard hours" },
+  { id: "calendar-view", label: "Calendar view" },
   { id: "categories", label: "Categories" },
   { id: "calendars", label: "Connected calendars" },
   { id: "booking", label: "Booking page" },
@@ -117,6 +126,7 @@ const SECTIONS: { id: string; label: string }[] = [
 export default function SettingsPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
+  const [viewDays, setViewDays] = useState<ViewDays>(DEFAULT_VIEW_DAYS);
   const [hours, setHours] = useState<WeeklyHoursJson | null>(null);
   const [categories, setCategories] = useState<CategoryRow[]>([]);
   const [newCategoryName, setNewCategoryName] = useState("");
@@ -192,6 +202,12 @@ export default function SettingsPage() {
     return () => {
       ignore = true;
     };
+  }, []);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setViewDays(readViewDays());
+    return onViewDaysChange(setViewDays);
   }, []);
 
   useEffect(() => {
@@ -677,6 +693,36 @@ export default function SettingsPage() {
               })}
             </div>
           )}
+        </div>
+
+        <div id="calendar-view" className="mt-8 pt-5 border-t border-border scroll-mt-4">
+          <h2 className="text-base font-medium mb-1">Calendar view</h2>
+          <p className="text-xs text-muted mb-3 leading-relaxed">
+            How many days the calendar shows at once. You can also change this from the{" "}
+            <span className="text-text">Viewer</span> buttons in the calendar&apos;s top bar, and slide the visible
+            window a day at a time with the arrows beside it — so a week can start on any weekday, not just Monday.
+          </p>
+          <div className="flex items-center gap-1.5 mb-2">
+            {VIEW_DAY_OPTIONS.map((d) => (
+              <button
+                key={d}
+                onClick={() => {
+                  writeViewDays(d);
+                  setViewDays(d);
+                }}
+                className="rounded-md px-3 py-1.5 text-xs font-medium border"
+                style={{
+                  borderColor: viewDays === d ? "var(--color-accent)" : "var(--color-border)",
+                  background: viewDays === d ? "rgba(145,132,217,0.08)" : "transparent",
+                }}
+              >
+                {d} day{d > 1 ? "s" : ""}
+              </button>
+            ))}
+          </div>
+          <p className="text-[11px] text-muted-2">
+            Saved on this device rather than your account — a laptop and a phone want different widths.
+          </p>
         </div>
 
         <div id="planner-guide" className="mt-8 pt-5 border-t border-border scroll-mt-4">

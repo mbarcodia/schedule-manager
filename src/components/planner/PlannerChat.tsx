@@ -34,6 +34,20 @@ export function PlannerChat({ messages, busy, onSend, initialInput }: PlannerCha
     if (list && pinned.current) list.scrollTop = list.scrollHeight;
   }, []);
 
+  /** One pass isn't enough on first paint: the bubbles are still being laid
+   * out (and the web font hasn't swapped in), so scrollHeight is short and the
+   * view lands just above the last line. Re-stick over the next few frames and
+   * again once fonts are ready. */
+  const settleToBottom = useCallback(() => {
+    let frames = 0;
+    const tick = () => {
+      stickToBottom();
+      if (++frames < 6) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+    document.fonts?.ready.then(stickToBottom).catch(() => {});
+  }, [stickToBottom]);
+
   useEffect(() => {
     const stored = Number(window.localStorage.getItem(COMPOSE_H_KEY));
     if (stored >= MIN_COMPOSE_H && stored <= MAX_COMPOSE_H) {
@@ -62,11 +76,12 @@ export function PlannerChat({ messages, busy, onSend, initialInput }: PlannerCha
     return () => observer.disconnect();
   }, [stickToBottom]);
 
-  // A new turn always re-pins, even if the user had scrolled up earlier.
+  // A new turn always re-pins, even if the user had scrolled up earlier. This
+  // also covers first load, when history arrives asynchronously.
   useEffect(() => {
     pinned.current = true;
-    stickToBottom();
-  }, [messages.length, stickToBottom]);
+    settleToBottom();
+  }, [messages.length, settleToBottom]);
 
   // Growing or shrinking the compose box changes the viewport height.
   useEffect(stickToBottom, [composeH, stickToBottom]);

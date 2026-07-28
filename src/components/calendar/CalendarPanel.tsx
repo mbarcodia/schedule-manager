@@ -1,10 +1,25 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { CaretLeftIcon, CaretRightIcon, GearSixIcon, WarningIcon } from "@phosphor-icons/react";
+import {
+  CaretDoubleLeftIcon,
+  CaretDoubleRightIcon,
+  CaretLeftIcon,
+  CaretRightIcon,
+  GearSixIcon,
+  WarningIcon,
+} from "@phosphor-icons/react";
 import { WeekGrid } from "./WeekGrid";
-import { dateForGday } from "@/lib/scheduling/time";
+import { dateForGday, WEEKDAY_LABELS, zonedNow } from "@/lib/scheduling/time";
+import {
+  DEFAULT_VIEW_DAYS,
+  VIEW_DAY_OPTIONS,
+  onViewDaysChange,
+  readViewDays,
+  writeViewDays,
+  type ViewDays,
+} from "@/lib/calendar/view-prefs";
 import type { UseScheduleDataResult } from "@/hooks/useScheduleData";
 
 const MONTH_NAMES = [
@@ -16,8 +31,17 @@ interface CalendarPanelProps {
 }
 
 export function CalendarPanel({ scheduleData }: CalendarPanelProps) {
-  const [weekOffset, setWeekOffset] = useState(0);
+  // The view is a sliding window of days, not a fixed Mon-Sun week: startGday
+  // can land on any weekday so you can look at, say, Tue-Mon.
+  const [startGday, setStartGday] = useState(0);
+  const [viewDays, setViewDays] = useState<ViewDays>(DEFAULT_VIEW_DAYS);
   const { data, schedule, loading, error, setProgress, pinDone, unpinDone } = scheduleData;
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setViewDays(readViewDays());
+    return onViewDaysChange(setViewDays);
+  }, []);
 
   if (loading) {
     return (
@@ -35,15 +59,25 @@ export function CalendarPanel({ scheduleData }: CalendarPanelProps) {
   }
 
   const timezone = data.inputs.timezone;
-  const monday = dateForGday(timezone, weekOffset * 7);
-  const sunday = dateForGday(timezone, weekOffset * 7 + 6);
-  const weekLabel =
-    monday.month === sunday.month
-      ? `${MONTH_NAMES[monday.month - 1]} ${monday.day}–${sunday.day}, ${sunday.year}`
-      : `${MONTH_NAMES[monday.month - 1]} ${monday.day} – ${MONTH_NAMES[sunday.month - 1]} ${sunday.day}, ${sunday.year}`;
+  const horizonDays = data.inputs.horizonWeeks * 7;
+  // gday 0 is Monday of the current week, so today's index is its weekday.
+  const todayGday = zonedNow(timezone).weekdayIdx;
+  const maxStart = Math.max(0, horizonDays - viewDays);
+  const shift = (delta: number) => setStartGday((g) => Math.min(maxStart, Math.max(0, g + delta)));
 
-  const weekBlocks = schedule.blocks.filter((b) => Math.floor(b.gday / 7) === weekOffset);
-  const weekMissed = weekOffset === 0 ? schedule.missed : [];
+  const first = dateForGday(timezone, startGday);
+  const last = dateForGday(timezone, startGday + viewDays - 1);
+  const weekLabel =
+    viewDays === 1
+      ? `${WEEKDAY_LABELS[((startGday % 7) + 7) % 7]} ${MONTH_NAMES[first.month - 1]} ${first.day}, ${first.year}`
+      : first.month === last.month
+        ? `${MONTH_NAMES[first.month - 1]} ${first.day}–${last.day}, ${last.year}`
+        : `${MONTH_NAMES[first.month - 1]} ${first.day} – ${MONTH_NAMES[last.month - 1]} ${last.day}, ${last.year}`;
+
+  // Only blocks inside the visible window reach the grid.
+  const weekBlocks = schedule.blocks.filter((b) => b.gday >= startGday && b.gday < startGday + viewDays);
+  // "Missed" is a this-week concept, so only surface it when this week is in view.
+  const weekMissed = startGday < 7 ? schedule.missed : [];
   const hasRisk = schedule.risk.length > 0;
   const hasNearDeadline = schedule.nearDeadline.length > 0;
   const hasOverflow = schedule.overflow.length > 0;
@@ -65,8 +99,18 @@ export function CalendarPanel({ scheduleData }: CalendarPanelProps) {
         </div>
         <div className="flex items-center gap-3">
           <button
-            onClick={() => setWeekOffset((w) => w - 1)}
-            className="inline-flex items-center justify-center border border-border rounded-md w-[30px] h-[30px] hover:bg-white/5"
+            onClick={() => shift(-viewDays)}
+            title={`Back ${viewDays} day${viewDays > 1 ? "s" : ""}`}
+            disabled={startGday === 0}
+            className="inline-flex items-center justify-center border border-border rounded-md w-[30px] h-[30px] hover:bg-white/5 disabled:opacity-40"
+          >
+            <CaretDoubleLeftIcon size={13} weight="bold" />
+          </button>
+          <button
+            onClick={() => shift(-1)}
+            title="Back one day"
+            disabled={startGday === 0}
+            className="inline-flex items-center justify-center border border-border rounded-md w-[30px] h-[30px] hover:bg-white/5 disabled:opacity-40"
           >
             <CaretLeftIcon size={14} weight="bold" />
           </button>
@@ -74,17 +118,49 @@ export function CalendarPanel({ scheduleData }: CalendarPanelProps) {
             {weekLabel}
           </span>
           <button
-            onClick={() => setWeekOffset((w) => w + 1)}
-            className="inline-flex items-center justify-center border border-border rounded-md w-[30px] h-[30px] hover:bg-white/5"
+            onClick={() => shift(1)}
+            title="Forward one day"
+            disabled={startGday >= maxStart}
+            className="inline-flex items-center justify-center border border-border rounded-md w-[30px] h-[30px] hover:bg-white/5 disabled:opacity-40"
           >
             <CaretRightIcon size={14} weight="bold" />
           </button>
           <button
-            onClick={() => setWeekOffset(0)}
+            onClick={() => shift(viewDays)}
+            title={`Forward ${viewDays} day${viewDays > 1 ? "s" : ""}`}
+            disabled={startGday >= maxStart}
+            className="inline-flex items-center justify-center border border-border rounded-md w-[30px] h-[30px] hover:bg-white/5 disabled:opacity-40"
+          >
+            <CaretDoubleRightIcon size={13} weight="bold" />
+          </button>
+          <button
+            onClick={() => setStartGday(viewDays === 7 ? 0 : todayGday)}
+            title={viewDays === 7 ? "Back to this week" : "Start at today"}
             className="border border-accent text-accent rounded-md h-[30px] px-3.5 text-xs font-medium hover:bg-accent/10"
           >
             Today
           </button>
+          <div className="flex items-center gap-1 border-l border-border pl-3 ml-1">
+            <span className="text-[10px] tracking-wide uppercase text-muted-2 mr-0.5">Viewer</span>
+            {VIEW_DAY_OPTIONS.map((d) => (
+              <button
+                key={d}
+                onClick={() => {
+                  writeViewDays(d);
+                  // Keep today in frame when narrowing the window.
+                  setStartGday(d === 7 ? 0 : Math.min(Math.max(0, horizonDays - d), todayGday));
+                }}
+                title={`Show ${d} day${d > 1 ? "s" : ""} at a time`}
+                className="rounded-md w-[26px] h-[26px] text-[11px] font-medium border"
+                style={{
+                  borderColor: viewDays === d ? "var(--color-accent)" : "var(--color-border)",
+                  background: viewDays === d ? "rgba(145,132,217,0.1)" : "transparent",
+                }}
+              >
+                {d}
+              </button>
+            ))}
+          </div>
         </div>
         <div className="flex items-center gap-2.5 justify-end">
           <div className="flex items-center gap-1.5 text-[10.5px] text-muted">
@@ -140,7 +216,8 @@ export function CalendarPanel({ scheduleData }: CalendarPanelProps) {
       )}
 
       <WeekGrid
-        weekOffset={weekOffset}
+        startGday={startGday}
+        viewDays={viewDays}
         timezone={timezone}
         weeklyHours={data.inputs.weeklyHours}
         dayOverrides={data.inputs.dayOverrides}

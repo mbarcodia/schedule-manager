@@ -15,11 +15,46 @@ interface PlannerChatPanelProps {
   scheduleData: UseScheduleDataResult;
 }
 
+const MIN_WIDTH = 300;
+const MAX_WIDTH = 900;
+const DEFAULT_WIDTH = 400;
+const WIDTH_KEY = "planner-panel-width";
+
 export function PlannerChatPanel({ scheduleData }: PlannerChatPanelProps) {
   const { data, schedule, refresh } = scheduleData;
   const { messages, busy, send } = usePlannerChat(refresh);
   const [collapsed, setCollapsed] = useState(false);
+  const [width, setWidth] = useState(DEFAULT_WIDTH);
   const [initialInput, setInitialInput] = useState<string | undefined>();
+
+  useEffect(() => {
+    const stored = Number(window.localStorage.getItem(WIDTH_KEY));
+    if (stored >= MIN_WIDTH && stored <= MAX_WIDTH) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setWidth(stored);
+    }
+  }, []);
+
+  /** Drag the panel's left edge to trade calendar width for chat width. */
+  function startWidthResize(e: React.PointerEvent<HTMLDivElement>) {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = width;
+    const move = (ev: PointerEvent) => {
+      // Dragging left (smaller clientX) widens the panel.
+      setWidth(Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startW + (startX - ev.clientX))));
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      setWidth((w) => {
+        window.localStorage.setItem(WIDTH_KEY, String(w));
+        return w;
+      });
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  }
 
   useEffect(() => {
     // The board's "Discuss this week's review" link lands on /?review=1 —
@@ -67,7 +102,19 @@ export function PlannerChatPanel({ scheduleData }: PlannerChatPanelProps) {
   }
 
   return (
-    <div className="flex-none w-[400px] border-l border-border flex flex-col min-h-0">
+    <div className="flex-none flex min-h-0" style={{ width }}>
+      {/* Vertical grab handle: drag left/right to resize the whole panel. */}
+      <div
+        onPointerDown={startWidthResize}
+        onDoubleClick={() => setWidth(DEFAULT_WIDTH)}
+        title="Drag to resize the chat panel (double-click to reset)"
+        className="flex-none w-2.5 border-l border-border cursor-col-resize flex items-center justify-center group"
+        style={{ touchAction: "none" }}
+      >
+        <div className="w-0.5 h-8 rounded-full bg-border group-hover:bg-accent transition-colors" />
+      </div>
+
+      <div className="flex-1 flex flex-col min-h-0 min-w-0">
       <div className="flex-none px-4 py-3.5 border-b border-border flex items-start justify-between gap-2">
         <div>
           <div className="font-medium text-[13px]">Chat</div>
@@ -108,7 +155,8 @@ export function PlannerChatPanel({ scheduleData }: PlannerChatPanelProps) {
         </div>
       )}
 
-      <PlannerChat messages={messages} busy={busy} onSend={send} initialInput={initialInput} />
+        <PlannerChat messages={messages} busy={busy} onSend={send} initialInput={initialInput} />
+      </div>
     </div>
   );
 }

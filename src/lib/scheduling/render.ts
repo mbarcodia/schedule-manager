@@ -40,9 +40,10 @@ export interface BlockVisual {
   isPastDeadline: boolean;
   isNearDeadline: boolean;
   tooltip: string;
-  /** Which connected calendar a synced meeting came from — rendered as a
-   * left edge accent bar rather than recoloring the whole block (that
-   * treatment is reserved for task categories). Null/undefined = no bar. */
+  /** Rendered as a left-edge accent bar. Carries a task's label colour: the
+   * label tints the edge while the fill stays neutral, so a wall of work reads
+   * as one calm surface and the eye goes to the meetings around it. Null/
+   * undefined = no bar. */
   accentColor?: string | null;
 }
 
@@ -58,6 +59,18 @@ export function categoryPalette(hex: string): { bg: string; border: string; text
 }
 
 const UNCATEGORIZED_PALETTE = { bg: "#292b31", border: "#75798c", textColor: "#cfd3e5" };
+
+/** Whether ticking this block off has to ask WHEN the work happened.
+ *
+ * Only a slot that is running right now answers that on its own. Anything else
+ * — ticked ahead of time, ticked inside its grace window, or ticked days after
+ * it lapsed to missed — could equally mean "I did it then" or "I'm doing it
+ * now", and the answer decides which slot gets credited. Non-tasks have no
+ * remaining duration to move, so they just toggle. */
+export function needsCompletionTime(block: ScheduleBlock, done: boolean): boolean {
+  if (block.type !== "task" || done || block.pinned) return false;
+  return block.status !== "active";
+}
 
 export interface BlockLane {
   lane: number;
@@ -118,25 +131,31 @@ export function computeBlockVisual(
   const height = (clampEnd - clampStart) * PX_PER_MIN;
   const density: ContentDensity = height < 40 ? "compact" : height < 64 ? "medium" : "full";
 
+  // A synced meeting is filled with its calendar's own colour, while work
+  // carries its label colour on the left edge only. That split is deliberate:
+  // meetings are the fixed points of the day and can't be negotiated with, so
+  // they get the loudest treatment, and the work flowing around them stays
+  // quiet enough to read as one surface.
+  const category = block.categoryId ? opts.categories?.find((c) => c.id === block.categoryId) : null;
   let bg: string, border: string, textColor: string;
   if (block.type === "synced") {
-    bg = "repeating-linear-gradient(135deg, #292b31 0, #292b31 4px, #232532 4px, #232532 8px)";
-    border = "rgba(233,233,237,0.16)";
-    textColor = "#cfd3e5";
+    // Manually-added events (and bookings) belong to no connected calendar, so
+    // they have no colour to take — they keep the neutral hatched fill.
+    const palette = block.connectionColor ? categoryPalette(block.connectionColor) : null;
+    bg = palette?.bg ?? "repeating-linear-gradient(135deg, #292b31 0, #292b31 4px, #232532 4px, #232532 8px)";
+    border = palette?.border ?? "rgba(233,233,237,0.16)";
+    textColor = palette?.textColor ?? "#cfd3e5";
   } else if (block.type === "anchor") {
     bg = "#292b31";
     border = "rgba(233,233,237,0.14)";
     textColor = "#e4e7f5";
   } else {
-    // Category color is the block's main color now — priority still drives
-    // scheduling order (see engine.ts), it just isn't the fill anymore.
-    // Uncategorized tasks fall back to a neutral palette rather than the old
-    // priority colors, since priority is no longer a visual dimension here.
-    const category = block.categoryId ? opts.categories?.find((c) => c.id === block.categoryId) : null;
-    const palette = category ? categoryPalette(category.color) : UNCATEGORIZED_PALETTE;
-    bg = palette.bg;
-    border = palette.border;
-    textColor = palette.textColor;
+    // Priority still drives scheduling order (see engine.ts); it has never been
+    // a visual dimension here, and the label isn't the fill any more either.
+    // The label's colour survives in the left bar and in the text tone.
+    bg = UNCATEGORIZED_PALETTE.bg;
+    border = UNCATEGORIZED_PALETTE.border;
+    textColor = category ? categoryPalette(category.color).textColor : UNCATEGORIZED_PALETTE.textColor;
   }
 
   const isTask = block.type === "task";
@@ -230,6 +249,6 @@ export function computeBlockVisual(
     isPastDeadline,
     isNearDeadline,
     tooltip,
-    accentColor: block.type === "synced" ? block.connectionColor : null,
+    accentColor: isTask ? (category?.color ?? null) : null,
   };
 }

@@ -10,6 +10,7 @@
 // elsewhere, so a forgotten checkmark never quietly shrinks the week's work.
 
 import { computeSchedule } from "../src/lib/scheduling/engine.ts";
+import { needsCompletionTime } from "../src/lib/scheduling/render.ts";
 
 const TZ = "America/New_York";
 const TASK_ID = "22222222-2222-2222-2222-222222222222";
@@ -153,6 +154,19 @@ const justNow = computeSchedule(pinnedInputs, wednesday(11, 0)).blocks;
 check("pinned 'just now' is done", chunks(justNow).find((b) => b.start === pinStart)?.status, "done");
 check("pinned 'just now' leaves nothing owing", liveMinutes(justNow), DURATION);
 check("pinned 'just now' leaves one block", chunks(justNow).length, 1);
+
+// Which ticks have to ask "original slot or just now?". Getting this set wrong
+// is what shipped a MISSED block that silently marked itself DONE in place.
+const asks = (status, extra = {}) => needsCompletionTime({ type: "task", status, ...extra }, false);
+check("running right now: no question", asks("active"), false);
+check("not yet started: asks", asks(undefined), true);
+check("inside grace: asks", asks("grace"), true);
+check("lapsed to missed: asks", asks("missed"), true);
+check("partially logged: asks", asks("partial"), true);
+check("already pinned done: no question", asks("done", { pinned: true }), false);
+check("already done: no question", needsCompletionTime({ type: "task", status: "done" }, true), false);
+check("a synced meeting: no question", asks("missed", { type: "synced" }), false);
+check("a routine/anchor: no question", asks("missed", { type: "anchor" }), false);
 
 console.log(failures ? `\n${failures} check(s) failed` : "\nall grace-window checks passed");
 process.exit(failures ? 1 : 0);

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { CheckIcon } from "@phosphor-icons/react";
-import { computeBlockVisual, type BlockLane } from "@/lib/scheduling/render";
+import { computeBlockVisual, needsCompletionTime, type BlockLane } from "@/lib/scheduling/render";
 import type { Category, ScheduleBlock } from "@/lib/scheduling/types";
 
 // Blocks render at their true proportional height, inset 1px top and bottom so
@@ -50,7 +50,6 @@ export function Block({
   // tag, no status text; cramming those in just makes it illegible.
   const ultraCompact = block.end - block.start < 30;
   const showTag = !ultraCompact;
-  const futureTask = visual.isTask && !block.status;
   const clickable = visual.isTask || block.type === "synced";
   // Anchors (recurring blocks) have no "pin done early" concept — a fixed
   // daily slot doesn't free up remaining duration the way a task's does —
@@ -62,11 +61,7 @@ export function Block({
     e.stopPropagation();
     if (block.type === "task") {
       if (block.pinned) onUnpinDone();
-      // Ticking a task while its slot is actually running is unambiguous: log
-      // it where it sits. Ticking one early, or late during its grace window,
-      // could equally mean "I did it then" or "I'm doing it now" — ask rather
-      // than guess, since the answer decides where the hours are credited.
-      else if (!visual!.done && (futureTask || block.status === "grace")) setAsking(true);
+      else if (needsCompletionTime(block, visual!.done)) setAsking(true);
       else onSetProgress(visual!.done ? "none" : "done");
     } else {
       onSetProgress(visual!.done ? "none" : "done");
@@ -102,10 +97,10 @@ export function Block({
         opacity: asking ? 1 : visual.opacity,
         cursor: clickable ? "pointer" : "default",
         // Overrides just the left edge, applied after the shorthand border
-        // above — distinguishes which connected calendar a meeting came
-        // from without recoloring the whole block.
+        // above — carries the label colour without recolouring the whole
+        // block, which is the treatment synced meetings use instead.
         ...(visual.accentColor
-          ? { borderLeftWidth: 3, borderLeftColor: visual.accentColor, borderLeftStyle: "solid" as const }
+          ? { borderLeftWidth: 4, borderLeftColor: visual.accentColor, borderLeftStyle: "solid" as const }
           : {}),
       }}
     >

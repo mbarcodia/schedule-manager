@@ -13,6 +13,8 @@
 
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { availableCapacity } from "@/lib/assistant/status";
+import type { WeeklyHours } from "@/lib/scheduling/types";
 import type { Database } from "@/lib/supabase/database.types";
 
 type ItemRow = Database["public"]["Tables"]["todo_items"]["Row"];
@@ -44,12 +46,16 @@ export function TodoItemPanel({
   item,
   categories,
   tasks,
+  weeklyHours,
   onClose,
   onSaved,
 }: {
   item: ItemRow;
   categories: CategoryRow[];
   tasks: TaskRow[];
+  /** Standard working hours, used to say how much room a booking window really
+   * has before it's saved. */
+  weeklyHours: WeeklyHours;
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
@@ -70,8 +76,26 @@ export function TodoItemPanel({
   const [categoryId, setCategoryId] = useState(linked?.category_id ?? "");
   const [maxPerDay, setMaxPerDay] = useState(linked?.max_per_day_min ? String(linked.max_per_day_min / 60) : "");
 
+  const [wantsEvent, setWantsEvent] = useState(item.event_id != null);
+  const [eventEnd, setEventEnd] = useState("");
+
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // How much working time the chosen window actually contains. A window that
+  // can't hold the hours is the failure that looks like the scheduler ignoring
+  // a deadline: it places the work as early as it can, which is still late.
+  const startDate = start ? new Date(start) : new Date();
+  const deadlineDate = !noDeadline && deadline ? new Date(deadline) : null;
+  const capacity = deadlineDate ? availableCapacity(startDate, deadlineDate, weeklyHours) : null;
+  const hoursWanted = Number(hours);
+  const windowTooSmall =
+    wantsTime && capacity != null && Number.isFinite(hoursWanted) && capacity.minutes < hoursWanted * 60;
+  const windowInverted = deadlineDate != null && start !== "" && deadlineDate <= startDate;
+
+  // Hours booked toward something that happens at a known time are preparation
+  // for it, and are titled that way on the calendar.
+  const isPrep = item.due_at != null && deadlineDate != null && deadlineDate <= new Date(item.due_at);
 
   function toggleLead(minutes: number) {
     setLeads((prev) => (prev.includes(minutes) ? prev.filter((m) => m !== minutes) : [...prev, minutes].sort((a, b) => b - a)));
@@ -114,10 +138,16 @@ export function TodoItemPanel({
       return;
     }
 
+    if (windowInverted) {
+      setBusy(false);
+      setError("The finish-by is before the start — the work would have nowhere to go.");
+      return;
+    }
+
     if (wantsTime) {
       // user_id belongs on the insert only — it isn't an updatable column.
       const taskFields = {
-        title: item.text,
+        title: isPrep ? `Prep: ${item.text}` : item.text,
         duration_min: Math.round(hoursNum * 60),
         chunk_min: Math.min(120, Math.round(hoursNum * 60)),
         priority,
@@ -150,6 +180,43 @@ export function TodoItemPanel({
       patch.task_id = null;
     }
 
+    if (wantsEvent) {
+      const startsAt = fromLocalInput(dueAt);
+      const endsAt = fromLocalInput(eventEnd);
+      if (!startsAt) {
+        setBusy(false);
+        setError("An event needs a time — set when it happens first.");
+        return;
+      }
+      if (!endsAt || new Date(endsAt) <= new Date(startsAt)) {
+        setBusy(false);
+        setError("The event's end time has to be after it starts.");
+        return;
+      }
+      // connection_id stays null: ICS resync deletes by connection, so a null
+      // one survives every sync. Flexible work reflows around it automatically,
+      // and a clash with another event renders side by side.
+      const eventFields = { title: item.text, starts_at: startsAt, ends_at: endsAt };
+      if (item.event_id) {
+        await supabase.from("events").update(eventFields).eq("id", item.event_id);
+      } else {
+        const { data: made, error: err } = await supabase
+          .from("events")
+          .insert({ ...eventFields, user_id: user.id, source: "manual" })
+          .select("id")
+          .single();
+        if (err) {
+          setBusy(false);
+          setError(`Couldn't put it on the calendar: ${err.message}`);
+          return;
+        }
+        patch.event_id = made!.id;
+      }
+    } else if (item.event_id) {
+      await supabase.from("events").delete().eq("id", item.event_id);
+      patch.event_id = null;
+    }
+
     await supabase.from("todo_items").update(patch).eq("id", item.id);
     await onSaved();
     setBusy(false);
@@ -164,6 +231,25 @@ export function TodoItemPanel({
         <div className="text-[10px] tracking-wide uppercase text-muted-2">When it happens</div>
         <input type="datetime-local" value={dueAt} onChange={(e) => setDueAt(e.target.value)} className={field} />
         <div className="text-[10px] text-muted-2">Leave empty if it has no particular date.</div>
+        <label className="flex items-center gap-1.5 text-[11px] text-text mt-1">
+          <input type="checkbox" checked={wantsEvent} onChange={(e) => setWantsEvent(e.target.checked)} />
+          Put it on my calendar as an event
+        </label>
+        {wantsEvent && (
+          <div className="flex flex-col gap-1 pl-5">
+            <label className="text-[10px] text-muted-2">ends at</label>
+            <input
+              type="datetime-local"
+              value={eventEnd}
+              onChange={(e) => setEventEnd(e.target.value)}
+              className={field}
+            />
+            <div className="text-[10px] text-muted-2">
+              That time is held: flexible work is moved out of the way, and another event at the same time sits
+              beside it rather than on top.
+            </div>
+          </div>
+        )}
       </section>
 
       <section className="flex flex-col gap-1">
@@ -251,6 +337,24 @@ export function TodoItemPanel({
               />
               <span className="text-[11px] text-muted">max hours per day (optional)</span>
             </div>
+            {isPrep && (
+              <div className="text-[10px] text-muted-2">
+                This finishes before the thing itself, so it&apos;s preparation — it&apos;ll appear on the calendar
+                as &ldquo;Prep: {item.text}&rdquo;.
+              </div>
+            )}
+            {windowInverted ? (
+              <div className="text-[10px]" style={{ color: "#e5484d" }}>
+                The finish-by is before the start.
+              </div>
+            ) : capacity ? (
+              <div className="text-[10px]" style={{ color: windowTooSmall ? "#e0a94e" : "var(--color-muted-2, #75798c)" }}>
+                {(capacity.minutes / 60).toFixed(1)}h of working time between those two dates
+                {windowTooSmall
+                  ? ` — not enough for ${hours}h, so it would be scheduled late however it's arranged.`
+                  : "."}
+              </div>
+            ) : null}
           </div>
         )}
       </section>

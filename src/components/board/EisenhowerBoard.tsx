@@ -3,8 +3,9 @@
 // Eisenhower 2×2 — same cards as the kanban view (star toggle moves tasks
 // between the important/not-important rows; "urgent" follows deadlines).
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { KanbanCard, type TaskRow } from "./KanbanCard";
+import { fetchTodoLinks, type TodoLink } from "@/lib/planner/todo-links";
 import { setTaskImportant, setTaskArchived } from "@/lib/planner/board-actions";
 import { quadrantFor, type Quadrant } from "@/lib/planner/eisenhower";
 import { URGENT_THRESHOLD_DAYS } from "@/lib/planner/board-constants";
@@ -24,6 +25,12 @@ interface EisenhowerBoardProps {
 }
 
 export function EisenhowerBoard({ scheduleData, onMutated }: EisenhowerBoardProps) {
+  // Which of these tasks came from a to-do, so each card can link home.
+  const [todoLinks, setTodoLinks] = useState<Map<string, TodoLink>>(new Map());
+  useEffect(() => {
+    void fetchTodoLinks().then(setTodoLinks);
+  }, []);
+
   const { data, refresh } = scheduleData;
 
   const grouped = useMemo(() => {
@@ -71,6 +78,7 @@ export function EisenhowerBoard({ scheduleData, onMutated }: EisenhowerBoardProp
                   key={t.id}
                   task={t}
                   category={t.category_id ? (categoriesById[t.category_id] ?? null) : null}
+                  todoLink={todoLinks.get(t.id) ?? null}
                   onToggleImportant={handleToggleImportant}
                   onArchive={handleArchive}
                 />

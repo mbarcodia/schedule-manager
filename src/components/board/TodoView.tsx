@@ -17,6 +17,7 @@ import { EyeSlashIcon, EyeIcon, CaretDownIcon, CaretUpIcon } from "@phosphor-ico
 import { createClient } from "@/lib/supabase/client";
 import { TodoItemPanel } from "./TodoItemPanel";
 import type { ChaseCadence, Database } from "@/lib/supabase/database.types";
+import type { WeeklyHours } from "@/lib/scheduling/types";
 
 type ListRow = Database["public"]["Tables"]["todo_lists"]["Row"];
 type ItemRow = Database["public"]["Tables"]["todo_items"]["Row"];
@@ -41,15 +42,17 @@ function settingsSummary(item: ItemRow): string | null {
   const parts = [
     item.due_at ? fmtDue(item.due_at) : null,
     item.lead_minutes.length ? `${item.lead_minutes.length} reminder${item.lead_minutes.length > 1 ? "s" : ""}` : null,
+    item.event_id ? "on the calendar" : null,
     item.task_id ? "time booked" : null,
   ].filter(Boolean);
   return parts.length ? parts.join(" · ") : null;
 }
 
-export function TodoView({ onMutated }: { onMutated?: () => void }) {
+export function TodoView({ onMutated, focusItem }: { onMutated?: () => void; focusItem?: string | null }) {
   const [lists, setLists] = useState<ListRow[] | null>(null);
   const [items, setItems] = useState<ItemRow[]>([]);
   const [categories, setCategories] = useState<CategoryRow[]>([]);
+  const [weeklyHours, setWeeklyHours] = useState<WeeklyHours>({});
   const [tasks, setTasks] = useState<TaskRow[]>([]);
   const [newList, setNewList] = useState("");
   const [newChase, setNewChase] = useState<ChaseCadence | "">("");
@@ -62,22 +65,38 @@ export function TodoView({ onMutated }: { onMutated?: () => void }) {
       data: { user },
     } = await supabase.auth.getUser();
     if (!user) return;
-    const [{ data: listRows }, { data: itemRows }, { data: catRows }, { data: taskRows }] = await Promise.all([
-      supabase.from("todo_lists").select("*").order("sort_order").order("name"),
-      supabase.from("todo_items").select("*").order("sort_order").order("created_at"),
-      supabase.from("categories").select("*").order("sort_order"),
-      supabase.from("tasks").select("*").is("archived_at", null),
-    ]);
+    const [{ data: listRows }, { data: itemRows }, { data: catRows }, { data: taskRows }, { data: profile }] =
+      await Promise.all([
+        supabase.from("todo_lists").select("*").order("sort_order").order("name"),
+        supabase.from("todo_items").select("*").order("sort_order").order("created_at"),
+        supabase.from("categories").select("*").order("sort_order"),
+        supabase.from("tasks").select("*").is("archived_at", null),
+        supabase.from("profiles").select("weekly_hours").eq("id", user.id).maybeSingle(),
+      ]);
     setLists(listRows ?? []);
     setItems(itemRows ?? []);
     setCategories(catRows ?? []);
     setTasks(taskRows ?? []);
+    if (profile) {
+      const hours: WeeklyHours = {};
+      for (let dow = 0; dow < 7; dow++) hours[dow] = profile.weekly_hours[String(dow)] ?? null;
+      setWeeklyHours(hours);
+    }
   }, []);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
   }, [load]);
+
+  // Arriving from a calendar block or a board card: open that item's panel and
+  // bring it into view, so the link lands on the thing rather than near it.
+  useEffect(() => {
+    if (!focusItem || lists === null) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setOpenItem(focusItem);
+    document.getElementById(`todo-${focusItem}`)?.scrollIntoView({ block: "center" });
+  }, [focusItem, lists]);
 
   async function refresh() {
     await load();
@@ -151,6 +170,7 @@ export function TodoView({ onMutated }: { onMutated?: () => void }) {
   async function removeItem(item: ItemRow) {
     const supabase = createClient();
     if (item.task_id) await supabase.from("tasks").delete().eq("id", item.task_id);
+    if (item.event_id) await supabase.from("events").delete().eq("id", item.event_id);
     await supabase.from("todo_items").delete().eq("id", item.id);
     await refresh();
   }
@@ -243,7 +263,7 @@ export function TodoView({ onMutated }: { onMutated?: () => void }) {
 
               <div className="flex flex-col gap-0.5 flex-1">
                 {visible.map((item) => (
-                    <div key={item.id}>
+                    <div key={item.id} id={`todo-${item.id}`}>
                       <div className="group flex items-start gap-2">
                         <input
                           type="checkbox"
@@ -291,6 +311,7 @@ export function TodoView({ onMutated }: { onMutated?: () => void }) {
                           item={item}
                           categories={categories}
                           tasks={tasks}
+                          weeklyHours={weeklyHours}
                           onClose={() => setOpenItem(null)}
                           onSaved={refresh}
                         />

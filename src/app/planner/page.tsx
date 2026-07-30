@@ -4,7 +4,7 @@
 // archive views) over the same live schedule the calendar uses. The planner
 // CHAT lives on the calendar page (PlannerChatPanel); only notes + board here.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { CaretLeftIcon } from "@phosphor-icons/react";
 import { KanbanBoard } from "@/components/board/KanbanBoard";
@@ -32,10 +32,22 @@ const VIEWS: { id: BoardView; label: string }[] = [
 export default function PlannerPage() {
   const scheduleData = useScheduleData();
   const [view, setView] = useState<BoardView>("kanban");
+  /** A to-do to open on arrival, when something linked here from the calendar
+   * or a board card. Read from the URL on mount rather than via
+   * useSearchParams, which would need a Suspense boundary to prerender. */
+  const [focusItem, setFocusItem] = useState<string | null>(null);
   // Bumped by board mutations (drops, star/archive toggles) so the notes
   // sidebar can refetch if a linked trackable changes.
   const [refreshKey, setRefreshKey] = useState(0);
   const onMutated = () => setRefreshKey((k) => k + 1);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const requested = params.get("view");
+    if (requested && VIEWS.some((v) => v.id === requested)) setView(requested as BoardView);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setFocusItem(params.get("item"));
+  }, []);
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
@@ -45,7 +57,7 @@ export default function PlannerPage() {
         </Link>
         <div className="font-medium text-[14px]">Planner</div>
         <div className="text-[11px] text-muted">
-          Board views of your projects, proposals, and goals — chat lives on the calendar page.
+          Board views of your commitments and work — chat lives on the calendar page.
         </div>
         <Link
           href="/?plan=1"
@@ -75,7 +87,7 @@ export default function PlannerPage() {
         {view === "kanban" && <KanbanBoard scheduleData={scheduleData} onMutated={onMutated} />}
         {view === "eisenhower" && <EisenhowerBoard scheduleData={scheduleData} onMutated={onMutated} />}
         {view === "timeline" && <Timeline scheduleData={scheduleData} />}
-        {view === "todos" && <TodoView onMutated={onMutated} />}
+        {view === "todos" && <TodoView onMutated={onMutated} focusItem={focusItem} />}
         {view === "lists" && <ListsView />}
         {view === "archive" && (
           <ArchiveView

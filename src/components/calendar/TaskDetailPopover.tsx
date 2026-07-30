@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import { todoItemHref, type TodoLink } from "@/lib/planner/todo-links";
 import { fmtMin } from "@/lib/scheduling/time";
 import type { ScheduleBlock } from "@/lib/scheduling/types";
 
@@ -33,6 +35,9 @@ function subjectFromTaskId(taskId: string): { subjectType: "task" | "research"; 
 
 export function TaskDetailPopover({ block, top, onClose, onSetProgress }: TaskDetailPopoverProps) {
   const [info, setInfo] = useState<TaskInfo | ResearchInfo | null>(null);
+  /** Set when this block's hours were booked from a to-do — its date,
+   * reminders and notes live there, so the popover offers the way back. */
+  const [todoLink, setTodoLink] = useState<TodoLink | null>(null);
 
   useEffect(() => {
     let ignore = false;
@@ -40,6 +45,18 @@ export function TaskDetailPopover({ block, top, onClose, onSetProgress }: TaskDe
       if (!block.taskId) return;
       const supabase = createClient();
       const { subjectType, subjectId } = subjectFromTaskId(block.taskId);
+
+      if (subjectType === "task") {
+        const { data: item } = await supabase
+          .from("todo_items")
+          .select("id,text,list_id")
+          .eq("task_id", subjectId)
+          .maybeSingle();
+        if (item && !ignore) {
+          const { data: list } = await supabase.from("todo_lists").select("name").eq("id", item.list_id).maybeSingle();
+          setTodoLink({ itemId: item.id, itemText: item.text, listName: list?.name ?? "" });
+        }
+      }
 
       const { data: progressRows } = await supabase
         .from("progress_log")
@@ -124,6 +141,15 @@ export function TaskDetailPopover({ block, top, onClose, onSetProgress }: TaskDe
           </div>
         )}
       </div>
+
+      {todoLink && (
+        <Link
+          href={todoItemHref(todoLink.itemId)}
+          className="block px-2.5 py-1.5 text-[10.5px] text-accent-text hover:underline border-b border-white/10"
+        >
+          ↗ Open on your {todoLink.listName} list
+        </Link>
+      )}
 
       {taskStarted && (
         <div className="flex flex-col">

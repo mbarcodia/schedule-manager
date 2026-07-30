@@ -3,8 +3,10 @@
 // One task card — visual template borrowed from PlannerSidebar's note cards,
 // category color applied the way Block.tsx treats calendar blocks.
 
+import Link from "next/link";
 import { useDraggable } from "@dnd-kit/core";
 import { categoryPalette } from "@/lib/scheduling/render";
+import { todoItemHref, type TodoLink } from "@/lib/planner/todo-links";
 import type { Category } from "@/lib/scheduling/types";
 import type { RawScheduleRows } from "@/lib/scheduling/from-db";
 
@@ -15,11 +17,20 @@ interface KanbanCardProps {
   category: Category | null;
   /** Present when the card sits in a drag-enabled view. */
   draggable?: boolean;
+  /** Set when this work came from a to-do, so the card can link back to it. */
+  todoLink?: TodoLink | null;
   onToggleImportant?: (task: TaskRow) => void;
   onArchive?: (task: TaskRow) => void;
 }
 
-export function KanbanCard({ task, category, draggable = false, onToggleImportant, onArchive }: KanbanCardProps) {
+export function KanbanCard({
+  task,
+  category,
+  draggable = false,
+  todoLink,
+  onToggleImportant,
+  onArchive,
+}: KanbanCardProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: task.id,
     disabled: !draggable,
@@ -88,6 +99,19 @@ export function KanbanCard({ task, category, draggable = false, onToggleImportan
         {(task.duration_min / 60).toFixed(task.duration_min % 60 === 0 ? 0 : 1)}h
         {deadline && <> · due {deadline.toLocaleDateString(undefined, { month: "short", day: "numeric" })}</>}
       </div>
+      {todoLink && (
+        // Its date, reminders and notes live on the to-do, not here — so say
+        // where they are rather than duplicating them onto the card.
+        <Link
+          href={todoItemHref(todoLink.itemId)}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          className="mt-0.5 block text-[9.5px] text-muted-2 hover:text-accent-text truncate"
+          title={`Open this on your ${todoLink.listName} to-do list`}
+        >
+          ↗ on your {todoLink.listName} list
+        </Link>
+      )}
     </div>
   );
 }

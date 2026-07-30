@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { DndContext, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { KanbanCard, type TaskRow } from "./KanbanCard";
+import { fetchTodoLinks, type TodoLink } from "@/lib/planner/todo-links";
 import { KanbanColumn } from "./KanbanColumn";
 import { deriveBoardStatuses, boardStatusFor, type BoardStatus } from "@/lib/planner/board-status";
 import { DEFAULT_WIP_LIMIT } from "@/lib/planner/board-constants";
@@ -26,6 +27,12 @@ interface KanbanBoardProps {
 }
 
 export function KanbanBoard({ scheduleData, onMutated }: KanbanBoardProps) {
+  // Which of these tasks came from a to-do, so each card can link home.
+  const [todoLinks, setTodoLinks] = useState<Map<string, TodoLink>>(new Map());
+  useEffect(() => {
+    void fetchTodoLinks().then(setTodoLinks);
+  }, []);
+
   const { data, schedule, refresh } = scheduleData;
   const [notice, setNotice] = useState<string | null>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
@@ -107,6 +114,7 @@ export function KanbanBoard({ scheduleData, onMutated }: KanbanBoardProps) {
                   key={t.id}
                   task={t}
                   category={t.category_id ? (categoriesById[t.category_id] ?? null) : null}
+                  todoLink={todoLinks.get(t.id) ?? null}
                   draggable
                   onToggleImportant={handleToggleImportant}
                   onArchive={handleArchive}

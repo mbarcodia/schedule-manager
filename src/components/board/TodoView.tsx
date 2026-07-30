@@ -13,7 +13,7 @@
 // "warn me a week before the seminar" were two unrelated records.
 
 import { useCallback, useEffect, useState } from "react";
-import { EyeSlashIcon, EyeIcon } from "@phosphor-icons/react";
+import { EyeSlashIcon, EyeIcon, CaretDownIcon, CaretUpIcon } from "@phosphor-icons/react";
 import { createClient } from "@/lib/supabase/client";
 import { TodoItemPanel } from "./TodoItemPanel";
 import type { ChaseCadence, Database } from "@/lib/supabase/database.types";
@@ -23,14 +23,29 @@ type ItemRow = Database["public"]["Tables"]["todo_items"]["Row"];
 type CategoryRow = Database["public"]["Tables"]["categories"]["Row"];
 type TaskRow = Database["public"]["Tables"]["tasks"]["Row"];
 
+/** Said as a plain outcome rather than a verb: the earlier wording ("chased
+ * weekly") described the mechanism and left the user guessing what it did. */
 const CHASE_LABEL: Record<ChaseCadence, string> = {
-  week: "chased weekly",
-  month: "chased monthly",
-  year: "chased yearly",
+  week: "notify me at the end of each week",
+  month: "notify me at the end of each month",
+  year: "notify me at the end of each year",
 };
 
 const fmtDue = (iso: string) =>
   new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+
+/** What's already attached to an item, or null when it's still a plain line.
+ * Doubles as the label on the control that opens the panel, so the row always
+ * says both what it has and where to change it. */
+function settingsSummary(item: ItemRow): string | null {
+  const parts = [
+    item.due_at ? fmtDue(item.due_at) : null,
+    item.lead_minutes.length ? `${item.lead_minutes.length} reminder${item.lead_minutes.length > 1 ? "s" : ""}` : null,
+    item.task_id ? "time booked" : null,
+    item.prep_task_id ? "prep booked" : null,
+  ].filter(Boolean);
+  return parts.length ? parts.join(" · ") : null;
+}
 
 export function TodoView({ onMutated }: { onMutated?: () => void }) {
   const [lists, setLists] = useState<ListRow[] | null>(null);
@@ -165,11 +180,16 @@ export function TodoView({ onMutated }: { onMutated?: () => void }) {
           placeholder="New list name (e.g. This week)"
           className={field}
         />
-        <select value={newChase} onChange={(e) => setNewChase(e.target.value as ChaseCadence | "")} className={field}>
-          <option value="">never chase unfinished items</option>
-          <option value="week">chase at the end of each week</option>
-          <option value="month">chase at the end of each month</option>
-          <option value="year">chase at the end of each year</option>
+        <select
+          value={newChase}
+          onChange={(e) => setNewChase(e.target.value as ChaseCadence | "")}
+          className={field}
+          title="What happens to items on this list that are never ticked off"
+        >
+          <option value="">if anything&apos;s unfinished: leave it alone</option>
+          <option value="week">if anything&apos;s unfinished: {CHASE_LABEL.week}</option>
+          <option value="month">if anything&apos;s unfinished: {CHASE_LABEL.month}</option>
+          <option value="year">if anything&apos;s unfinished: {CHASE_LABEL.year}</option>
         </select>
         <button onClick={addList} className="text-xs text-accent hover:underline">
           + Add list
@@ -207,12 +227,12 @@ export function TodoView({ onMutated }: { onMutated?: () => void }) {
                   value={list.chase ?? ""}
                   onChange={(e) => setChase(list, e.target.value as ChaseCadence | "")}
                   className="rounded border border-border bg-surface px-1.5 py-0.5 text-[10px] text-muted outline-none"
-                  title="Chase whatever is still unfinished when the period ends"
+                  title="What happens to items on this list that are never ticked off"
                 >
-                  <option value="">no chasing</option>
-                  <option value="week">{CHASE_LABEL.week}</option>
-                  <option value="month">{CHASE_LABEL.month}</option>
-                  <option value="year">{CHASE_LABEL.year}</option>
+                  <option value="">unfinished items: leave them</option>
+                  <option value="week">unfinished items: {CHASE_LABEL.week}</option>
+                  <option value="month">unfinished items: {CHASE_LABEL.month}</option>
+                  <option value="year">unfinished items: {CHASE_LABEL.year}</option>
                 </select>
                 <label className="flex items-center gap-1 text-[10px] text-muted-2">
                   <input
@@ -225,10 +245,7 @@ export function TodoView({ onMutated }: { onMutated?: () => void }) {
               </div>
 
               <div className="flex flex-col gap-0.5 flex-1">
-                {visible.map((item) => {
-                  const scheduled = item.task_id != null;
-                  const prepped = item.prep_task_id != null;
-                  return (
+                {visible.map((item) => (
                     <div key={item.id}>
                       <div className="group flex items-start gap-2">
                         <input
@@ -237,24 +254,26 @@ export function TodoView({ onMutated }: { onMutated?: () => void }) {
                           onChange={() => toggle(item)}
                           className="mt-0.5 flex-none"
                         />
-                        <button
-                          onClick={() => setOpenItem(openItem === item.id ? null : item.id)}
-                          className="text-left text-[11.5px] leading-snug flex-1 min-w-0"
-                          style={{
-                            color: item.done ? "var(--color-muted-2, #75798c)" : "var(--color-text, #e9e9ed)",
-                            textDecoration: item.done ? "line-through" : "none",
-                          }}
-                        >
-                          {item.text}
-                          {(item.due_at || scheduled || prepped || item.lead_minutes.length > 0) && (
-                            <span className="ml-1.5 text-[9.5px] text-muted-2 whitespace-nowrap">
-                              {item.due_at ? fmtDue(item.due_at) : null}
-                              {item.lead_minutes.length > 0 ? " · reminders" : null}
-                              {scheduled ? " · booked" : null}
-                              {prepped ? " · prep" : null}
-                            </span>
-                          )}
-                        </button>
+                        <div className="flex-1 min-w-0">
+                          <button
+                            onClick={() => setOpenItem(openItem === item.id ? null : item.id)}
+                            className="text-left text-[11.5px] leading-snug w-full"
+                            style={{
+                              color: item.done ? "var(--color-muted-2, #75798c)" : "var(--color-text, #e9e9ed)",
+                              textDecoration: item.done ? "line-through" : "none",
+                            }}
+                          >
+                            {item.text}
+                          </button>
+                          <button
+                            onClick={() => setOpenItem(openItem === item.id ? null : item.id)}
+                            className="flex items-center gap-1 text-[9.5px] text-muted-2 hover:text-text"
+                            title="Set a date, reminders, booked hours or preparation time"
+                          >
+                            {openItem === item.id ? <CaretUpIcon size={9} /> : <CaretDownIcon size={9} />}
+                            {settingsSummary(item) ?? "add date, reminder, or time"}
+                          </button>
+                        </div>
                         <button
                           onClick={() => setHidden(item, true)}
                           title="Hide this item"
@@ -280,8 +299,7 @@ export function TodoView({ onMutated }: { onMutated?: () => void }) {
                         />
                       )}
                     </div>
-                  );
-                })}
+                ))}
                 {visible.length === 0 && <div className="text-[10.5px] text-muted-2">nothing here</div>}
               </div>
 

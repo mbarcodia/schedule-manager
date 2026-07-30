@@ -70,7 +70,7 @@ Everything below is built and working — this is the whole feature set, not a r
 - **Kanban** — Backlog / This Week / In Progress / Done, derived from what the schedule actually says; drag a card to change the schedule
 - **Eisenhower** — importance (you set it) against urgency (read from deadlines)
 - **Timeline** — six months of commitment deadlines with their targets marked along the way, coloured by whether booked hours can still cover them
-- **To-Do** — lists you name, holding anything from a one-line errand to a talk you must prepare for; any item can gain a date, notification lead times, booked hours and separate preparation time, at any point after you write it down
+- **To-Do** — lists you name, holding anything from a one-line errand to a talk you must prepare for; any item can gain a date, notification lead times, booked hours and separate preparation time, at any point after you write it down, and a list can notify you about whatever is still unticked when the week, month or year ends
 - **Lists** — reading lists, packing lists, standing agendas: a paragraph, a checklist, or both, with nothing scheduled or notified
 - **Archive** — finished work is archived, never deleted, so logged hours survive for "what did I get done this semester?"
 - A live weekly-review strip (done/total, work-in-progress limit, missed blocks, at-risk deadlines) and a guided "Time to plan" interview

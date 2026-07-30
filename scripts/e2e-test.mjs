@@ -151,13 +151,17 @@ try {
 
   // --------------------------------------------------------------- seeding
   console.log("\n== seeding a realistic week ==");
-  // Signup seeds three default labels (see migration 0004), so a new account is
-  // usable immediately rather than empty. Use one of them, as a real user would.
-  const { data: seeded } = await admin.from("categories").select("id,name").eq("user_id", userId).order("sort_order");
-  check("signup seeds default labels", (seeded ?? []).map((c) => c.name), ["Research", "Teaching", "Tasks"]);
-  const label = seeded[0];
-  // Give it a minimum chunk so the floor is exercised too.
-  await admin.from("categories").update({ min_chunk_min: 30 }).eq("id", label.id);
+  // Signup creates no labels (migration 0027) — Settings offers suggestions
+  // instead, so nobody inherits a set that doesn't fit their work.
+  const { data: seeded } = await admin.from("categories").select("id,name").eq("user_id", userId);
+  check("signup creates no labels", (seeded ?? []).length, 0);
+  const { data: label, error: labelErr } = await admin
+    .from("categories")
+    .insert({ user_id: userId, name: "Research", color: "#d9748f", sort_order: 0, min_chunk_min: 30 })
+    .select("id")
+    .single();
+  checkThat("a label can be added", label != null, labelErr?.message ?? "");
+  if (!label) throw new Error("label insert failed");
 
   await admin.from("recurring_rules").insert({
     user_id: userId,

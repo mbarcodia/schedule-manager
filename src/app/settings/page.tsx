@@ -147,6 +147,16 @@ const VOCABULARY: [string, string][] = [
  * than one long one. Order follows how often a setting is actually touched:
  * how the schedule behaves first, then what things look like, then the parts
  * you set up once and forget. */
+/** Offered as one-click adds in Settings → Labels. Signup no longer creates any
+ * labels (migration 0027) because the old three only suited academic research;
+ * these are a starting point rather than a decision. */
+const SUGGESTED_LABELS: { name: string; color: string }[] = [
+  { name: "Research", color: "#d9748f" },
+  { name: "Teaching", color: "#6fae7c" },
+  { name: "Service", color: "#9184d9" },
+  { name: "Admin", color: "#7cb0d9" },
+];
+
 const SECTION_GROUPS: { group: string; items: { id: string; label: string }[] }[] = [
   {
     group: "Start here",
@@ -340,6 +350,25 @@ export default function SettingsPage() {
     } finally {
       setSyncing(false);
     }
+  }
+
+  async function addSuggestedLabel(suggestion: { name: string; color: string }) {
+    const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return;
+    const { data } = await supabase
+      .from("categories")
+      .insert({
+        user_id: user.id,
+        name: suggestion.name,
+        color: suggestion.color,
+        sort_order: categories.length,
+      })
+      .select()
+      .single();
+    if (data) setCategories((prev) => [...prev, data]);
   }
 
   async function addCategory() {
@@ -1087,6 +1116,23 @@ export default function SettingsPage() {
               </button>
             </div>
           </div>
+
+          {SUGGESTED_LABELS.some((sug) => !categories.some((c) => c.name.toLowerCase() === sug.name.toLowerCase())) && (
+            <div className="mt-2.5 flex items-center gap-1.5 flex-wrap">
+              <span className="text-[11px] text-muted-2">Suggestions:</span>
+              {SUGGESTED_LABELS.filter(
+                (sug) => !categories.some((c) => c.name.toLowerCase() === sug.name.toLowerCase()),
+              ).map((sug) => (
+                <button
+                  key={sug.name}
+                  onClick={() => void addSuggestedLabel(sug)}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-[11px] text-muted hover:text-text hover:border-accent"
+                >
+                  <span className="w-2 h-2 rounded-sm" style={{ background: sug.color }} />+ {sug.name}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="mt-8 pt-5 border-t border-border">

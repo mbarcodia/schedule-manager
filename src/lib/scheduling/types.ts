@@ -153,7 +153,10 @@ export type WeeklyHours = Record<number, { start: MinuteOfDay; end: MinuteOfDay 
 
 /** done = fully done; partial = N minutes credited, remainder re-fed;
  * missed = all time re-fed. */
-export type ProgressStatus = "done" | "partial" | "missed" | "active";
+/** "grace" = its time has passed with nothing logged, but recently enough that
+ * the user may simply not have ticked it yet. It stays in place, greyed and
+ * still completable, until the grace window lapses and it becomes "missed". */
+export type ProgressStatus = "done" | "partial" | "missed" | "active" | "grace";
 
 export interface ProgressEntry {
   /** Present only when status === 'partial'. */
@@ -227,6 +230,9 @@ export interface ScheduleInputs {
   events: CalendarEvent[];
   recurringRules: RecurringRule[];
   dayOverrides: DayOverrides;
+  /** Hours an un-ticked past block stays completable in place before it counts
+   * as definitively missed (profiles.grace_hours). */
+  graceHours: number;
   /** Research time the user fixed to an exact slot (see research_pins).
    * Reduces that week's auto-placed chunk for the same project. */
   researchPins: ResearchPin[];

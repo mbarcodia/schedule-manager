@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { CheckIcon } from "@phosphor-icons/react";
 import { computeBlockVisual, type BlockLane } from "@/lib/scheduling/render";
 import type { Category, ScheduleBlock } from "@/lib/scheduling/types";
@@ -36,6 +37,9 @@ export function Block({
   onSetProgress,
   onBodyClick,
 }: BlockProps) {
+  /** Open while we're asking which slot a completion belongs in. */
+  const [asking, setAsking] = useState(false);
+
   const visual = computeBlockVisual(block, { atRiskTitles, nearDeadlineTitles, categories });
   if (!visual) return null;
 
@@ -58,7 +62,11 @@ export function Block({
     e.stopPropagation();
     if (block.type === "task") {
       if (block.pinned) onUnpinDone();
-      else if (futureTask) onPinDone();
+      // Ticking a task while its slot is actually running is unambiguous: log
+      // it where it sits. Ticking one early, or late during its grace window,
+      // could equally mean "I did it then" or "I'm doing it now" — ask rather
+      // than guess, since the answer decides where the hours are credited.
+      else if (!visual!.done && (futureTask || block.status === "grace")) setAsking(true);
       else onSetProgress(visual!.done ? "none" : "done");
     } else {
       onSetProgress(visual!.done ? "none" : "done");
@@ -88,9 +96,10 @@ export function Block({
         border: `${visual.borderWidth}px ${visual.borderStyle} ${visual.border}`,
         borderRadius: 8,
         padding: `${compact ? 2 : 6}px 8px`,
-        overflow: "hidden",
+        overflow: asking ? "visible" : "hidden",
         boxSizing: "border-box",
-        opacity: visual.opacity,
+        zIndex: asking ? 40 : undefined,
+        opacity: asking ? 1 : visual.opacity,
         cursor: clickable ? "pointer" : "default",
         // Overrides just the left edge, applied after the shorthand border
         // above — distinguishes which connected calendar a meeting came
@@ -100,6 +109,37 @@ export function Block({
           : {}),
       }}
     >
+      {asking && (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          className="rounded-md border border-border bg-panel shadow-lg p-2 flex flex-col gap-1"
+          style={{ position: "absolute", top: 2, left: 2, zIndex: 3, minWidth: 148 }}
+        >
+          <div className="text-[9.5px] text-muted-2 leading-snug">When did you do it?</div>
+          <button
+            onClick={() => {
+              setAsking(false);
+              onSetProgress("done");
+            }}
+            className="text-left text-[10.5px] hover:text-accent-text"
+          >
+            In its original slot
+          </button>
+          <button
+            onClick={() => {
+              setAsking(false);
+              onPinDone();
+            }}
+            className="text-left text-[10.5px] hover:text-accent-text"
+          >
+            Just now
+          </button>
+          <button onClick={() => setAsking(false)} className="text-left text-[9.5px] text-muted-2 hover:text-text">
+            cancel
+          </button>
+        </div>
+      )}
+
       {visual.canComplete && (
         <div
           style={{

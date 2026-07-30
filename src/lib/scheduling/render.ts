@@ -147,6 +147,9 @@ export function computeBlockVisual(
     isTask && !block.status && !isPastDeadline && (opts.nearDeadlineTitles ?? []).includes(block.title);
   const done = block.status === "done";
   const missed = block.status === "missed";
+  // Its time has passed unlogged, but recently — still sitting here waiting to
+  // be ticked. Rendered grey and quiet rather than as a definitive miss.
+  const grace = block.status === "grace";
   const partial = block.status === "partial";
 
   let statusLabel: string | null = null;
@@ -154,6 +157,11 @@ export function computeBlockVisual(
   if (missed) {
     statusLabel = "MISSED";
     statusColor = "#d2cefd";
+    bg = "#232532";
+    textColor = "#9397ab";
+  } else if (grace) {
+    statusLabel = "DID YOU?";
+    statusColor = "#9397ab";
     bg = "#232532";
     textColor = "#9397ab";
   } else if (partial) {
@@ -179,7 +187,9 @@ export function computeBlockVisual(
   const started = canComplete && !!block.status && !block.pinned;
   const futureSchedulable = canComplete && !block.status;
 
-  const tooltip = missed
+  const tooltip = grace
+    ? `${block.title} — time has passed and nothing logged. Tick it if you did it; it'll be treated as missed shortly.`
+    : missed
     ? isTask
       ? `${block.title} — not completed, time moved later in the week`
       : `${block.title} — not completed`
@@ -204,10 +214,10 @@ export function computeBlockVisual(
     height,
     bg,
     border,
-    borderStyle: missed ? "dashed" : "solid",
+    borderStyle: missed || grace ? "dashed" : "solid",
     borderWidth: isPastDeadline || isNearDeadline ? 2 : 1,
     textColor,
-    opacity: done ? 0.45 : missed ? 0.7 : partial ? 0.85 : 1,
+    opacity: done ? 0.45 : missed ? 0.7 : grace ? 0.6 : partial ? 0.85 : 1,
     density,
     tagLabel: block.tagLabel,
     title: block.title,

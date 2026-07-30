@@ -441,14 +441,22 @@ export function computeSchedule(
       const key = `${c.taskId}@${c.gday}-${c.start}`;
       const done = !!inputs.completed[key];
       const part = inputs.partial[key];
+      // A block whose time has passed with nothing logged is "grace" while it's
+      // recent enough that the user may just not have ticked it, then "missed".
+      // Both are excluded from credit below, so the hours re-place immediately
+      // either way — the distinction is whether the original block is still
+      // shown in place and completable.
+      const graceMinutes = (inputs.graceHours ?? 4) * 60;
       const status =
         done || inputs.pinned[key]
           ? "done"
           : part != null
             ? "partial"
-            : absEnd <= NOW
-              ? "missed"
-              : "active";
+            : absEnd > NOW
+              ? "active"
+              : NOW - absEnd <= graceMinutes
+                ? "grace"
+                : "missed";
       kept.push({
         ...c,
         key,
@@ -463,7 +471,9 @@ export function computeSchedule(
   kept.forEach((c) => {
     if (c.status === "partial") {
       credit[c.taskId!] = (credit[c.taskId!] || 0) + (c.partMin ?? 0);
-    } else if (c.status !== "missed") {
+    } else if (c.status !== "missed" && c.status !== "grace") {
+      // Grace counts as un-done for scheduling: the time re-places right away
+      // and ticking the box later credits it, removing the replacement.
       credit[c.taskId!] = (credit[c.taskId!] || 0) + (c.end - c.start);
     }
   });

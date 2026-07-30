@@ -259,6 +259,7 @@ export function buildScheduleInputs(
     events,
     recurringRules,
     dayOverrides,
+    graceHours: rows.profile.grace_hours ?? 4,
     researchPins,
     completed,
     partial,

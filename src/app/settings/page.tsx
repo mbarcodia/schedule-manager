@@ -110,6 +110,11 @@ const PLANNER_MODEL_OPTIONS: {
 ];
 
 /** Left-hand jump list. Order matches the page. */
+/** How long an un-ticked past block stays completable in place. Mirrors the
+ * profiles.grace_hours default; the engine falls back to the same number. */
+const DEFAULT_GRACE_HOURS = 4;
+const GRACE_HOUR_OPTIONS = [1, 2, 4, 8, 24];
+
 const SECTIONS: { id: string; label: string }[] = [
   { id: "claude-access", label: "Claude access" },
   { id: "planner-ai", label: "Planner AI" },
@@ -117,6 +122,7 @@ const SECTIONS: { id: string; label: string }[] = [
   { id: "block-labels", label: "Block labels" },
   { id: "standard-hours", label: "Standard hours" },
   { id: "calendar-view", label: "Calendar view" },
+  { id: "grace-window", label: "Un-ticked work" },
   { id: "categories", label: "Categories" },
   { id: "calendars", label: "Connected calendars" },
   { id: "booking", label: "Booking page" },
@@ -127,6 +133,7 @@ export default function SettingsPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [viewDays, setViewDays] = useState<ViewDays>(DEFAULT_VIEW_DAYS);
+  const [graceHours, setGraceHours] = useState(DEFAULT_GRACE_HOURS);
   const [hours, setHours] = useState<WeeklyHoursJson | null>(null);
   const [categories, setCategories] = useState<CategoryRow[]>([]);
   const [newCategoryName, setNewCategoryName] = useState("");
@@ -167,7 +174,7 @@ export default function SettingsPage() {
         supabase
           .from("profiles")
           .select(
-            "planner_model,weekly_hours,eod_checkin_enabled,eod_checkin_time,weekly_summary_enabled,weekly_summary_dow,weekly_summary_time,label_task,label_research,label_deep_focus,label_block",
+            "planner_model,grace_hours,weekly_hours,eod_checkin_enabled,eod_checkin_time,weekly_summary_enabled,weekly_summary_dow,weekly_summary_time,label_task,label_research,label_deep_focus,label_block",
           )
           .eq("id", user.id)
           .single(),
@@ -178,6 +185,7 @@ export default function SettingsPage() {
       if (ignore) return;
       if (data) {
         setPlannerModel(data.planner_model);
+        setGraceHours(data.grace_hours ?? DEFAULT_GRACE_HOURS);
         setHours(data.weekly_hours);
         setNotif({
           eodEnabled: data.eod_checkin_enabled,
@@ -349,6 +357,15 @@ export default function SettingsPage() {
     setCategories((prev) => prev.filter((c) => c.id !== id));
     const supabase = createClient();
     await supabase.from("categories").delete().eq("id", id);
+  }
+
+  async function saveGraceHours(hours: number) {
+    setGraceHours(hours);
+    const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (user) await supabase.from("profiles").update({ grace_hours: hours }).eq("id", user.id);
   }
 
   async function saveHours(next: WeeklyHoursJson) {
@@ -722,6 +739,37 @@ export default function SettingsPage() {
           </div>
           <p className="text-[11px] text-muted-2">
             Saved on this device rather than your account — a laptop and a phone want different widths.
+          </p>
+        </div>
+
+        <div id="grace-window" className="mt-8 pt-5 border-t border-border scroll-mt-4">
+          <h2 className="text-base font-medium mb-1">Un-ticked work</h2>
+          <p className="text-xs text-muted mb-3 leading-relaxed">
+            When a block&apos;s time passes and you haven&apos;t ticked it off, it stays exactly where it is — greyed
+            out and labelled <span className="text-text">DID YOU?</span> — for this long, so you can still tick it if
+            you simply forgot. Its hours are re-planned straight away either way, which keeps the rest of the week
+            honest; ticking the box inside the window takes the replacement back out. Once the window passes, the block
+            counts as genuinely missed and the replacement time stands.
+          </p>
+          <div className="flex items-center gap-1.5 mb-2">
+            {GRACE_HOUR_OPTIONS.map((h) => (
+              <button
+                key={h}
+                onClick={() => void saveGraceHours(h)}
+                className="rounded-md px-3 py-1.5 text-xs font-medium border"
+                style={{
+                  borderColor: graceHours === h ? "var(--color-accent)" : "var(--color-border)",
+                  background: graceHours === h ? "rgba(145,132,217,0.08)" : "transparent",
+                }}
+              >
+                {h} hour{h > 1 ? "s" : ""}
+              </button>
+            ))}
+          </div>
+          <p className="text-[11px] text-muted-2">
+            You&apos;ll get a notification shortly before a window runs out (if notifications are on). Ticking something
+            off early, or late inside the window, asks whether you did it in its original slot or just now — so the
+            hours are logged where they actually happened.
           </p>
         </div>
 

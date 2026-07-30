@@ -22,6 +22,11 @@ Everything below is built and working — this is the whole feature set, not a r
 - You describe work (hours needed, deadline, pacing, chunk size) and the engine places it; change anything and the whole week re-solves around it
 - External calendars merged in read-only via ICS feed (Outlook, Google, iCloud) — nothing is ever written back to them
 - Check blocks off, log partial progress, or pin a block to an exact time; missed time reschedules itself later in the week
+- Forgot to tick something? It stays put, greyed and still tickable, for a grace
+  period you set (default 4 hours, Settings → Un-ticked work) and you get a
+  notification before that runs out. Ticking a block early or late asks whether
+  you did it in its original slot or just now, so the hours land in the right
+  place
 - Research projects get weekly-hours targets and claim mornings by priority
 - Sliding view: show 1, 3, 5 or 7 days at a time and shift the window a day at
   a time, so a "week" can start on any weekday

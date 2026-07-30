@@ -61,6 +61,7 @@ export interface Database {
           booking_meeting_url: string | null;
           display_name: string | null;
           office_location: string | null;
+          grace_hours: number;
         },
         { id: string } & Partial<{
           preferred_model: PreferredModel;
@@ -79,6 +80,7 @@ export interface Database {
           booking_meeting_url: string | null;
           display_name: string | null;
           office_location: string | null;
+          grace_hours: number;
         }>,
         Partial<{
           preferred_model: PreferredModel;
@@ -97,6 +99,7 @@ export interface Database {
           booking_meeting_url: string | null;
           display_name: string | null;
           office_location: string | null;
+          grace_hours: number;
         }>
       >;
       categories: Table<

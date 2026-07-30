@@ -4,7 +4,7 @@
 > get rebuilt without notice, and there's no guarantee of stability between
 > commits. Expect rough edges if you deploy your own instance today.
 
-A personal scheduling app: a week calendar with your commitments, work, and time
+A personal scheduling app: a week calendar with your projects, work, and time
 budgets, an AI chat for quick edits ("push my gym block to 6pm"), and a Planner
 — a longer-horizon AI chat for thinking a semester through and keeping notes
 tied to your schedule. Built with Next.js, Supabase (Postgres + Auth), and deployed on
@@ -13,22 +13,22 @@ Vercel.
 This repo is self-serve: everything you need to run your own independent
 instance is below. No account or access from the original author is required.
 
-## What things are called
+## Overview
 
 These words do all the work. The app, the chat, and these docs use them the same
 way, so you can say what you mean and be understood.
 
 | Word | What it is |
 | --- | --- |
-| **Commitment** | Anything ongoing you've signed up for — a research project, a proposal, a course, a standing aim. One kind of thing with optional parts, mixed freely: weekly hours the scheduler defends, a hard deadline, a cadence. |
-| **Target** | A date inside a commitment that takes no time of its own ("first round of analysis done by the end of August"). Shows as a marker on the timeline; click it when you hit it. |
-| **Work** | Hours that get scheduled onto the calendar. Usually belongs to a commitment. This is the only one of these that consumes time. |
+| **Project** | Anything you're currently working on — a research project, a proposal, a literature review, a manuscript. One kind of thing with optional parts, mixed freely: weekly hours the scheduler defends, a hard deadline, a cadence. |
+| **Target** | A date inside a project that takes no time of its own ("first round of analysis done by the end of August"). Shows as a marker on the timeline; click it when you hit it. |
+| **Work** | Hours that get scheduled onto the calendar. Usually belongs to a project. This is the only one of these that consumes time. |
 | **Routine** | A standing weekly slot: email, lunch, gym, lab meeting. Repeats on its own. |
 | **Time block** | What any of the above looks like once it's on the calendar. |
 | **To-do** | Something to do, on a list you name. Occupies no time by itself; can gain a date, reminders and booked hours whenever you decide it needs them. |
 | **Label** | A colour-coded grouping you name yourself — Research, Writing, Teaching, Service. Work wears its label's colour on the left edge of its time block. |
 
-A commitment's weekly hours can be given an **active window** — a course that
+A project's weekly hours can be given an **active window** — a course that
 only needs five hours a week from December, a project that pauses over a
 conference. Without one, the hours are booked from today onward, which is right
 for something already running and wrong for anything that starts later.
@@ -52,24 +52,24 @@ Everything below is built and working — this is the whole feature set, not a r
   notification before that runs out. Ticking a block early or late asks whether
   you did it in its original slot or just now, so the hours land in the right
   place
-- Commitments can carry a weekly-hours target the scheduler defends, claiming
+- Projects can carry a weekly-hours target the scheduler defends, claiming
   mornings by priority — or afternoons, or only between two dates
-- Targets: dated checkpoints inside a commitment that consume no hours, so an
+- Targets: dated checkpoints inside a project that consume no hours, so an
   interim date doesn't have to be faked as work with an invented duration
 - Sliding view: show 1, 3, 5 or 7 days at a time and shift the window a day at
   a time, so a "week" can start on any weekday
 
 **Chat (beside the calendar)** — two explicit modes, chosen with a toggle so it's never ambiguous which you're in:
 - **Quick task** — one change, executed immediately, no questions: "push my gym block to 6pm", "add 3h of grading due Friday, max 1h/day". Routine one-liners are routed to a smaller model.
-- **Planning session** — a guided interview for a semester, a month, or a new commitment: it asks a few questions at a time and fills your planner boards as you answer, working outward from fixed commitments to flexible work, and saves standing scheduling rules it learns. Always uses your chosen model.
+- **Planning session** — a guided interview for a semester, a month, or a new project: it asks a few questions at a time and fills your planner boards as you answer, working outward from fixed projects to flexible work, and saves standing scheduling rules it learns. Always uses your chosen model.
 - Reads your real capacity either way, and pushes back when a stretch is overcommitted
-- Keeps durable notes per commitment (kinds: idea, todo, paper, update, other), exportable as one Markdown file
+- Keeps durable notes per project (kinds: idea, todo, paper, update, other), exportable as one Markdown file
 - Runs on your own Anthropic API key **or** your existing Claude Pro/Max subscription
 
 **Planner board** (four views over the same live schedule — nothing is a hand-maintained list)
 - **Kanban** — Backlog / This Week / In Progress / Done, derived from what the schedule actually says; drag a card to change the schedule
 - **Eisenhower** — importance (you set it) against urgency (read from deadlines)
-- **Timeline** — six months of commitment deadlines with their targets marked along the way, coloured by whether booked hours can still cover them
+- **Timeline** — six months of project deadlines with their targets marked along the way, coloured by whether booked hours can still cover them
 - **To-Do** — lists you name, holding anything from a one-line errand to a talk you must prepare for; any item can gain a date, notification lead times, booked hours with both a start and a finish-by (which is how you book preparation \u2014 those blocks are labelled \u201cPrep:\u201d), and a fixed slot held on the calendar as an event, at any point after you write it down, and a list can notify you about whatever is still unticked when the week, month or year ends
 - **Lists** — reading lists, packing lists, standing agendas: a paragraph, a checklist, or both, with nothing scheduled or notified
 - **Archive** — finished work is archived, never deleted, so logged hours survive for "what did I get done this semester?"
@@ -97,7 +97,7 @@ others for you.
 | Account | What it's for | Signup time |
 |---|---|---|
 | [GitHub](https://github.com) | Hosts the code you deploy from | ~2 min (skip if you have one) |
-| [Supabase](https://supabase.com) | Your database (schedule, notes, commitments) + login | ~2 min, plus ~2 min for the project to spin up |
+| [Supabase](https://supabase.com) | Your database (schedule, notes, projects) + login | ~2 min, plus ~2 min for the project to spin up |
 | [Vercel](https://vercel.com) | Hosts the running app at a URL | ~2 min, plus linking GitHub |
 | AI access — see ["Connecting Claude"](#connecting-claude-two-options) | Powers the chat and planner | varies by option |
 | [Google Cloud](https://console.cloud.google.com) *(optional — booking page)* | Puts booked meetings on your real Google Calendar and emails the guest an invite | ~15 min |
@@ -196,7 +196,7 @@ supabase db push --db-url "postgresql://postgres:[YOUR-PASSWORD]@[YOUR-HOST]:543
 ```
 
 This applies all migrations in order against your new, empty database — it
-creates every table (schedule, commitments, notes, planner state, etc.), Row Level
+creates every table (schedule, projects, notes, planner state, etc.), Row Level
 Security policies, and grants. It's safe to re-run; already-applied
 migrations are skipped.
 
@@ -270,7 +270,7 @@ in **Settings**, which has a jump-list down the left side.
 
 Then just talk to the chat beside the calendar: *"I teach Tuesdays and
 Thursdays 9:30–10:45"*, *"add 6 hours of model analysis a week"*, *"3h grading
-due Friday, no more than 1h a day"*. It creates the commitments, work, and
+due Friday, no more than 1h a day"*. It creates the projects, work, and
 routines for you — you don't have to fill anything in by hand.
 
 After this, day-to-day use is just opening the app and logging in; sessions

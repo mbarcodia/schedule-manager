@@ -22,14 +22,14 @@ export async function GET() {
   } = await supabase.auth.getUser();
   if (!user) return new Response("Not signed in", { status: 401 });
 
-  const [{ data: notes }, { data: commitments }, { data: tasks }] = await Promise.all([
+  const [{ data: notes }, { data: projects }, { data: tasks }] = await Promise.all([
     supabase.from("notes").select("*").eq("user_id", user.id).order("updated_at", { ascending: false }),
     supabase.from("projects").select("id,title").eq("user_id", user.id),
     supabase.from("tasks").select("id,title").eq("user_id", user.id),
   ]);
 
   const titleById = new Map<string, string>();
-  (commitments ?? []).forEach((c) => titleById.set(c.id, c.title));
+  (projects ?? []).forEach((c) => titleById.set(c.id, c.title));
   (tasks ?? []).forEach((t) => titleById.set(t.id, t.title));
 
   const groups = new Map<string, NoteRow[]>();

@@ -3,9 +3,10 @@
 // Lists: things you're keeping track of, as opposed to things you'll do.
 //
 // A reading list, a packing list, the standing agenda for a recurring meeting.
-// Each one holds a paragraph, a checklist, or both. Nothing here is ever
-// scheduled or notified — that's exactly what separates it from the To-Do tab,
-// and it's why ticking something off here has no consequences anywhere else.
+// Each one holds a checklist, a paragraph, or both — the checklist first, since
+// that's what most lists turn out to be. Nothing here is ever scheduled or
+// notified, which is exactly what separates it from the To-Do tab, and why
+// ticking something off here has no consequences anywhere else.
 
 import { useCallback, useEffect, useState } from "react";
 import { EyeSlashIcon, EyeIcon } from "@phosphor-icons/react";
@@ -162,15 +163,6 @@ export function ListsView() {
                 show completed
               </label>
 
-              <textarea
-                value={bodies[list.id] ?? ""}
-                onChange={(e) => setBodies((b) => ({ ...b, [list.id]: e.target.value }))}
-                onBlur={() => saveBody(list)}
-                rows={2}
-                placeholder="Write anything here…"
-                className="mb-2 rounded-md border border-border bg-surface px-2 py-1 text-[11px] text-text outline-none focus-visible:border-accent resize-y"
-              />
-
               <div className="flex flex-col gap-0.5 flex-1">
                 {visible.map((item) => (
                   <div key={item.id} className="group flex items-start gap-2">
@@ -224,6 +216,15 @@ export function ListsView() {
                 onKeyDown={(e) => e.key === "Enter" && addItem(list.id)}
                 placeholder="Add a checklist item…"
                 className="mt-2 rounded-md border border-border bg-surface px-2 py-1 text-[11px] text-text outline-none focus-visible:border-accent"
+              />
+
+              <textarea
+                value={bodies[list.id] ?? ""}
+                onChange={(e) => setBodies((b) => ({ ...b, [list.id]: e.target.value }))}
+                onBlur={() => saveBody(list)}
+                rows={2}
+                placeholder="Write anything here…"
+                className="mt-1.5 rounded-md border border-border bg-surface px-2 py-1 text-[11px] text-text outline-none focus-visible:border-accent resize-y"
               />
             </div>
           );

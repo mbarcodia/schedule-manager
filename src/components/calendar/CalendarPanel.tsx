@@ -2,11 +2,14 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { createClient } from "@/lib/supabase/client";
 import {
   CaretDoubleLeftIcon,
   CaretDoubleRightIcon,
   CaretLeftIcon,
   CaretRightIcon,
+  CheckIcon,
+  CopyIcon,
   GearSixIcon,
   WarningIcon,
 } from "@phosphor-icons/react";
@@ -34,8 +37,25 @@ export function CalendarPanel({ scheduleData }: CalendarPanelProps) {
   // The view is a sliding window of days, not a fixed Mon-Sun week: startGday
   // can land on any weekday so you can look at, say, Tue-Mon.
   const [startGday, setStartGday] = useState(0);
+  /** The slug of an active booking link, so the calendar can offer the public
+   * page directly — sharing it is a frequent errand, and it lived three clicks
+   * deep in Settings. Null while loading or when none is set up. */
+  const [bookingSlug, setBookingSlug] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
   const [viewDays, setViewDays] = useState<ViewDays>(DEFAULT_VIEW_DAYS);
   const { data, schedule, loading, error, setProgress, pinDone, unpinDone } = scheduleData;
+
+  useEffect(() => {
+    void (async () => {
+      const { data } = await createClient()
+        .from("booking_links")
+        .select("slug")
+        .eq("active", true)
+        .order("created_at")
+        .limit(1);
+      setBookingSlug(data?.[0]?.slug ?? null);
+    })();
+  }, []);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -190,6 +210,38 @@ export function CalendarPanel({ scheduleData }: CalendarPanelProps) {
           >
             Planner
           </Link>
+          {bookingSlug ? (
+            <span className="inline-flex items-stretch border border-border rounded-md h-[30px] overflow-hidden">
+              <a
+                href={`/book/${bookingSlug}`}
+                target="_blank"
+                rel="noreferrer"
+                title="Open your public booking page in a new tab"
+                className="inline-flex items-center px-2.5 hover:bg-white/5 text-muted text-[12px] font-medium"
+              >
+                Booking
+              </a>
+              <button
+                onClick={() => {
+                  void navigator.clipboard.writeText(`${window.location.origin}/book/${bookingSlug}`);
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 1500);
+                }}
+                title="Copy the link to send to someone"
+                className="inline-flex items-center px-2 border-l border-border hover:bg-white/5 text-muted"
+              >
+                {copied ? <CheckIcon size={13} weight="bold" /> : <CopyIcon size={13} />}
+              </button>
+            </span>
+          ) : (
+            <Link
+              href="/settings#booking"
+              title="Set up a booking page so people can book time with you"
+              className="inline-flex items-center border border-border rounded-md h-[30px] px-2.5 hover:bg-white/5 text-muted text-[12px] font-medium"
+            >
+              Booking
+            </Link>
+          )}
           <Link
             href="/settings"
             title="Settings"

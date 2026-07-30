@@ -117,9 +117,9 @@ export interface Database {
         { id?: string; user_id: string; name: string; color: string; sort_order?: number; min_chunk_min?: number | null },
         Partial<{ name: string; color: string; sort_order: number; min_chunk_min: number | null }>
       >;
-      /** Commitments. Still named `projects` in the database so that every
+      /** Projects. Still named `projects` in the database so that every
        * existing foreign key kept working when proposals and goals folded in
-       * — see supabase/migrations/0023_commitments_and_targets.sql. */
+       * — see supabase/migrations/0023_projects_and_targets.sql. */
       projects: Table<
         {
           id: string;
@@ -166,7 +166,7 @@ export interface Database {
           time_of_day: TaskTimeOfDay | null;
         }>
       >;
-      /** A dated checkpoint inside a commitment that consumes no hours. */
+      /** A dated checkpoint inside a project that consumes no hours. */
       targets: Table<
         {
           id: string;

@@ -21,8 +21,8 @@ import { useScheduleData } from "@/hooks/useScheduleData";
 type BoardView = "kanban" | "eisenhower" | "timeline" | "todos" | "lists" | "archive";
 
 const VIEWS: { id: BoardView; label: string }[] = [
-  { id: "kanban", label: "Kanban" },
-  { id: "eisenhower", label: "Eisenhower" },
+  { id: "kanban", label: "Progress" },
+  { id: "eisenhower", label: "Priorities" },
   { id: "timeline", label: "Timeline" },
   { id: "todos", label: "To-Do" },
   { id: "lists", label: "Lists" },
@@ -44,8 +44,8 @@ export default function PlannerPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const requested = params.get("view");
-    if (requested && VIEWS.some((v) => v.id === requested)) setView(requested as BoardView);
     // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (requested && VIEWS.some((v) => v.id === requested)) setView(requested as BoardView);
     setFocusItem(params.get("item"));
   }, []);
 
@@ -57,7 +57,7 @@ export default function PlannerPage() {
         </Link>
         <div className="font-medium text-[14px]">Planner</div>
         <div className="text-[11px] text-muted">
-          Board views of your commitments and work — chat lives on the calendar page.
+          Board views of your projects and work — chat lives on the calendar page.
         </div>
         <Link
           href="/?plan=1"

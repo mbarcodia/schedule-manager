@@ -85,23 +85,23 @@ function titleToFloorAt(ctx: ToolContext, rawLower: string): string | null {
 }
 
 export type TrackableLookup =
-  | { status: "found"; commitmentId: string; title: string }
+  | { status: "found"; projectId: string; title: string }
   | { status: "ambiguous"; candidates: string[] }
   | { status: "none" };
 
-/** Resolves a commitment by title. (Was a two-table search until proposals and
+/** Resolves a project by title. (Was a two-table search until proposals and
  * goals folded in — there is only one place to look now, so a same-titled pair
  * can no longer be silently resolved by search order.) */
 export async function findTrackableId(ctx: ToolContext, needle: string): Promise<TrackableLookup> {
-  const { data: commitments } = await ctx.supabase
+  const { data: projects } = await ctx.supabase
     .from("projects")
     .select("id,title")
     .eq("user_id", ctx.userId);
-  const { match, ambiguous } = findByTitle(commitments ?? [], needle);
+  const { match, ambiguous } = findByTitle(projects ?? [], needle);
   if (ambiguous.length) return { status: "ambiguous", candidates: ambiguous.map((c) => c.title) };
   if (!match) return { status: "none" };
-  console.log(`[assistant] commitment resolved: needle=${JSON.stringify(needle)} -> id=${match.id} title=${JSON.stringify(match.title)}`);
-  return { status: "found", commitmentId: match.id, title: match.title };
+  console.log(`[assistant] project resolved: needle=${JSON.stringify(needle)} -> id=${match.id} title=${JSON.stringify(match.title)}`);
+  return { status: "found", projectId: match.id, title: match.title };
 }
 
 function ambiguousMsg(kind: string, needle: string, candidates: { title: string }[]): string {
@@ -199,7 +199,7 @@ export function buildTools(ctx: ToolContext) {
           description:
             'EARLIEST date this may be scheduled ("tomorrow", "monday", "november 9"). Use whenever the user says when work should START, not when it is due — "tomorrow morning" means not_before="tomorrow" WITH time_of_day="morning". Omitting it lets the engine place the work today.',
         },
-        project: { type: "string", description: "title of the commitment to link this work to" },
+        project: { type: "string", description: "title of the project to link this work to" },
         category: { type: "string", description: "name of the label to mark this work with (e.g. Research, Teaching, Writing) — omit to leave unlabelled" },
         pin_date: { type: "string", description: 'force part of this work onto an exact date, natural language, e.g. "monday", "july 24" — pairs with pin_time. Anything else scheduled there moves automatically; the rest of it (if any) is still auto-placed.' },
         pin_time: {
@@ -218,12 +218,12 @@ export function buildTools(ctx: ToolContext) {
       if (inp.project) {
         const lookup = await findTrackableId(ctx, inp.project);
         if (lookup.status === "ambiguous") {
-          return `"${inp.project}" matches more than one commitment: ${lookup.candidates.join(", ")}. Say which one (use its exact title), or add the work without a link.`;
+          return `"${inp.project}" matches more than one project: ${lookup.candidates.join(", ")}. Say which one (use its exact title), or add the work without a link.`;
         }
         if (lookup.status === "none") {
-          return `No commitment matching "${inp.project}" — add it first, or add the work without a link.`;
+          return `No project matching "${inp.project}" — add it first, or add the work without a link.`;
         }
-        link = { projectId: lookup.commitmentId, title: lookup.title };
+        link = { projectId: lookup.projectId, title: lookup.title };
       }
 
       const categoryId = inp.category ? await findCategoryId(ctx, inp.category) : null;
@@ -401,10 +401,10 @@ export function buildTools(ctx: ToolContext) {
   const remove_item = betaTool({
     name: "remove_item",
     description:
-      "Remove a piece of work or a commitment by title. Removing work clears its time blocks; removing a commitment also removes its weekly-hours blocks, and work linked to it stays but unlinks.",
+      "Remove a piece of work or a project by title. Removing work clears its time blocks; removing a project also removes its weekly-hours blocks, and work linked to it stays but unlinks.",
     inputSchema: { type: "object", properties: { title: { type: "string" } }, required: ["title"] },
     run: async ({ title }) => {
-      const [{ data: tasks }, { data: commitments }, { data: targets }, { data: events }] = await Promise.all([
+      const [{ data: tasks }, { data: projects }, { data: targets }, { data: events }] = await Promise.all([
         supabase.from("tasks").select("id,title").eq("user_id", userId),
         supabase.from("projects").select("id,title").eq("user_id", userId),
         supabase.from("targets").select("id,title").eq("user_id", userId),
@@ -436,17 +436,17 @@ export function buildTools(ctx: ToolContext) {
         markMutated(ctx);
         return `Removed the target "${tg.title}".`;
       }
-      const cMatch = findByTitle(commitments ?? [], title);
-      if (cMatch.ambiguous.length) return ambiguousMsg("commitments", title, cMatch.ambiguous);
+      const cMatch = findByTitle(projects ?? [], title);
+      if (cMatch.ambiguous.length) return ambiguousMsg("projects", title, cMatch.ambiguous);
       const c = cMatch.match;
       if (c) {
-        console.log(`[assistant] remove_item resolved: needle=${JSON.stringify(title)} -> commitment id=${c.id} title=${JSON.stringify(c.title)}`);
+        console.log(`[assistant] remove_item resolved: needle=${JSON.stringify(title)} -> project id=${c.id} title=${JSON.stringify(c.title)}`);
         await Promise.all([
           supabase.from("progress_log").delete().match({ user_id: userId, subject_type: "research", subject_id: c.id }),
           supabase.from("pinned_chunks").delete().match({ user_id: userId, subject_type: "research", subject_id: c.id }),
           supabase.from("tasks").update({ project_id: null }).eq("project_id", c.id),
         ]);
-        // Targets are children of the commitment, so they go with it (the
+        // Targets are children of the project, so they go with it (the
         // foreign key cascades) — worth saying out loud in the reply.
         const targetCount = (targets ?? []).length
           ? (await supabase.from("targets").select("id").eq("commitment_id", c.id)).data?.length ?? 0
@@ -455,7 +455,7 @@ export function buildTools(ctx: ToolContext) {
         if (error) return `Couldn't remove "${c.title}": ${error.message}`;
         if (!deleted || deleted.length === 0) return `Couldn't remove "${c.title}" — nothing was deleted, try again.`;
         markMutated(ctx);
-        return `Removed the commitment "${c.title}", its weekly-hours blocks${
+        return `Removed the project "${c.title}", its weekly-hours blocks${
           targetCount ? ` and its ${targetCount} target${targetCount > 1 ? "s" : ""}` : ""
         }. Work that was linked to it stays, now unlinked.`;
       }
@@ -470,7 +470,7 @@ export function buildTools(ctx: ToolContext) {
         markMutated(ctx);
         return `Removed event "${ev.title}" — the freed time refills automatically.`;
       }
-      const all = [...(tasks ?? []), ...(targets ?? []), ...(commitments ?? [])];
+      const all = [...(tasks ?? []), ...(targets ?? []), ...(projects ?? [])];
       return `Nothing matching "${title}" found. Current items: ${all.map((x) => x.title).join(", ") || "none"}.`;
     },
   });
@@ -478,13 +478,13 @@ export function buildTools(ctx: ToolContext) {
   const add_trackable = betaTool({
     name: "add_trackable",
     description:
-      "Add or update a COMMITMENT — anything ongoing the user has signed up for (a research project, a proposal, a course, a standing aim). One kind of thing with optional facets, any combination legal: weekly hours the engine defends, a hard deadline, an active window for when those hours apply, which half of the day they belong in, a cadence. Re-declaring an existing title updates it in place rather than creating a duplicate, so this is also how you change a commitment.",
+      "Add or update a PROJECT — anything ongoing the user has signed up for (a research project, a proposal, a course, a standing aim). One kind of thing with optional facets, any combination legal: weekly hours the engine defends, a hard deadline, an active window for when those hours apply, which half of the day they belong in, a cadence. Re-declaring an existing title updates it in place rather than creating a duplicate, so this is also how you change a project.",
     inputSchema: {
       type: "object",
       properties: {
         title: { type: "string" },
-        due: { type: "string", description: 'hard deadline for the whole commitment, natural language, e.g. "december 31", "in 2 weeks"' },
-        weekly_research_hrs: { type: "number", description: "hours per week the engine must find and defend for this commitment" },
+        due: { type: "string", description: 'hard deadline for the whole project, natural language, e.g. "december 31", "in 2 weeks"' },
+        weekly_research_hrs: { type: "number", description: "hours per week the engine must find and defend for this project" },
         active_from: {
           type: "string",
           description:
@@ -494,10 +494,10 @@ export function buildTools(ctx: ToolContext) {
         hours_time_of_day: {
           type: "string",
           enum: ["morning", "afternoon"],
-          description: "restrict this commitment's weekly hours to one half of the day. Omit to let them go anywhere, mornings first.",
+          description: "restrict this project's weekly hours to one half of the day. Omit to let them go anywhere, mornings first.",
         },
-        cadence: { type: "string", description: 'rhythm for a commitment with no deadline, e.g. "Weekly", "Ongoing". Descriptive only — nothing is scheduled from it.' },
-        category: { type: "string", description: "name of the label for this commitment's weekly-hours blocks" },
+        cadence: { type: "string", description: 'rhythm for a project with no deadline, e.g. "Weekly", "Ongoing". Descriptive only — nothing is scheduled from it.' },
+        category: { type: "string", description: "name of the label for this project's weekly-hours blocks" },
       },
       required: ["title"],
     },
@@ -554,15 +554,15 @@ export function buildTools(ctx: ToolContext) {
       ].filter(Boolean);
       const summary = facets.length ? ` — ${facets.join(", ")}.${dateNote}` : `.${dateNote}`;
 
-      // Dedupe on exact (normalized) title: re-declaring a commitment that
+      // Dedupe on exact (normalized) title: re-declaring a project that
       // already exists updates it rather than making a second one.
       const { data: existing } = await supabase.from("projects").select("id,title").eq("user_id", userId);
       const dupe = (existing ?? []).find((p) => normTitle(p.title) === normTitle(inp.title));
       if (dupe) {
         const { error } = await supabase.from("projects").update(patch).eq("id", dupe.id);
-        if (error) return `Couldn't update the commitment: ${error.message}`;
+        if (error) return `Couldn't update the project: ${error.message}`;
         markMutated(ctx);
-        console.log(`[assistant] add_trackable upsert: commitment id=${dupe.id} title=${JSON.stringify(dupe.title)}`);
+        console.log(`[assistant] add_trackable upsert: project id=${dupe.id} title=${JSON.stringify(dupe.title)}`);
         return `"${dupe.title}" already existed — updated it instead of creating a duplicate${summary}`;
       }
       const { data: inserted, error } = await supabase
@@ -583,32 +583,32 @@ export function buildTools(ctx: ToolContext) {
         })
         .select("id")
         .single();
-      if (error) return `Couldn't add the commitment: ${error.message}`;
+      if (error) return `Couldn't add the project: ${error.message}`;
       markMutated(ctx);
-      console.log(`[assistant] add_trackable insert: commitment id=${inserted?.id} title=${JSON.stringify(inp.title)}`);
-      return `Commitment "${inp.title}" added${summary}`;
+      console.log(`[assistant] add_trackable insert: project id=${inserted?.id} title=${JSON.stringify(inp.title)}`);
+      return `Project "${inp.title}" added${summary}`;
     },
   });
 
   const add_target = betaTool({
     name: "add_target",
     description:
-      'Add a TARGET: a dated checkpoint inside a commitment that consumes NO calendar hours ("first round of analysis done by the end of August"). Use this for the interim dates inside a long commitment instead of inventing work with a made-up duration — a target competes for nothing, which is why it exists. If hitting it needs hours, that is a separate add_task. Re-using an existing target title within the same commitment moves its date.',
+      'Add a TARGET: a dated checkpoint inside a project that consumes NO calendar hours ("first round of analysis done by the end of August"). Use this for the interim dates inside a long project instead of inventing work with a made-up duration — a target competes for nothing, which is why it exists. If hitting it needs hours, that is a separate add_task. Re-using an existing target title within the same project moves its date.',
     inputSchema: {
       type: "object",
       properties: {
         title: { type: "string" },
-        commitment: { type: "string", description: "fuzzy title of the commitment this target belongs to" },
+        project: { type: "string", description: "fuzzy title of the project this target belongs to" },
         date: { type: "string", description: 'natural language, e.g. "end of august", "october 31"' },
       },
-      required: ["title", "commitment", "date"],
+      required: ["title", "project", "date"],
     },
     run: async (inp) => {
-      const lookup = await findTrackableId(ctx, inp.commitment);
+      const lookup = await findTrackableId(ctx, inp.project);
       if (lookup.status === "ambiguous") {
-        return `"${inp.commitment}" matches more than one commitment: ${lookup.candidates.join(", ")}. Say which one (use its exact title).`;
+        return `"${inp.project}" matches more than one project: ${lookup.candidates.join(", ")}. Say which one (use its exact title).`;
       }
-      if (lookup.status === "none") return `No commitment matching "${inp.commitment}" — add it first.`;
+      if (lookup.status === "none") return `No project matching "${inp.project}" — add it first.`;
 
       const d = parseDeadlineDate(inp.date.toLowerCase(), ctx.today);
       if (!d) return `Couldn't understand the date "${inp.date}" — try a format like "october 31" or "end of august".`;
@@ -617,7 +617,7 @@ export function buildTools(ctx: ToolContext) {
       const { data: existing } = await supabase
         .from("targets")
         .select("id,title")
-        .eq("commitment_id", lookup.commitmentId);
+        .eq("commitment_id", lookup.projectId);
       const dupe = (existing ?? []).find((t) => normTitle(t.title) === normTitle(inp.title));
       if (dupe) {
         const { error } = await supabase.from("targets").update({ target_date }).eq("id", dupe.id);
@@ -627,7 +627,7 @@ export function buildTools(ctx: ToolContext) {
       }
       const { error } = await supabase
         .from("targets")
-        .insert({ user_id: userId, commitment_id: lookup.commitmentId, title: inp.title, target_date });
+        .insert({ user_id: userId, commitment_id: lookup.projectId, title: inp.title, target_date });
       if (error) return `Couldn't add that target: ${error.message}`;
       markMutated(ctx);
       return `Target "${inp.title}" set for ${target_date} under ${lookup.title}. It takes no calendar time.`;
@@ -637,7 +637,7 @@ export function buildTools(ctx: ToolContext) {
   const complete_target = betaTool({
     name: "complete_target",
     description:
-      "Mark a target hit, or un-mark it. Targets are kept rather than deleted once hit, so a commitment reads as a sequence of dates made or missed.",
+      "Mark a target hit, or un-mark it. Targets are kept rather than deleted once hit, so a project reads as a sequence of dates made or missed.",
     inputSchema: {
       type: "object",
       properties: {
@@ -831,7 +831,7 @@ export function buildTools(ctx: ToolContext) {
   const pin_research = betaTool({
     name: "pin_research",
     description:
-      'Fix a commitment\'s weekly hours to an exact slot — ALWAYS use this (never add_event) when the user says they are working on one of their commitments now or at a specific time ("I am doing my main project right now for an hour", "put the analysis at 2pm tomorrow"). The block keeps its label and done-checkbox, its minutes count toward that commitment\'s weekly hours, and whatever was scheduled there reflows automatically. One pin per commitment per day — re-pinning the same day moves it.',
+      'Fix a project\'s weekly hours to an exact slot — ALWAYS use this (never add_event) when the user says they are working on one of their projects now or at a specific time ("I am doing my main project right now for an hour", "put the analysis at 2pm tomorrow"). The block keeps its label and done-checkbox, its minutes count toward that project\'s weekly hours, and whatever was scheduled there reflows automatically. One pin per project per day — re-pinning the same day moves it.',
     inputSchema: {
       type: "object",
       properties: {
@@ -979,7 +979,7 @@ export function buildTools(ctx: ToolContext) {
 
   const get_status = betaTool({
     name: "get_status",
-    description: "Get deadline and weekly-hours status for a commitment by title, or omit title for a full overview.",
+    description: "Get deadline and weekly-hours status for a project by title, or omit title for a full overview.",
     inputSchema: { type: "object", properties: { title: { type: "string" } } },
     run: async ({ title }) => {
       const rows = await queryScheduleRows(supabase, userId);
@@ -995,7 +995,7 @@ export function buildTools(ctx: ToolContext) {
 
       if (title) {
         const { match: found, ambiguous } = findByTitle(trackables, title);
-        if (ambiguous.length) return ambiguousMsg("commitments", title, ambiguous);
+        if (ambiguous.length) return ambiguousMsg("projects", title, ambiguous);
         if (!found) return `Nothing matching "${title}". Tracking: ${trackables.map((t) => t.title).join(", ") || "nothing"}.`;
         return statusReply(found, ctx.today, ctx.weeklyHours, inputs.tasks, schedule);
       }

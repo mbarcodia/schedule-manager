@@ -79,7 +79,7 @@ function taskDefs(inputs: ScheduleInputs): TaskDef[] {
   const research: TaskDef[] = [];
   for (let w = 0; w < inputs.horizonWeeks; w++) {
     // A week's chunk is fenced to Mon-Fri of that week. An active window
-    // narrows that fence further, so a commitment that starts in December
+    // narrows that fence further, so a project that starts in December
     // simply generates nothing for the weeks before it and a partial chunk for
     // the week it begins mid-way through — rather than booking hours from today
     // the moment it's created.
@@ -90,7 +90,7 @@ function taskDefs(inputs: ScheduleInputs): TaskDef[] {
       .forEach((p) => {
         const floor = Math.max(weekFloor, p.activeFromAbs ?? weekFloor);
         const ceilAbs = Math.min(weekCeil, p.activeUntilAbs ?? weekCeil);
-        // The window closes this commitment out of this week entirely, or
+        // The window closes this project out of this week entirely, or
         // leaves too little of it to be worth a block.
         if (ceilAbs - floor < (p.minChunk ?? 30)) return;
         research.push({
@@ -108,10 +108,10 @@ function taskDefs(inputs: ScheduleInputs): TaskDef[] {
           projectId: p.id,
           categoryId: p.categoryId ?? null,
           ord: (p.researchOrd || 5) + w * 10,
-          // Where these hours belong is the commitment's own business. It used
+          // Where these hours belong is the project's own business. It used
           // to be decided for it: the scheduler keyed a morning preference off
           // the internal "research" tag, so every weekly-hours block wanted
-          // mornings whatever the commitment said.
+          // mornings whatever the project said.
           timeOfDay: p.timeOfDay ?? null,
           preferMorning: !!p.preferMorning,
         });
@@ -358,7 +358,7 @@ export function computeSchedule(
 
   // Task pins are marked busy before anchors are placed (not after) so an
   // anchor's free-slot search actually sees a pinned task chunk as occupied
-  // instead of placing straight on top of it — pins are a fixed commitment
+  // instead of placing straight on top of it — pins are a fixed project
   // exactly like an event from this point of view.
   const pinReduction: Record<string, number> = {};
   const taskPinChunks: ScheduleBlock[] = [];

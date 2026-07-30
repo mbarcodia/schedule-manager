@@ -1,14 +1,14 @@
 "use client";
 
-// Months-long horizontal timeline over commitments.
+// Months-long horizontal timeline over projects.
 //
-// A commitment earns a bar if it has any date to draw toward — its own deadline
+// A project earns a bar if it has any date to draw toward — its own deadline
 // or a target inside it — and the bar runs from today to the furthest of those.
 // Targets sit on the bar as markers, hollow until they're hit, which is the
-// whole point of having them: a commitment with no deadline but three interim
+// whole point of having them: a project with no deadline but three interim
 // dates is exactly the thing that used to be invisible here.
 //
-// Commitments with no dates at all can't be placed on a date scale, so they get
+// Projects with no dates at all can't be placed on a date scale, so they get
 // their own lane above it. Risk colouring reuses the same chip heuristic the
 // chat panel shows rather than reimplementing it.
 
@@ -36,11 +36,11 @@ export function Timeline({ scheduleData }: { scheduleData: UseScheduleDataResult
     await refresh();
   }
 
-  const chipsByCommitment = useMemo(() => {
+  const chipsByProject = useMemo(() => {
     const map = new Map<string, TrackableChip[]>();
     if (!data || !schedule) return map;
     for (const c of computeTrackableChips(data.projects, data.inputs.tasks, schedule, now, data.inputs.weeklyHours)) {
-      map.set(c.commitmentId, [...(map.get(c.commitmentId) ?? []), c]);
+      map.set(c.projectId, [...(map.get(c.projectId) ?? []), c]);
     }
     return map;
   }, [data, schedule, now]);
@@ -57,11 +57,11 @@ export function Timeline({ scheduleData }: { scheduleData: UseScheduleDataResult
 
   const rows = data.projects.map((c) => {
     const targets = data.targets
-      .filter((t) => t.commitmentId === c.id)
+      .filter((t) => t.projectId === c.id)
       .sort((a, b) => a.date.getTime() - b.date.getTime());
     const dates = [c.deadlineDate, ...targets.map((t) => t.date)].filter((d): d is Date => d != null);
     const end = dates.length ? new Date(Math.max(...dates.map((d) => d.getTime()))) : null;
-    return { commitment: c, targets, end };
+    return { project: c, targets, end };
   });
 
   const dated = rows.filter((r) => r.end != null).sort((a, b) => a.end!.getTime() - b.end!.getTime());
@@ -75,7 +75,7 @@ export function Timeline({ scheduleData }: { scheduleData: UseScheduleDataResult
             No dates — nothing to count down to
           </div>
           <div className="flex flex-wrap gap-1.5">
-            {undated.map(({ commitment: c }) => (
+            {undated.map(({ project: c }) => (
               <div
                 key={c.id}
                 className="rounded-md border border-border bg-surface px-2.5 py-1.5 flex items-baseline gap-2"
@@ -103,11 +103,11 @@ export function Timeline({ scheduleData }: { scheduleData: UseScheduleDataResult
           ))}
         </div>
         <div className="flex flex-col gap-1.5">
-          {dated.map(({ commitment: c, targets, end }) => {
-            const chip = (chipsByCommitment.get(c.id) ?? []).find((x) => x.facet === "deadline");
+          {dated.map(({ project: c, targets, end }) => {
+            const chip = (chipsByProject.get(c.id) ?? []).find((x) => x.facet === "deadline");
             const endPct = Math.min(100, Math.max(2, pctFor(end!)));
             // Only a deadline can be overdue. A target's date passing is worth
-            // seeing, but it doesn't make the whole commitment late.
+            // seeing, but it doesn't make the whole project late.
             const overdue = c.deadlineDate != null && c.deadlineDate.getTime() < now.getTime();
             return (
               <div key={c.id} className="flex items-center gap-2">
@@ -163,7 +163,7 @@ export function Timeline({ scheduleData }: { scheduleData: UseScheduleDataResult
   );
 }
 
-/** A target on its commitment's bar: filled once hit, outlined while pending,
+/** A target on its project's bar: filled once hit, outlined while pending,
  * red once its date has passed without being ticked. Click toggles it. */
 function TargetMarker({
   target,

@@ -40,16 +40,16 @@ type LinkResolution =
   | { status: "ambiguous"; candidates: string[] }
   | { status: "none" };
 
-/** Resolves a link phrase to something a note can attach to: a commitment
+/** Resolves a link phrase to something a note can attach to: a project
  * first, then a piece of work. Each tier reports its own ambiguity rather than
- * falling through to the next, so a tie between two commitments can't silently
+ * falling through to the next, so a tie between two projects can't silently
  * become a match on some unrelated piece of work. */
 async function resolveLink(ctx: ToolContext, needle: string): Promise<LinkResolution> {
-  const commitment = await findTrackableId(ctx, needle);
-  if (commitment.status === "ambiguous") return { status: "ambiguous", candidates: commitment.candidates };
-  if (commitment.status === "found") {
-    console.log(`[planner] link resolved: needle=${JSON.stringify(needle)} -> title=${JSON.stringify(commitment.title)} (commitment)`);
-    return { status: "found", project_id: commitment.commitmentId, title: commitment.title };
+  const project = await findTrackableId(ctx, needle);
+  if (project.status === "ambiguous") return { status: "ambiguous", candidates: project.candidates };
+  if (project.status === "found") {
+    console.log(`[planner] link resolved: needle=${JSON.stringify(needle)} -> title=${JSON.stringify(project.title)} (project)`);
+    return { status: "found", project_id: project.projectId, title: project.title };
   }
 
   const { data: tasks } = await ctx.supabase.from("tasks").select("id,title").eq("user_id", ctx.userId);
@@ -90,14 +90,14 @@ function notesTools(ctx: ToolContext) {
   const create_note = betaTool({
     name: "create_note",
     description:
-      "Create a note (markdown). Use notes to durably store what you learn about a commitment: ideas, paper references, decisions, status updates. Optionally link it to a commitment or to a specific piece of work by title.",
+      "Create a note (markdown). Use notes to durably store what you learn about a project: ideas, paper references, decisions, status updates. Optionally link it to a project or to a specific piece of work by title.",
     inputSchema: {
       type: "object",
       properties: {
         title: { type: "string" },
         content: { type: "string", description: "Markdown body." },
         kind: { type: "string", enum: [...KINDS] },
-        link_to: { type: "string", description: "Fuzzy title of the commitment or piece of work to attach this note to." },
+        link_to: { type: "string", description: "Fuzzy title of the project or piece of work to attach this note to." },
       },
       required: ["title", "content"],
     },
@@ -143,7 +143,7 @@ function notesTools(ctx: ToolContext) {
         content: { type: "string", description: "Markdown to append or the full replacement body." },
         mode: { type: "string", enum: ["append", "replace"] },
         new_title: { type: "string" },
-        link_to: { type: "string", description: "Fuzzy title of the commitment or piece of work to relink to." },
+        link_to: { type: "string", description: "Fuzzy title of the project or piece of work to relink to." },
       },
       required: ["title"],
     },
@@ -217,7 +217,7 @@ function notesTools(ctx: ToolContext) {
   const list_notes = betaTool({
     name: "list_notes",
     description:
-      "List notes, optionally filtered to those linked to one commitment or piece of work (fuzzy title). Useful after creating notes this turn — the system-prompt index is a turn-start snapshot.",
+      "List notes, optionally filtered to those linked to one project or piece of work (fuzzy title). Useful after creating notes this turn — the system-prompt index is a turn-start snapshot.",
     inputSchema: { type: "object", properties: { linked_to: { type: "string" } } },
     run: async ({ linked_to }) =>
       serialize(async () => {

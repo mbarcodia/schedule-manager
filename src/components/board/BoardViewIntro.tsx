@@ -10,19 +10,19 @@ export type BoardViewId = "kanban" | "eisenhower" | "timeline" | "todos" | "list
 
 const INTROS: Record<BoardViewId, { title: string; body: string }> = {
   kanban: {
-    title: "Kanban — what's moving this week",
+    title: "Progress — what's moving this week",
     body:
       "Your work sorted by what the schedule actually says about it, not by a status you maintain by hand. Backlog is anything with no time booked this week; This Week has time booked but hasn't started; In Progress is underway right now or partly logged; Done means every time block for it this week is checked off. Drag a card to change reality: In Progress pins it to today, This Week pushes it up the queue, Backlog unpins it. Done can't be dragged into — check work off on the calendar so your logged hours stay true. The ★ marks something important, and In Progress shows a soft limit of 3 to discourage juggling.",
   },
   eisenhower: {
-    title: "Eisenhower — what deserves the attention",
+    title: "Priorities — what deserves the attention",
     body:
       "The same work split by importance against urgency. Importance is yours to set (the ★ on any card); urgency is read from the deadline — anything due within three days counts, and work with no deadline never does. Use it to notice the trap quadrants: urgent-but-unimportant work that eats a week, and important-but-not-urgent work (usually what matters most) that quietly never gets scheduled.",
   },
   timeline: {
     title: "Timeline — the next six months",
     body:
-      "One bar per commitment that has any date to work toward — its own deadline, or a target inside it — running from today to the furthest of them, coloured by whether the hours you've booked can realistically cover what's left. Overdue bars turn red. Targets are the dots along each bar: hollow while pending, red once their date passes, filled once you click them. Commitments with no dates at all sit in their own lane on top. This is the view for spotting two deadlines landing in the same fortnight while there's still time to move something.",
+      "One bar per project that has any date to work toward — its own deadline, or a target inside it — running from today to the furthest of them, coloured by whether the hours you've booked can realistically cover what's left. Overdue bars turn red. Targets are the dots along each bar: hollow while pending, red once their date passes, filled once you click them. Projects with no dates at all sit in their own lane on top. This is the view for spotting two deadlines landing in the same fortnight while there's still time to move something.",
   },
   todos: {
     title: "To-Do — things to do, with as much or as little structure as they need",

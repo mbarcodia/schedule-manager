@@ -12,7 +12,7 @@ import type { Database, NoteKind } from "@/lib/supabase/database.types";
 
 type NoteRow = Database["public"]["Tables"]["notes"]["Row"];
 
-interface Commitment {
+interface Project {
   id: string;
   title: string;
 }
@@ -31,7 +31,7 @@ const KIND_LABEL: Record<NoteKind, string> = {
 };
 
 export function PlannerSidebar({ refreshKey }: PlannerSidebarProps) {
-  const [commitments, setCommitments] = useState<Commitment[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [notes, setNotes] = useState<NoteRow[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
@@ -46,7 +46,7 @@ export function PlannerSidebar({ refreshKey }: PlannerSidebarProps) {
       supabase.from("projects").select("id,title").eq("user_id", user.id),
       supabase.from("notes").select("*").eq("user_id", user.id).order("updated_at", { ascending: false }),
     ]);
-    setCommitments(rows ?? []);
+    setProjects(rows ?? []);
     setNotes(noteRows ?? []);
   }, []);
 
@@ -117,7 +117,7 @@ export function PlannerSidebar({ refreshKey }: PlannerSidebarProps) {
     );
   }
 
-  const notesFor = (c: Commitment) => notes.filter((n) => n.project_id === c.id);
+  const notesFor = (c: Project) => notes.filter((n) => n.project_id === c.id);
   const unlinked = notes.filter((n) => !n.project_id && !n.task_id);
   const taskLinked = notes.filter((n) => n.task_id);
 
@@ -125,9 +125,9 @@ export function PlannerSidebar({ refreshKey }: PlannerSidebarProps) {
     <div className="flex-none w-[320px] border-l border-border flex flex-col min-h-0">
       <div className="flex-none px-4 py-3.5 border-b border-border flex items-start justify-between gap-2">
         <div>
-          <div className="font-medium text-[13px]">Commitment notes</div>
+          <div className="font-medium text-[13px]">Project notes</div>
           <div className="mt-0.5 text-[11px] text-muted">
-              What the planner has learned about each commitment. Separate from the Lists tab, which is yours to
+              What the planner has learned about each project. Separate from the Lists tab, which is yours to
               write.
             </div>
         </div>
@@ -140,10 +140,10 @@ export function PlannerSidebar({ refreshKey }: PlannerSidebarProps) {
         </a>
       </div>
       <div className="flex-1 overflow-y-auto px-3 py-3 flex flex-col gap-3 min-h-0">
-        {commitments.map((c) => (
+        {projects.map((c) => (
           <div key={c.id}>
             <div className="flex items-baseline gap-1.5 px-1 pb-1">
-              {/* Which of the three kinds a commitment is isn't something the
+              {/* Which of the three kinds a project is isn't something the
                   user acts on, so it stays out of the way. */}
               <span className="text-[12px] font-medium text-text truncate">{c.title}</span>
             </div>
@@ -165,9 +165,9 @@ export function PlannerSidebar({ refreshKey }: PlannerSidebarProps) {
             <div className="flex flex-col gap-1">{unlinked.map(renderNote)}</div>
           </div>
         )}
-        {commitments.length === 0 && notes.length === 0 && (
+        {projects.length === 0 && notes.length === 0 && (
           <div className="px-1 text-[11px] text-muted">
-            Nothing here yet — tell the planner about a commitment and it will start keeping track.
+            Nothing here yet — tell the planner about a project and it will start keeping track.
           </div>
         )}
       </div>

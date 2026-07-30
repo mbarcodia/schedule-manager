@@ -120,8 +120,8 @@ const GRACE_HOUR_OPTIONS = [1, 2, 4, 8, 24];
  * other in one place. */
 const VOCABULARY: [string, string][] = [
   [
-    "Commitment",
-    "anything ongoing you've signed up for — a research project, a proposal, a course, a standing aim. One kind of thing with optional parts, mixed however you like: weekly hours the scheduler defends (optionally only between two dates, and optionally fixed to mornings or afternoons), a hard deadline, an ongoing cadence.",
+    "Project",
+    "anything you are currently working on — a research project, a proposal, a literature review, a manuscript. One kind of thing with optional parts, mixed however you like: weekly hours the scheduler defends (optionally only between two dates, and optionally fixed to mornings or afternoons), a hard deadline, an ongoing cadence.",
   ],
   [
     "To-do",
@@ -129,11 +129,11 @@ const VOCABULARY: [string, string][] = [
   ],
   [
     "Target",
-    "a date inside a commitment that takes no time of its own — \u201cfirst round of analysis done by the end of August\u201d. It shows as a marker on the timeline and you click it when you hit it. If getting there needs hours, that's Work, added separately.",
+    "a date inside a project that takes no time of its own — \u201cfirst round of analysis done by the end of August\u201d. It shows as a marker on the timeline and you click it when you hit it. If getting there needs hours, that's Work, added separately.",
   ],
   [
     "Work",
-    "hours that get scheduled onto the calendar, usually belonging to a commitment. This is the only one of these that consumes time.",
+    "hours that get scheduled onto the calendar, usually belonging to a project. This is the only one of these that consumes time.",
   ],
   ["Routine", "a standing weekly slot — email, lunch, gym, a lab meeting. It repeats on its own."],
   ["Time block", "what any of the above looks like once it's sitting on the calendar."],
@@ -143,19 +143,43 @@ const VOCABULARY: [string, string][] = [
   ],
 ];
 
-const SECTIONS: { id: string; label: string }[] = [
-  { id: "vocabulary", label: "What things are called" },
-  { id: "claude-access", label: "Claude access" },
-  { id: "planner-ai", label: "Planner AI" },
-  { id: "planner-guide", label: "How the planner works" },
-  { id: "block-labels", label: "Time block names" },
-  { id: "standard-hours", label: "Standard hours" },
-  { id: "calendar-view", label: "Calendar view" },
-  { id: "grace-window", label: "Un-ticked work" },
-  { id: "categories", label: "Labels" },
-  { id: "calendars", label: "Connected calendars" },
-  { id: "booking", label: "Booking page" },
-  { id: "notifications", label: "Notifications" },
+/** The jump list, grouped so twelve entries read as four short lists rather
+ * than one long one. Order follows how often a setting is actually touched:
+ * how the schedule behaves first, then what things look like, then the parts
+ * you set up once and forget. */
+const SECTION_GROUPS: { group: string; items: { id: string; label: string }[] }[] = [
+  {
+    group: "Start here",
+    items: [
+      { id: "vocabulary", label: "Overview" },
+      { id: "planner-guide", label: "How the planner works" },
+    ],
+  },
+  {
+    group: "Your time",
+    items: [
+      { id: "standard-hours", label: "Standard hours" },
+      { id: "grace-window", label: "Un-ticked work" },
+      { id: "categories", label: "Labels" },
+      { id: "block-labels", label: "Time block names" },
+      { id: "calendar-view", label: "Calendar view" },
+    ],
+  },
+  {
+    group: "Connections",
+    items: [
+      { id: "calendars", label: "Connected calendars" },
+      { id: "booking", label: "Booking page" },
+      { id: "notifications", label: "Notifications" },
+    ],
+  },
+  {
+    group: "AI setup",
+    items: [
+      { id: "claude-access", label: "Claude access" },
+      { id: "planner-ai", label: "Planner AI" },
+    ],
+  },
 ];
 
 export default function SettingsPage() {
@@ -563,20 +587,29 @@ export default function SettingsPage() {
         <div className="mx-auto w-full max-w-4xl px-6 py-8 flex gap-10">
           {/* Jump list — sticky so it stays put while the content scrolls. */}
           <nav className="hidden lg:flex flex-none w-44 flex-col gap-0.5 sticky top-0 self-start">
-            {SECTIONS.map((sec) => (
-              <button
-                key={sec.id}
-                onClick={() => document.getElementById(sec.id)?.scrollIntoView({ behavior: "smooth", block: "start" })}
-                className="text-left text-xs text-muted hover:text-text rounded-md px-2 py-1.5 hover:bg-white/5"
-              >
-                {sec.label}
-              </button>
+            {SECTION_GROUPS.map((g) => (
+              <div key={g.group} className="mb-2">
+                <div className="px-2 pb-1 text-[9.5px] tracking-wide uppercase text-muted-2 font-medium">
+                  {g.group}
+                </div>
+                {g.items.map((sec) => (
+                  <button
+                    key={sec.id}
+                    onClick={() =>
+                      document.getElementById(sec.id)?.scrollIntoView({ behavior: "smooth", block: "start" })
+                    }
+                    className="block w-full text-left text-xs text-muted hover:text-text rounded-md px-2 py-1.5 hover:bg-white/5"
+                  >
+                    {sec.label}
+                  </button>
+                ))}
+              </div>
             ))}
           </nav>
 
           <div className="flex-1 min-w-0 max-w-lg">
         <div id="vocabulary" className="mb-8 pb-5 border-b border-border scroll-mt-4">
-          <h2 className="text-base font-medium mb-1">What things are called</h2>
+          <h2 className="text-base font-medium mb-1">Overview</h2>
           <p className="text-xs text-muted mb-3 leading-relaxed">
             These words do all the work here. The calendar, the chat and this page use them the same way, so you can
             say what you mean and be understood.
@@ -826,43 +859,54 @@ export default function SettingsPage() {
         <div id="planner-guide" className="mt-8 pt-5 border-t border-border scroll-mt-4">
           <h2 className="text-base font-medium mb-1">How the planner works</h2>
           <p className="text-xs text-muted mb-4 leading-relaxed">
-            The <span className="text-text">Planner</span> link opens a board with four views of the same data, plus
-            your notes. None of them are separate to-do lists you maintain by hand — every view reads the live
-            schedule, so what you see there and what&apos;s on your calendar can never drift apart.
+            The <span className="text-text">Planner</span> link opens a board with six views. The first three read
+            the live schedule rather than being lists you maintain by hand, so what you see there and what&apos;s on
+            your calendar can never drift apart. The last three are yours to write in.
           </p>
 
           <div className="rounded-lg border border-border bg-panel p-3.5 mb-3 text-xs text-muted leading-relaxed flex flex-col gap-2.5">
             <div>
-              <span className="text-text font-medium">Kanban</span> — your tasks grouped by what the schedule says
-              about them this week. A task is in <span className="text-text">Backlog</span> when no time is booked for
+              <span className="text-text font-medium">Progress</span> — your work grouped by what the schedule says
+              about it this week. Something is in <span className="text-text">Backlog</span> when no time is booked for
               it this week, <span className="text-text">This Week</span> when time is booked but nothing has started,{" "}
               <span className="text-text">In Progress</span> when a block is running now or partly logged, and{" "}
-              <span className="text-text">Done</span> when everything scheduled for it this week is checked off.
-              Dragging a card changes the actual schedule: In Progress pins the task to today, This Week moves it up
-              the queue, Backlog unpins it. Done is display-only on purpose — completion comes from checking blocks
-              off on the calendar, so your logged hours stay honest. Because the engine re-plans each week, Done
-              clears every Monday; archive a task when it&apos;s genuinely finished.
+              <span className="text-text">Done</span> when every block for it this week is checked off. Dragging a card
+              changes the actual schedule: In Progress pins it to today, This Week moves it up the queue, Backlog
+              unpins it. Done is display-only on purpose — completion comes from checking blocks off on the calendar,
+              so your logged hours stay honest. Because the engine re-plans each week, Done clears every Monday;
+              archive something when it&apos;s genuinely finished.
             </div>
             <div>
-              <span className="text-text font-medium">Eisenhower</span> — the same tasks split by importance against
+              <span className="text-text font-medium">Priorities</span> — the same work split by importance against
               urgency. You set importance with the ★ on any card; urgency is derived from the deadline (within three
               days counts, no deadline never does). The useful signal is the quadrants you&apos;d rather not be in:
               urgent-but-unimportant work eating the week, and important-but-not-urgent work that never gets booked.
             </div>
             <div>
-              <span className="text-text font-medium">Timeline</span> — one bar per dated project or proposal over the
-              next six months, coloured by whether the hours booked can still cover what&apos;s left; overdue turns
-              red. Goals have a cadence rather than a deadline, so they sit in a separate lane.
+              <span className="text-text font-medium">Timeline</span> — one bar per project with a date to work
+              toward over the next six months, coloured by whether the hours booked can still cover what&apos;s left;
+              overdue turns red. Targets appear as dots along each bar, and projects with no dates at all sit in a
+              separate lane.
             </div>
             <div>
-              <span className="text-text font-medium">Archive</span> — finished tasks, kept rather than deleted so
+              <span className="text-text font-medium">To-Do</span> — lists you name, for things you have to do. An item
+              can stay a bare line, or gain a date, notification lead times, booked hours and a fixed slot on the
+              calendar — added whenever you decide it needs them, not up front.
+            </div>
+            <div>
+              <span className="text-text font-medium">Lists</span> — things you&apos;re keeping rather than doing: a
+              reading list, questions for a supervision, what to pack. A paragraph, a checklist, or both. Nothing here
+              is ever scheduled or notified.
+            </div>
+            <div>
+              <span className="text-text font-medium">Archive</span> — finished work, kept rather than deleted so
               their logged hours survive. The weekly review archives anything fully done with nothing left scheduled;
               you can archive or restore by hand any time. Because the record stays intact, the chat can answer
               &ldquo;what did I get done this semester?&rdquo; from real hours.
             </div>
             <div>
               <span className="text-text font-medium">The strip along the top</span> shows this week live: done out of
-              total, how many tasks are in progress against a soft limit of three, missed blocks, and at-risk
+              total, how many pieces of work are in progress against a soft limit of three, missed blocks, and at-risk
               deadlines. <span className="text-text">Time to plan</span> and{" "}
               <span className="text-text">Discuss this week&apos;s review</span> both drop you into the chat with a
               prompt filled in — they never send on their own, so you can edit first.
@@ -920,13 +964,13 @@ export default function SettingsPage() {
             </div>
             <div>
               <span className="text-text font-medium">Research</span> — hours generated automatically each week for
-              a commitment that has a weekly-hours minimum (set on the commitment, not here) — placed in mornings
+              a project that has a weekly-hours minimum (set on the project, not here) — placed in mornings
               first.
             </div>
             <div>
               <span className="text-text font-medium">Deep focus</span> — work explicitly restricted to mornings
               before noon. This is different from Research: it&apos;s one-off work with the morning-only rule turned
-              on, not a commitment with a weekly minimum.
+              on, not a project with a weekly minimum.
             </div>
             <div>
               <span className="text-text font-medium">Routine</span> — a standing weekly slot (like Emails or
@@ -1019,8 +1063,8 @@ export default function SettingsPage() {
         <div className="mt-8 pt-5 border-t border-border">
           <h2 id="categories" className="text-base font-medium mb-1 scroll-mt-4">Labels</h2>
           <p className="text-xs text-muted mb-4">
-            Groups your work and commitments, and colours the calendar: work carries its label&apos;s colour as a
-            bar down the left edge of its time block, and weekly-hours blocks pick up their commitment&apos;s label.
+            Groups your work and projects, and colours the calendar: work carries its label&apos;s colour as a
+            bar down the left edge of its time block, and weekly-hours blocks pick up their project&apos;s label.
             Name these whatever fits your work — Research, Writing, Teaching, Service. Add, rename, recolour, or
             remove any of them anytime. &quot;Min chunk&quot; is a hard floor in minutes — the scheduler will never
             shrink a block with this label smaller than this to fill a gap (default 30 if left blank).

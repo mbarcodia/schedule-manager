@@ -103,7 +103,7 @@ export function buildScheduleInputs(
 
   const targets: Target[] = rows.targets.map((t) => ({
     id: t.id,
-    commitmentId: t.commitment_id,
+    projectId: t.commitment_id,
     title: t.title,
     date: new Date(t.target_date),
     completedAt: t.completed_at ? new Date(t.completed_at) : null,

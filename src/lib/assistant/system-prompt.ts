@@ -1,11 +1,11 @@
 // Builds the live state snapshot the chat sees every turn: current datetime,
 // working hours, routines, standing preference notes, and the account's own
-// commitments and work. Nothing is hardcoded to particular commitments —
+// projects and work. Nothing is hardcoded to particular projects —
 // morning priority is described from whatever the account actually has, since
 // every account starts empty.
 //
-// The snapshot speaks the user's vocabulary (commitments / work / routines /
-// labels / targets) so the chat and the screen agree. A commitment is one thing
+// The snapshot speaks the user's vocabulary (projects / work / routines /
+// labels / targets) so the chat and the screen agree. A project is one thing
 // with optional facets — weekly hours, a deadline, a cadence, an active window —
 // and targets are the dated checkpoints inside it that carry no hours.
 
@@ -25,14 +25,14 @@ export function buildPromptContext(rows: RawScheduleRows, inputs: ScheduleInputs
     return `${label}: ${w ? `${minToLabel(w.start)}-${minToLabel(w.end)}` : "off"}`;
   }).join(", ");
 
-  const schedByCommitment: Record<string, number> = {};
+  const schedByProject: Record<string, number> = {};
   schedule.blocks.forEach((b) => {
     if (b.projectId && b.status !== "missed") {
-      schedByCommitment[b.projectId] = (schedByCommitment[b.projectId] || 0) + (b.end - b.start);
+      schedByProject[b.projectId] = (schedByProject[b.projectId] || 0) + (b.end - b.start);
     }
   });
 
-  const hourlyCommitments = rows.projects
+  const hourlyProjects = rows.projects
     .filter((p) => p.weekly_min_min)
     .sort((a, b) => (a.research_ord ?? 5) - (b.research_ord ?? 5));
 
@@ -55,16 +55,16 @@ export function buildPromptContext(rows: RawScheduleRows, inputs: ScheduleInputs
       title: t.title,
       priority: t.priority,
       durationMin: t.duration_min,
-      linkedCommitment: t.project_id,
+      linkedProject: t.project_id,
       label: t.category_id ? (labelById.get(t.category_id) ?? null) : null,
     })),
     // One thing with optional facets — only the ones actually set are reported,
-    // so the model sees a commitment the way the user described it rather than a
+    // so the model sees a project the way the user described it rather than a
     // row full of nulls.
-    commitments: rows.projects.map((p) => ({
+    projects: rows.projects.map((p) => ({
       title: p.title,
       weeklyHrs: p.weekly_min_min ? p.weekly_min_min / 60 : null,
-      scheduledThisWeekHrs: +((schedByCommitment[p.id] || 0) / 60).toFixed(1),
+      scheduledThisWeekHrs: +((schedByProject[p.id] || 0) / 60).toFixed(1),
       label: p.category_id ? (labelById.get(p.category_id) ?? null) : null,
       due: p.deadline_date ?? null,
       cadence: p.cadence ?? null,
@@ -89,10 +89,10 @@ export function buildPromptContext(rows: RawScheduleRows, inputs: ScheduleInputs
   };
 
   const researchPriorityNote =
-    hourlyCommitments.length > 0
-      ? ` ${hourlyCommitments
+    hourlyProjects.length > 0
+      ? ` ${hourlyProjects
           .map((p) => `${p.title} (${(p.weekly_min_min! / 60).toFixed(0)}h/wk minimum)`)
-          .join(", then ")} ${hourlyCommitments.length > 1 ? "have" : "has"} first claim on mornings, in that order;`
+          .join(", then ")} ${hourlyProjects.length > 1 ? "have" : "has"} first claim on mornings, in that order;`
       : "";
 
   const recurringDescription = inputs.recurringRules.map((r) => ({

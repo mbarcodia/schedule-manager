@@ -69,7 +69,7 @@ export interface Task {
   pin?: { gday: GDay; start: MinuteOfDay; length: number } | null;
 }
 
-/** A commitment: anything ongoing the user has signed up for. Its behaviour
+/** A project: anything ongoing the user has signed up for. Its behaviour
  * comes from which facets are filled in, not from a type — weekly hours make
  * the engine generate and defend time, a deadline makes it tracked toward a
  * date, a cadence makes it ongoing. Any combination is legal. (Stored in the
@@ -82,34 +82,34 @@ export interface Project {
    * no chunks are generated for it. */
   weeklyMinMin?: number | null;
   preferMorning?: boolean;
-  /** Hard half-of-day constraint for this commitment's weekly hours. Undefined
+  /** Hard half-of-day constraint for this project's weekly hours. Undefined
    * = unconstrained beyond preferMorning's softer nudge. */
   timeOfDay?: "morning" | "afternoon" | null;
   /** Weekly hours only apply inside this window — absolute minutes from the
-   * horizon start. Undefined = unbounded on that side. Lets a commitment that
+   * horizon start. Undefined = unbounded on that side. Lets a project that
    * begins next semester exist now without booking hours today. */
   activeFromAbs?: number | null;
   activeUntilAbs?: number | null;
-  /** An ongoing rhythm ("Weekly", "Ongoing") for a commitment with no
+  /** An ongoing rhythm ("Weekly", "Ongoing") for a project with no
    * deadline. Descriptive only — nothing is scheduled from it. */
   cadence?: string | null;
   /** Default chunk size for its auto-generated weekly blocks. */
   chunk?: number;
   /** Hard floor for a shrunk weekly chunk, in minutes — sourced from the
-   * commitment's label. */
+   * project's label. */
   minChunk?: number;
-  /** Order among commitments competing for mornings; lower first. */
+  /** Order among projects competing for mornings; lower first. */
   researchOrd?: number;
-  /** Colors this commitment's auto-generated weekly blocks. */
+  /** Colors this project's auto-generated weekly blocks. */
   categoryId?: string | null;
 }
 
-/** A date inside a commitment that consumes no calendar time. Deliberately
+/** A date inside a project that consumes no calendar time. Deliberately
  * absent from ScheduleInputs: the engine must never see these, because giving
  * them hours is exactly the mistake they exist to avoid. */
 export interface Target {
   id: string;
-  commitmentId: string;
+  projectId: string;
   title: string;
   date: Date;
   completedAt: Date | null;

@@ -5,11 +5,11 @@ import { availableCapacity } from "@/lib/assistant/status";
 import type { ComputeScheduleResult, Project, Task, WeeklyHours } from "@/lib/scheduling/types";
 
 export interface TrackableChip {
-  /** The commitment this describes. Lookups key on this rather than the title,
-   * since one commitment can produce more than one chip and two commitments
+  /** The project this describes. Lookups key on this rather than the title,
+   * since one project can produce more than one chip and two projects
    * may share a name. */
-  commitmentId: string;
-  /** Which facet the chip is reporting on. A commitment carrying both weekly
+  projectId: string;
+  /** Which facet the chip is reporting on. A project carrying both weekly
    * hours and a deadline produces one of each — they are independent things to
    * know, and collapsing them hid the deadline. */
   facet: "weekly" | "deadline" | "cadence";
@@ -23,29 +23,29 @@ export interface TrackableChip {
 }
 
 export function computeTrackableChips(
-  commitments: Project[],
+  projects: Project[],
   tasks: Task[],
   schedule: ComputeScheduleResult,
   today: Date,
   weeklyHours: WeeklyHours,
 ): TrackableChip[] {
-  const schedByCommitment: Record<string, number> = {};
+  const schedByProject: Record<string, number> = {};
   schedule.blocks.forEach((b) => {
     if (b.projectId && b.status !== "missed" && Math.floor(b.gday / 7) === 0) {
-      schedByCommitment[b.projectId] = (schedByCommitment[b.projectId] || 0) + (b.end - b.start);
+      schedByProject[b.projectId] = (schedByProject[b.projectId] || 0) + (b.end - b.start);
     }
   });
 
   const chips: TrackableChip[] = [];
 
-  for (const c of commitments) {
+  for (const c of projects) {
     if (c.weeklyMinMin) {
-      const sched = schedByCommitment[c.id] || 0;
+      const sched = schedByProject[c.id] || 0;
       const under = sched < c.weeklyMinMin;
       const windowNote =
         c.activeFromAbs != null || c.activeUntilAbs != null ? " · only inside its active window" : "";
       chips.push({
-        commitmentId: c.id,
+        projectId: c.id,
         facet: "weekly",
         title: c.title,
         statusText: `${(sched / 60).toFixed(1)}h / ${c.weeklyMinMin / 60}h wk`,
@@ -61,11 +61,11 @@ export function computeTrackableChips(
     if (c.deadlineDate) {
       chips.push(deadlineChip(c.id, c.title, c.deadlineDate, tasks, today, weeklyHours));
     }
-    // Nothing scheduled and no date: a commitment that exists to be tracked
+    // Nothing scheduled and no date: a project that exists to be tracked
     // rather than solved. Cadence describes its rhythm if it has one.
     if (!c.weeklyMinMin && !c.deadlineDate) {
       chips.push({
-        commitmentId: c.id,
+        projectId: c.id,
         facet: "cadence",
         title: c.title,
         statusText: c.cadence || "no dates set",
@@ -82,9 +82,9 @@ export function computeTrackableChips(
 }
 
 /** Callers only reach this with a deadline in hand, so there is no null branch
- * — a commitment without a date produces a cadence chip instead. */
+ * — a project without a date produces a cadence chip instead. */
 function deadlineChip(
-  commitmentId: string,
+  projectId: string,
   title: string,
   deadlineDate: Date,
   tasks: Task[],
@@ -93,11 +93,11 @@ function deadlineChip(
 ): TrackableChip {
   const capacity = availableCapacity(today, deadlineDate, weeklyHours);
   const days = capacity?.days ?? 0;
-  const neededMin = tasks.filter((t) => t.projectId === commitmentId).reduce((s, t) => s + t.duration, 0);
+  const neededMin = tasks.filter((t) => t.projectId === projectId).reduce((s, t) => s + t.duration, 0);
   const availableMin = capacity?.minutes ?? 0;
   const atRisk = neededMin > availableMin * 0.85;
   return {
-    commitmentId,
+    projectId,
     facet: "deadline",
     title,
     statusText: atRisk ? `At risk · ${days}d left` : `On track · ${days}d left`,

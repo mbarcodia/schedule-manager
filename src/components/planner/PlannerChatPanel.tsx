@@ -137,13 +137,13 @@ export function PlannerChatPanel({ scheduleData }: PlannerChatPanelProps) {
         <div className="flex-none px-4 py-2.5 border-b border-border flex gap-1.5 overflow-x-auto">
           {chips.map((c) => (
             <div
-              key={`${c.commitmentId}:${c.facet}`}
+              key={`${c.projectId}:${c.facet}`}
               title={c.tooltip}
               className="flex-none flex flex-col gap-0.5 rounded-md px-2.5 py-1.5 box-border"
               style={{ border: `1px solid ${c.border}`, background: c.bg, minWidth: 120 }}
             >
               {/* Which facet this chip reports on — weekly hours, a deadline,
-                  or an ongoing cadence. A commitment carrying both hours and a
+                  or an ongoing cadence. A project carrying both hours and a
                   date gets one chip for each. */}
               <div className="text-[9px] tracking-wide uppercase text-muted-2">
                 {c.facet === "weekly" ? "hours" : c.facet === "deadline" ? "deadline" : "ongoing"}

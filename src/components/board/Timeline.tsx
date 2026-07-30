@@ -1,10 +1,15 @@
 "use client";
 
-// Months-long horizontal timeline: one bar per dated project/proposal from
-// now to its deadline, plus an always-visible "ongoing goals" lane (goals
-// have a cadence, not a deadline, so they don't participate in the date
-// scale). Risk coloring reuses the same trackable-chip heuristic the chat
-// panel shows, rather than reimplementing it.
+// Months-long horizontal timeline: one bar per dated commitment from now to
+// its deadline, plus an always-visible lane for the ones that carry a cadence
+// instead of a date (they can't participate in the date scale). Risk coloring
+// reuses the same chip heuristic the chat panel shows, rather than
+// reimplementing it.
+//
+// The `kind` field is the chip-lookup key and stays at its internal values
+// ("Project"/"Proposal"/"Goal"); it is deliberately not shown. Which of the
+// three a row happens to be tells the user nothing they act on, so the slot
+// where it used to sit now shows the weekly hours the commitment defends.
 
 import { useMemo } from "react";
 import { computeTrackableChips, type TrackableChip } from "@/lib/scheduling/trackables";
@@ -43,9 +48,27 @@ export function Timeline({ scheduleData }: { scheduleData: UseScheduleDataResult
   }).filter((t) => t.pct >= 0 && t.pct <= 100);
 
   const dated = [
-    ...data.projects.map((p) => ({ kind: "Project", id: p.id, title: p.title, deadline: p.deadlineDate ?? null })),
-    ...data.proposals.map((p) => ({ kind: "Proposal", id: p.id, title: p.title, deadline: p.deadlineDate ?? null })),
-  ].filter((t) => t.deadline != null) as { kind: string; id: string; title: string; deadline: Date }[];
+    ...data.projects.map((p) => ({
+      kind: "Project",
+      id: p.id,
+      title: p.title,
+      weeklyHrs: p.weeklyMinMin ? p.weeklyMinMin / 60 : null,
+      deadline: p.deadlineDate ?? null,
+    })),
+    ...data.proposals.map((p) => ({
+      kind: "Proposal",
+      id: p.id,
+      title: p.title,
+      weeklyHrs: null,
+      deadline: p.deadlineDate ?? null,
+    })),
+  ].filter((t) => t.deadline != null) as {
+    kind: string;
+    id: string;
+    title: string;
+    weeklyHrs: number | null;
+    deadline: Date;
+  }[];
   dated.sort((a, b) => a.deadline.getTime() - b.deadline.getTime());
 
   const undated = [
@@ -57,7 +80,9 @@ export function Timeline({ scheduleData }: { scheduleData: UseScheduleDataResult
     <div className="flex-1 min-h-0 overflow-y-auto p-4 flex flex-col gap-4">
       {/* Ongoing goals lane — no dates, pinned above the scale */}
       <div className="rounded-lg border border-border bg-panel p-3">
-        <div className="text-[10px] tracking-wide uppercase text-muted-2 font-medium pb-2">Ongoing goals</div>
+        <div className="text-[10px] tracking-wide uppercase text-muted-2 font-medium pb-2">
+          Ongoing — a cadence, not a deadline
+        </div>
         <div className="flex flex-wrap gap-1.5">
           {data.goals.map((g) => (
             <div key={g.id} className="rounded-md border border-border bg-surface px-2.5 py-1.5 flex items-baseline gap-2">
@@ -65,7 +90,7 @@ export function Timeline({ scheduleData }: { scheduleData: UseScheduleDataResult
               <span className="text-[9px] tracking-wide uppercase text-muted-2">{g.cadence}</span>
             </div>
           ))}
-          {data.goals.length === 0 && <div className="text-[10.5px] text-muted-2">no goals yet</div>}
+          {data.goals.length === 0 && <div className="text-[10.5px] text-muted-2">nothing ongoing yet</div>}
         </div>
       </div>
 
@@ -90,7 +115,9 @@ export function Timeline({ scheduleData }: { scheduleData: UseScheduleDataResult
             return (
               <div key={t.id} className="flex items-center gap-2">
                 <div className="flex-none w-[172px] min-w-0 flex items-baseline gap-1.5">
-                  <span className="text-[9px] tracking-wide uppercase text-muted-2">{t.kind}</span>
+                  {t.weeklyHrs != null && (
+                    <span className="text-[9px] tracking-wide uppercase text-muted-2 flex-none">{t.weeklyHrs}h/wk</span>
+                  )}
                   <span className="text-[11.5px] text-text truncate" title={t.title}>
                     {t.title}
                   </span>
@@ -115,7 +142,9 @@ export function Timeline({ scheduleData }: { scheduleData: UseScheduleDataResult
               </div>
             );
           })}
-          {dated.length === 0 && <div className="text-[10.5px] text-muted-2">no dated projects or proposals</div>}
+          {dated.length === 0 && (
+            <div className="text-[10.5px] text-muted-2">no commitments with a deadline</div>
+          )}
         </div>
         {undated.length > 0 && (
           <div className="mt-3 pt-2 border-t border-border text-[10.5px] text-muted">

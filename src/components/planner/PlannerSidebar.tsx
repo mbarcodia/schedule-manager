@@ -139,8 +139,8 @@ export function PlannerSidebar({ refreshKey }: PlannerSidebarProps) {
     <div className="flex-none w-[320px] border-l border-border flex flex-col min-h-0">
       <div className="flex-none px-4 py-3.5 border-b border-border flex items-start justify-between gap-2">
         <div>
-          <div className="font-medium text-[13px]">Projects & notes</div>
-          <div className="mt-0.5 text-[11px] text-muted">Notes the planner keeps, organized by trackable.</div>
+          <div className="font-medium text-[13px]">Commitments & notes</div>
+          <div className="mt-0.5 text-[11px] text-muted">Notes the planner keeps, organized by commitment.</div>
         </div>
         <a
           href="/api/planner/export"
@@ -154,7 +154,8 @@ export function PlannerSidebar({ refreshKey }: PlannerSidebarProps) {
         {trackables.map((t) => (
           <div key={t.id}>
             <div className="flex items-baseline gap-1.5 px-1 pb-1">
-              <span className="text-[9px] tracking-wide uppercase text-muted-2">{t.kind}</span>
+              {/* Which of the three kinds a commitment is isn't something the
+                  user acts on, so it stays out of the way. */}
               <span className="text-[12px] font-medium text-text truncate">{t.title}</span>
             </div>
             <div className="flex flex-col gap-1">
@@ -165,7 +166,7 @@ export function PlannerSidebar({ refreshKey }: PlannerSidebarProps) {
         ))}
         {taskLinked.length > 0 && (
           <div>
-            <div className="px-1 pb-1 text-[9px] tracking-wide uppercase text-muted-2">Task notes</div>
+            <div className="px-1 pb-1 text-[9px] tracking-wide uppercase text-muted-2">Notes on work</div>
             <div className="flex flex-col gap-1">{taskLinked.map(renderNote)}</div>
           </div>
         )}
@@ -177,7 +178,7 @@ export function PlannerSidebar({ refreshKey }: PlannerSidebarProps) {
         )}
         {trackables.length === 0 && notes.length === 0 && (
           <div className="px-1 text-[11px] text-muted">
-            Nothing here yet — tell the planner about a project and it will start keeping track.
+            Nothing here yet — tell the planner about a commitment and it will start keeping track.
           </div>
         )}
       </div>

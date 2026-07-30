@@ -181,7 +181,7 @@ export function BookingSection({ categories }: { categories: CategoryRow[] }) {
       <h2 id="booking" className="text-base font-medium mb-1 scroll-mt-4">Booking page</h2>
       <p className="text-xs text-muted mb-4">
         A public link (like Calendly) where anyone can book time with you. Slots come from your working hours,
-        connected calendars, and protected task categories — booked meetings land on your calendar automatically.
+        connected calendars, and protected labels — booked meetings land on your calendar automatically.
       </p>
 
       {/* Setup checklist — guides a brand-new account through its own setup
@@ -361,7 +361,7 @@ export function BookingSection({ categories }: { categories: CategoryRow[] }) {
               · at least {link.min_notice_hours}h notice · max {link.max_per_day}/day
               {link.buffer_min > 0 ? ` · ${link.buffer_min}m gap around meetings` : " · no gap enforced"}
               {link.blocking_category_ids.length > 0
-                ? ` · ${link.blocking_category_ids.length} protected categor${link.blocking_category_ids.length > 1 ? "ies" : "y"}`
+                ? ` · ${link.blocking_category_ids.length} protected label${link.blocking_category_ids.length > 1 ? "s" : ""}`
                 : ""}
             </p>
 
@@ -456,11 +456,11 @@ export function BookingSection({ categories }: { categories: CategoryRow[] }) {
                   </div>
                 </div>
 
-                {/* Blocking categories */}
+                {/* Protected labels */}
                 <div>
                   <div className="text-[11px] text-muted mb-1">
-                    Protected task categories (their scheduled time can&apos;t be booked over; other task time
-                    reschedules automatically)
+                    Protected labels (time booked for work with these labels can&apos;t be booked over; other
+                    work reschedules automatically)
                   </div>
                   <div className="flex gap-1.5 flex-wrap">
                     {categories.map((c) => {
@@ -484,7 +484,7 @@ export function BookingSection({ categories }: { categories: CategoryRow[] }) {
                         </button>
                       );
                     })}
-                    {categories.length === 0 && <span className="text-[11px] text-muted-2">no categories yet</span>}
+                    {categories.length === 0 && <span className="text-[11px] text-muted-2">no labels yet</span>}
                   </div>
                 </div>
 

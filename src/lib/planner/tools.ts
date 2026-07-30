@@ -101,14 +101,14 @@ function notesTools(ctx: ToolContext) {
   const create_note = betaTool({
     name: "create_note",
     description:
-      "Create a note (markdown). Use notes to durably store project knowledge: ideas, paper references, decisions, status updates. Optionally link it to a project, proposal, goal, or task by title.",
+      "Create a note (markdown). Use notes to durably store what you learn about a commitment: ideas, paper references, decisions, status updates. Optionally link it to a commitment or to a specific piece of work by title.",
     inputSchema: {
       type: "object",
       properties: {
         title: { type: "string" },
         content: { type: "string", description: "Markdown body." },
         kind: { type: "string", enum: [...KINDS] },
-        link_to: { type: "string", description: "Fuzzy title of a project, proposal, goal, or task to attach this note to." },
+        link_to: { type: "string", description: "Fuzzy title of the commitment or piece of work to attach this note to." },
       },
       required: ["title", "content"],
     },
@@ -156,7 +156,7 @@ function notesTools(ctx: ToolContext) {
         content: { type: "string", description: "Markdown to append or the full replacement body." },
         mode: { type: "string", enum: ["append", "replace"] },
         new_title: { type: "string" },
-        link_to: { type: "string", description: "Fuzzy title of a project, proposal, goal, or task to relink to." },
+        link_to: { type: "string", description: "Fuzzy title of the commitment or piece of work to relink to." },
       },
       required: ["title"],
     },
@@ -232,7 +232,7 @@ function notesTools(ctx: ToolContext) {
   const list_notes = betaTool({
     name: "list_notes",
     description:
-      "List notes, optionally filtered to those linked to a project/proposal/goal/task (fuzzy title). Useful after creating notes this turn — the system-prompt index is a turn-start snapshot.",
+      "List notes, optionally filtered to those linked to one commitment or piece of work (fuzzy title). Useful after creating notes this turn — the system-prompt index is a turn-start snapshot.",
     inputSchema: { type: "object", properties: { linked_to: { type: "string" } } },
     run: async ({ linked_to }) =>
       serialize(async () => {
@@ -267,10 +267,10 @@ function archiveTools(ctx: ToolContext) {
   const archive_task = betaTool({
     name: "archive_task",
     description:
-      "Archive a task instead of deleting it: it leaves the schedule and board but keeps its row and logged-hours history forever (restorable from the board's Archive view). PREFER this over remove_item when the user is done with a task — deletion destroys the record of the work.",
+      "Archive a piece of work instead of deleting it: it leaves the schedule and board but keeps its row and logged-hours history forever (restorable from the board's Archive view). PREFER this over remove_item when the user is done with something — deletion destroys the record of the work.",
     inputSchema: {
       type: "object",
-      properties: { title: { type: "string", description: "Fuzzy title of the task to archive." } },
+      properties: { title: { type: "string", description: "Fuzzy title of the work to archive." } },
       required: ["title"],
     },
     run: async ({ title }) => {
@@ -281,9 +281,9 @@ function archiveTools(ctx: ToolContext) {
         .is("archived_at", null);
       const result = findByTitle(tasks ?? [], title);
       if (result.ambiguous.length) {
-        return `"${title}" matches multiple tasks: ${result.ambiguous.map((t) => t.title).join(", ")}. Say which one (use its exact title).`;
+        return `"${title}" matches more than one thing: ${result.ambiguous.map((t) => t.title).join(", ")}. Say which one (use its exact title).`;
       }
-      if (!result.match) return `No active task matching "${title}".`;
+      if (!result.match) return `No active work matching "${title}".`;
       await supabase.from("tasks").update({ archived_at: new Date().toISOString() }).eq("id", result.match.id);
       markMutated(ctx);
       return `Archived "${result.match.title}" — off the schedule, history kept. It can be restored from the board's Archive view.`;
@@ -293,7 +293,7 @@ function archiveTools(ctx: ToolContext) {
   const list_archived_tasks = betaTool({
     name: "list_archived_tasks",
     description:
-      "List archived (completed/retired) tasks with their logged hours, optionally within an archived-date range — the data source for retrospectives like 'what did I get done this semester?'.",
+      "List archived (completed or retired) work with its logged hours, optionally within an archived-date range — the data source for retrospectives like 'what did I get done this semester?'.",
     inputSchema: {
       type: "object",
       properties: {
@@ -314,7 +314,7 @@ function archiveTools(ctx: ToolContext) {
         query,
         supabase.from("categories").select("id,name").eq("user_id", userId),
       ]);
-      if (!tasks?.length) return "No archived tasks in that range.";
+      if (!tasks?.length) return "No archived work in that range.";
 
       const { data: log } = await supabase
         .from("progress_log")

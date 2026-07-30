@@ -4,21 +4,38 @@
 > get rebuilt without notice, and there's no guarantee of stability between
 > commits. Expect rough edges if you deploy your own instance today.
 
-A personal scheduling app: a week calendar with tasks, projects, and time budgets, an
-AI chat for quick edits ("push my gym block to 6pm"), and a Planner — a
-longer-horizon AI chat for talking through projects and keeping notes tied to
-your schedule. Built with Next.js, Supabase (Postgres + Auth), and deployed on
+A personal scheduling app: a week calendar with your commitments, work, and time
+budgets, an AI chat for quick edits ("push my gym block to 6pm"), and a Planner
+— a longer-horizon AI chat for thinking a semester through and keeping notes
+tied to your schedule. Built with Next.js, Supabase (Postgres + Auth), and deployed on
 Vercel.
 
 This repo is self-serve: everything you need to run your own independent
 instance is below. No account or access from the original author is required.
+
+## What things are called
+
+Five words do all the work. The app, the chat, and these docs use them the same
+way, so you can say what you mean and be understood.
+
+| Word | What it is |
+| --- | --- |
+| **Commitment** | Anything ongoing you've signed up for — a research project, a proposal, a course, a standing aim. Can carry a weekly-hours target, a deadline, or both. |
+| **Work** | Hours that get scheduled onto the calendar. Usually belongs to a commitment. This is the only one of these that consumes time. |
+| **Routine** | A standing weekly slot: email, lunch, gym, lab meeting. Repeats on its own. |
+| **Time block** | What any of the above looks like once it's on the calendar. |
+| **Label** | A colour-coded grouping you name yourself — Research, Writing, Teaching, Service. Work wears its label's colour on the left edge of its time block. |
+
+Two more things exist deliberately *outside* this, because they take no calendar
+time at all: **to-dos** (items on a named checklist) and **reminders** (a dated
+push notification, with as many lead times as you want).
 
 ## What it does
 
 Everything below is built and working — this is the whole feature set, not a roadmap.
 
 **Calendar and scheduling engine**
-- Week view of tasks, recurring commitments, and meetings, with per-day working hours
+- Week view of work, routines, and meetings, with per-day working hours
 - You describe work (hours needed, deadline, pacing, chunk size) and the engine places it; change anything and the whole week re-solves around it
 - External calendars merged in read-only via ICS feed (Outlook, Google, iCloud) — nothing is ever written back to them
 - Check blocks off, log partial progress, or pin a block to an exact time; missed time reschedules itself later in the week
@@ -27,26 +44,27 @@ Everything below is built and working — this is the whole feature set, not a r
   notification before that runs out. Ticking a block early or late asks whether
   you did it in its original slot or just now, so the hours land in the right
   place
-- Research projects get weekly-hours targets and claim mornings by priority
+- Commitments can carry a weekly-hours target the scheduler defends, and claim
+  mornings by priority
 - Sliding view: show 1, 3, 5 or 7 days at a time and shift the window a day at
   a time, so a "week" can start on any weekday
 
 **Chat (beside the calendar)** — two explicit modes, chosen with a toggle so it's never ambiguous which you're in:
 - **Quick task** — one change, executed immediately, no questions: "push my gym block to 6pm", "add 3h of grading due Friday, max 1h/day". Routine one-liners are routed to a smaller model.
-- **Planning session** — a guided interview for a semester, a month, or a new proposal: it asks a few questions at a time and fills your planner boards as you answer, working outward from fixed commitments to flexible work, and saves standing scheduling rules it learns. Always uses your chosen model.
+- **Planning session** — a guided interview for a semester, a month, or a new commitment: it asks a few questions at a time and fills your planner boards as you answer, working outward from fixed commitments to flexible work, and saves standing scheduling rules it learns. Always uses your chosen model.
 - Reads your real capacity either way, and pushes back when a stretch is overcommitted
-- Keeps durable notes per project (kinds: idea, todo, paper, update, other), exportable as one Markdown file
+- Keeps durable notes per commitment (kinds: idea, todo, paper, update, other), exportable as one Markdown file
 - Runs on your own Anthropic API key **or** your existing Claude Pro/Max subscription
 
 **Planner board** (four views over the same live schedule — nothing is a hand-maintained list)
 - **Kanban** — Backlog / This Week / In Progress / Done, derived from what the schedule actually says; drag a card to change the schedule
 - **Eisenhower** — importance (you set it) against urgency (read from deadlines)
-- **Timeline** — six months of project and proposal deadlines, coloured by whether booked hours can still cover them
+- **Timeline** — six months of commitment deadlines, coloured by whether booked hours can still cover them
 - **Archive** — finished work is archived, never deleted, so logged hours survive for "what did I get done this semester?"
 - A live weekly-review strip (done/total, work-in-progress limit, missed blocks, at-risk deadlines) and a guided "Time to plan" interview
 
 **Public booking page** (Calendly-style, optional)
-- Share a link; visitors see only free slots computed from your working hours, calendars, and protected task categories
+- Share a link; visitors see only free slots computed from your working hours, calendars, and protected labels
 - Per-link rules, all in **Settings → Booking page** (each link summarises its own underneath it): meeting lengths, bookable days with an earliest/latest time per day, minimum notice before someone can book, a buffer around meetings, and a maximum number of bookings per day. These are intentionally UI-only rather than chat-editable — they control what strangers can do to your calendar.
 - Visitors choose video or in person when you offer both; bookings land on your calendar (and optionally your real Google Calendar, which emails them an invite)
 - Either side can cancel or reschedule from a private link
@@ -67,7 +85,7 @@ others for you.
 | Account | What it's for | Signup time |
 |---|---|---|
 | [GitHub](https://github.com) | Hosts the code you deploy from | ~2 min (skip if you have one) |
-| [Supabase](https://supabase.com) | Your database (tasks, schedule, notes) + login | ~2 min, plus ~2 min for the project to spin up |
+| [Supabase](https://supabase.com) | Your database (schedule, notes, commitments) + login | ~2 min, plus ~2 min for the project to spin up |
 | [Vercel](https://vercel.com) | Hosts the running app at a URL | ~2 min, plus linking GitHub |
 | AI access — see ["Connecting Claude"](#connecting-claude-two-options) | Powers the chat and planner | varies by option |
 | [Google Cloud](https://console.cloud.google.com) *(optional — booking page)* | Puts booked meetings on your real Google Calendar and emails the guest an invite | ~15 min |
@@ -166,7 +184,7 @@ supabase db push --db-url "postgresql://postgres:[YOUR-PASSWORD]@[YOUR-HOST]:543
 ```
 
 This applies all migrations in order against your new, empty database — it
-creates every table (tasks, projects, notes, planner state, etc.), Row Level
+creates every table (schedule, commitments, notes, planner state, etc.), Row Level
 Security policies, and grants. It's safe to re-run; already-applied
 migrations are skipped.
 
@@ -227,9 +245,10 @@ in **Settings**, which has a jump-list down the left side.
 3. **Standard hours** — the working window for each weekday. Everything the
    scheduler does is bounded by this, so it's worth getting roughly right
    before adding work.
-4. **Categories** — colour-coded buckets (Teaching, Research, Admin…). Blocks
-   are coloured by category, and the booking page can protect specific
-   categories from being booked over.
+4. **Labels** — colour-coded buckets, named for whatever your work actually is
+   (Research, Writing, Teaching, Service…). Work carries its label's colour on
+   the left edge of its time block, and the booking page can protect specific
+   labels from being booked over.
 5. **Connected calendars** — paste the ICS feed URL from Outlook / Google /
    iCloud so existing meetings block time. Read-only: nothing is written back.
 6. **Notifications** *(optional)* — turn on push and pick the end-of-day and
@@ -239,8 +258,8 @@ in **Settings**, which has a jump-list down the left side.
 
 Then just talk to the chat beside the calendar: *"I teach Tuesdays and
 Thursdays 9:30–10:45"*, *"add 6 hours of ACE2 analysis a week"*, *"3h grading
-due Friday, no more than 1h a day"*. It creates the projects, tasks, and
-recurring blocks for you — you don't have to fill anything in by hand.
+due Friday, no more than 1h a day"*. It creates the commitments, work, and
+routines for you — you don't have to fill anything in by hand.
 
 After this, day-to-day use is just opening the app and logging in; sessions
 persist. Nothing in the setup above repeats, and there's no maintenance beyond

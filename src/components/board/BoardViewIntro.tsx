@@ -12,17 +12,17 @@ const INTROS: Record<BoardViewId, { title: string; body: string }> = {
   kanban: {
     title: "Kanban — what's moving this week",
     body:
-      "Your tasks sorted by what the schedule actually says about them, not by a status you maintain by hand. Backlog is anything with no time booked this week; This Week has time booked but hasn't started; In Progress is underway right now or partly logged; Done means everything scheduled for it this week is checked off. Drag a card to change reality: In Progress pins it to today, This Week pushes it up the queue, Backlog unpins it. Done can't be dragged into — check work off on the calendar so your logged hours stay true. The ★ marks a task important, and In Progress shows a soft limit of 3 to discourage juggling.",
+      "Your work sorted by what the schedule actually says about it, not by a status you maintain by hand. Backlog is anything with no time booked this week; This Week has time booked but hasn't started; In Progress is underway right now or partly logged; Done means every time block for it this week is checked off. Drag a card to change reality: In Progress pins it to today, This Week pushes it up the queue, Backlog unpins it. Done can't be dragged into — check work off on the calendar so your logged hours stay true. The ★ marks something important, and In Progress shows a soft limit of 3 to discourage juggling.",
   },
   eisenhower: {
     title: "Eisenhower — what deserves the attention",
     body:
-      "The same tasks split by importance against urgency. Importance is yours to set (the ★ on any card); urgency is read from the deadline — anything due within three days counts, and a task with no deadline never does. Use it to notice the trap quadrants: urgent-but-unimportant work that eats a week, and important-but-not-urgent work (usually the research that matters most) that quietly never gets scheduled.",
+      "The same work split by importance against urgency. Importance is yours to set (the ★ on any card); urgency is read from the deadline — anything due within three days counts, and work with no deadline never does. Use it to notice the trap quadrants: urgent-but-unimportant work that eats a week, and important-but-not-urgent work (usually what matters most) that quietly never gets scheduled.",
   },
   timeline: {
     title: "Timeline — the next six months",
     body:
-      "One bar per project and proposal that has a deadline, running from today to that date, coloured by whether the hours you've booked can realistically cover what's left. Overdue bars turn red. Goals have a cadence rather than a deadline, so they sit in their own lane on top. This is the view for spotting two deadlines landing in the same fortnight while there's still time to move something.",
+      "One bar per commitment that has a deadline, running from today to that date, coloured by whether the hours you've booked can realistically cover what's left. Overdue bars turn red. Commitments with a cadence rather than a deadline sit in their own lane on top. This is the view for spotting two deadlines landing in the same fortnight while there's still time to move something.",
   },
   todos: {
     title: "To-dos — things to do, not hours to schedule",
@@ -37,7 +37,7 @@ const INTROS: Record<BoardViewId, { title: string; body: string }> = {
   archive: {
     title: "Archive — everything you've finished",
     body:
-      "Finished tasks are archived rather than deleted, so their logged hours survive for the long view. Nothing here affects your schedule, and Restore puts a task back if you archived it early. Because the record is intact, you can ask the chat things like \"what did I get done this semester?\" and get an answer from real hours rather than memory.",
+      "Finished work is archived rather than deleted, so its logged hours survive for the long view. Nothing here affects your schedule, and Restore puts something back if you archived it early. Because the record is intact, you can ask the chat things like \"what did I get done this semester?\" and get an answer from real hours rather than memory.",
   },
 };
 

@@ -261,8 +261,8 @@ export interface TagLabels {
 }
 
 export const DEFAULT_TAG_LABELS: TagLabels = {
-  task: "Task",
+  task: "Work",
   research: "Research",
   deepFocus: "Deep focus",
-  block: "Block",
+  block: "Routine",
 };

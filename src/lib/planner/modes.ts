@@ -25,21 +25,21 @@ export interface ChatModeMeta {
 export const CHAT_MODES: Record<ChatMode, ChatModeMeta> = {
   quick: {
     id: "quick",
-    label: "Quick task",
+    label: "Quick change",
     blurb: "One change, done immediately — no questions asked.",
-    placeholder: 'e.g. "log 45 minutes on grading" or "move my gym block to 6pm"',
+    placeholder: 'e.g. "log 45 minutes on grading" or "move my gym routine to 6pm"',
     starters: [],
   },
   planning: {
     id: "planning",
     label: "Planning session",
     blurb: "A guided conversation that fills out your planner boards.",
-    placeholder: "Describe the stretch you want to plan — a semester, a month, a proposal…",
+    placeholder: "Describe the stretch you want to plan — a semester, a month, a new commitment…",
     starters: [
       {
         label: "Plan my semester",
         prompt:
-          "Let's plan the whole semester. Ask me what you need — term dates, courses I'm teaching, proposal and paper deadlines, travel, and how much research time each project should get each week — then set it all up on my board.",
+          "Let's plan the whole semester. Ask me what you need — term dates, courses I'm teaching, deadlines, travel, and how many hours a week each commitment should get — then set it all up on my board.",
       },
       {
         label: "Plan this month",
@@ -47,9 +47,9 @@ export const CHAT_MODES: Record<ChatMode, ChatModeMeta> = {
           "Let's plan the next four weeks. Walk me through what's due, what's at risk, and what I should be protecting time for, then put it on the calendar.",
       },
       {
-        label: "Set up a new project or proposal",
+        label: "Set up a new commitment",
         prompt:
-          "I want to add a new project. Interview me about the deadline, the work it breaks into, and how many hours a week it needs, then create it with its tasks.",
+          "I want to add a new commitment. Interview me about the deadline, the work it breaks into, and how many hours a week it needs, then create it along with that work.",
       },
       {
         label: "Weekly review",
@@ -71,7 +71,7 @@ export const CHAT_MODES: Record<ChatMode, ChatModeMeta> = {
 export function modeInstruction(mode: ChatMode): string {
   if (mode === "quick") {
     return [
-      "MODE: QUICK TASK. The user wants one change made now.",
+      "MODE: QUICK CHANGE. The user wants one change made now.",
       "Execute the request with the fewest tool calls that do the job, then confirm in a sentence or two.",
       "Do not open an interview, do not propose a plan, and do not ask what else they'd like to do.",
       "Ask a question only if the request genuinely cannot be executed without one (e.g. no date given at all).",
@@ -80,8 +80,8 @@ export function modeInstruction(mode: ChatMode): string {
   return [
     "MODE: PLANNING SESSION. The user wants to think a longer stretch through with you and end with their board filled in.",
     "Open by asking what you actually need to know — a few questions at a time, never a questionnaire — and wait for answers before creating anything.",
-    "Work outward from fixed commitments (term dates, teaching, deadlines, travel) to flexible work (research hours, writing, analysis).",
-    "As facts land, write them down as you go rather than saving everything for the end: add_trackable for projects/proposals/goals, add_task for concrete work with durations and deadlines and pacing, update_recurring for anything weekly, adjust_day_hours for changed working days, and remember_rule for standing preferences.",
+    "Work outward from what cannot move (term dates, teaching, deadlines, travel) to what can (weekly hours, writing, analysis).",
+    "As facts land, write them down as you go rather than saving everything for the end: add_trackable for each commitment, add_task for concrete work with durations and deadlines and pacing, update_recurring for routines, adjust_day_hours for changed working days, and remember_rule for standing preferences.",
     "Mark what genuinely matters with update_task's important flag — that's what drives the Eisenhower view.",
     "Check realism out loud using the real numbers in the snapshot, and say plainly when a stretch is overcommitted and what would have to give.",
     "Close with a short summary of what you created and what the coming weeks now look like.",

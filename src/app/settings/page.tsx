@@ -115,15 +115,36 @@ const PLANNER_MODEL_OPTIONS: {
 const DEFAULT_GRACE_HOURS = 4;
 const GRACE_HOUR_OPTIONS = [1, 2, 4, 8, 24];
 
+/** The shared vocabulary, spelled out once. Kept beside SECTIONS so the words
+ * on this page and the words in the chat persona can be checked against each
+ * other in one place. */
+const VOCABULARY: [string, string][] = [
+  [
+    "Commitment",
+    "anything ongoing you've signed up for — a research project, a proposal, a course, a standing aim. It can carry a weekly-hours target, a deadline, or both.",
+  ],
+  [
+    "Work",
+    "hours that get scheduled onto the calendar, usually belonging to a commitment. This is the only one of these that consumes time.",
+  ],
+  ["Routine", "a standing weekly slot — email, lunch, gym, a lab meeting. It repeats on its own."],
+  ["Time block", "what any of the above looks like once it's sitting on the calendar."],
+  [
+    "Label",
+    "a colour-coded grouping you name yourself, like Research, Writing or Teaching. Work wears its label's colour on the left edge of its time block.",
+  ],
+];
+
 const SECTIONS: { id: string; label: string }[] = [
+  { id: "vocabulary", label: "What things are called" },
   { id: "claude-access", label: "Claude access" },
   { id: "planner-ai", label: "Planner AI" },
   { id: "planner-guide", label: "How the planner works" },
-  { id: "block-labels", label: "Block labels" },
+  { id: "block-labels", label: "Time block names" },
   { id: "standard-hours", label: "Standard hours" },
   { id: "calendar-view", label: "Calendar view" },
   { id: "grace-window", label: "Un-ticked work" },
-  { id: "categories", label: "Categories" },
+  { id: "categories", label: "Labels" },
   { id: "calendars", label: "Connected calendars" },
   { id: "booking", label: "Booking page" },
   { id: "notifications", label: "Notifications" },
@@ -546,6 +567,27 @@ export default function SettingsPage() {
           </nav>
 
           <div className="flex-1 min-w-0 max-w-lg">
+        <div id="vocabulary" className="mb-8 pb-5 border-b border-border scroll-mt-4">
+          <h2 className="text-base font-medium mb-1">What things are called</h2>
+          <p className="text-xs text-muted mb-3 leading-relaxed">
+            Five words do all the work here. The calendar, the chat and this page use them the same way, so you can
+            say what you mean and be understood.
+          </p>
+          <dl className="rounded-lg border border-border bg-panel p-3.5 text-xs text-muted leading-relaxed flex flex-col gap-2.5">
+            {VOCABULARY.map(([term, meaning]) => (
+              <div key={term}>
+                <dt className="inline text-text font-medium">{term}</dt>
+                <dd className="inline"> — {meaning}</dd>
+              </div>
+            ))}
+          </dl>
+          <p className="mt-3 text-[11px] text-muted-2 leading-relaxed">
+            Two more things sit deliberately outside that list because they take no calendar time at all: to-dos
+            (items on a named checklist) and reminders (a dated push notification with as many lead times as you
+            want). Both live on the planner board.
+          </p>
+        </div>
+
         <h1 id="claude-access" className="text-base font-medium mb-1 scroll-mt-4">Claude access</h1>
         <p className="text-xs text-muted mb-3 leading-relaxed">
           The chat needs a Claude credential. Every account brings its own; there&apos;s no shared or fallback
@@ -831,7 +873,7 @@ export default function SettingsPage() {
               do to your calendar and that shouldn&apos;t be changeable by a sentence in a chat window. Each link
               lists its own rules underneath it, and <span className="text-text">edit</span> exposes all of them:
               meeting lengths, which days and the earliest/latest time each day, minimum notice before a booking,
-              a gap around meetings, a daily cap, and which task categories are protected from being booked over.
+              a gap around meetings, a daily cap, and which labels are protected from being booked over.
             </p>
             <p className="mb-2">
               <span className="text-text">Quick task</span> — for a single change. It acts immediately with no
@@ -859,29 +901,28 @@ export default function SettingsPage() {
         </div>
 
         <div className="mt-8 pt-5 border-t border-border">
-          <h2 id="block-labels" className="text-base font-medium mb-1 scroll-mt-4">Block labels</h2>
+          <h2 id="block-labels" className="text-base font-medium mb-1 scroll-mt-4">Time block names</h2>
           <p className="text-xs text-muted mb-4 leading-relaxed">
-            Every calendar block shows a small tag naming what kind of item it is. What each one actually means:
+            Every time block on the calendar shows a small tag naming what kind it is. What each one actually means:
           </p>
           <div className="rounded-lg border border-border bg-panel p-3.5 mb-4 text-xs text-muted leading-relaxed flex flex-col gap-2.5">
             <div>
-              <span className="text-text font-medium">Task</span> — a regular one-off item you or the assistant
-              added (<code className="text-[10px]">add_task</code>). No special placement rule beyond priority and
-              deadline.
+              <span className="text-text font-medium">Work</span> — a one-off piece of work you or the chat added.
+              No special placement rule beyond priority and deadline.
             </div>
             <div>
-              <span className="text-text font-medium">Research</span> — an auto-generated weekly block for a
-              project with a weekly research minimum set (in the project itself, not here) — placed in mornings
+              <span className="text-text font-medium">Research</span> — hours generated automatically each week for
+              a commitment that has a weekly-hours minimum (set on the commitment, not here) — placed in mornings
               first.
             </div>
             <div>
-              <span className="text-text font-medium">Deep focus</span> — a task explicitly restricted to mornings
-              before noon. This is different from Research: it&apos;s a one-off task with the morning-only rule
-              turned on, not a project with a weekly minimum.
+              <span className="text-text font-medium">Deep focus</span> — work explicitly restricted to mornings
+              before noon. This is different from Research: it&apos;s one-off work with the morning-only rule turned
+              on, not a commitment with a weekly minimum.
             </div>
             <div>
-              <span className="text-text font-medium">Block</span> — a standing recurring commitment (like Emails
-              or Lunch) you set up as a recurring rule — repeats on its own schedule every week.
+              <span className="text-text font-medium">Routine</span> — a standing weekly slot (like Emails or
+              Lunch) that repeats on its own schedule.
             </div>
           </div>
           <p className="text-xs text-muted mb-3 leading-relaxed">
@@ -890,10 +931,10 @@ export default function SettingsPage() {
           <div className="flex flex-col gap-2">
             {(
               [
-                ["task", "Task"],
+                ["task", "Work"],
                 ["research", "Research"],
                 ["deepFocus", "Deep focus"],
-                ["block", "Block"],
+                ["block", "Routine"],
               ] as const
             ).map(([field, defaultLabel]) => (
               <div key={field} className="flex items-center gap-2.5">
@@ -968,12 +1009,13 @@ export default function SettingsPage() {
         </div>
 
         <div className="mt-8 pt-5 border-t border-border">
-          <h2 id="categories" className="text-base font-medium mb-1 scroll-mt-4">Categories</h2>
+          <h2 id="categories" className="text-base font-medium mb-1 scroll-mt-4">Labels</h2>
           <p className="text-xs text-muted mb-4">
-            Groups your tasks and projects for the calendar&apos;s block color (research chunks pick up their
-            project&apos;s category). Add, rename, recolor, or remove any of these anytime. &quot;Min chunk&quot;
-            is a hard floor in minutes — the scheduler will never shrink a block in this category smaller than
-            this to fill a gap (default 30 if left blank).
+            Groups your work and commitments, and colours the calendar: work carries its label&apos;s colour as a
+            bar down the left edge of its time block, and weekly-hours blocks pick up their commitment&apos;s label.
+            Name these whatever fits your work — Research, Writing, Teaching, Service. Add, rename, recolour, or
+            remove any of them anytime. &quot;Min chunk&quot; is a hard floor in minutes — the scheduler will never
+            shrink a block with this label smaller than this to fill a gap (default 30 if left blank).
           </p>
 
           <div className="flex flex-col gap-2">
@@ -984,7 +1026,7 @@ export default function SettingsPage() {
                   value={cat.color}
                   onChange={(e) => recolorCategory(cat.id, e.target.value)}
                   className="w-7 h-7 rounded border border-border bg-transparent p-0 cursor-pointer"
-                  title="Category color"
+                  title="Label colour"
                 />
                 <input
                   defaultValue={cat.name}
@@ -1009,7 +1051,7 @@ export default function SettingsPage() {
                 />
                 <button
                   onClick={() => deleteCategory(cat.id)}
-                  title="Remove category"
+                  title="Remove label"
                   className="text-xs text-muted hover:text-accent-text"
                 >
                   Remove
@@ -1023,13 +1065,13 @@ export default function SettingsPage() {
                 value={newCategoryColor}
                 onChange={(e) => setNewCategoryColor(e.target.value)}
                 className="w-7 h-7 rounded border border-border bg-transparent p-0 cursor-pointer"
-                title="New category color"
+                title="New label colour"
               />
               <input
                 value={newCategoryName}
                 onChange={(e) => setNewCategoryName(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && addCategory()}
-                placeholder="New category name"
+                placeholder="New label name"
                 className="flex-1 bg-transparent text-sm text-text outline-none placeholder:text-muted"
               />
               <button onClick={addCategory} className="text-xs text-accent hover:underline">

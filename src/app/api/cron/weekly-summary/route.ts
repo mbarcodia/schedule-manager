@@ -101,7 +101,7 @@ export async function GET(request: Request) {
     }
 
     const taskLine = rows.tasks.length
-      ? `Tasks: ${doneTasks.length}/${rows.tasks.length} done this week, ${schedule.missed.length} missed${
+      ? `Work: ${doneTasks.length}/${rows.tasks.length} done this week, ${schedule.missed.length} missed${
           finished.length ? ` · ${finished.length} archived` : ""
         }`
       : null;

@@ -180,7 +180,7 @@ export function buildTools(ctx: ToolContext) {
 
   const add_task = betaTool({
     name: "add_task",
-    description: "Add a task to the schedule. It is auto-placed by priority, deadline, and the morning rules.",
+    description: "Add work to the schedule (the tool is named add_task for compatibility; the user calls these work). It is auto-placed by priority, deadline, and the morning rules.",
     inputSchema: {
       type: "object",
       properties: {
@@ -206,9 +206,9 @@ export function buildTools(ctx: ToolContext) {
           description:
             'EARLIEST date this may be scheduled ("tomorrow", "monday", "november 9"). Use whenever the user says when work should START, not when it is due — "tomorrow morning" means not_before="tomorrow" WITH time_of_day="morning". Omitting it lets the engine place the work today.',
         },
-        project: { type: "string", description: "title of project/proposal to link to" },
-        category: { type: "string", description: "name of the category to color this task by (e.g. Research, Teaching, Tasks) — omit to leave uncategorized" },
-        pin_date: { type: "string", description: 'force part of this task onto an exact date, natural language, e.g. "monday", "july 24" — pairs with pin_time. Anything else scheduled there moves automatically; the rest of this task (if any) is still auto-placed.' },
+        project: { type: "string", description: "title of the commitment to link this work to" },
+        category: { type: "string", description: "name of the label to mark this work with (e.g. Research, Teaching, Writing) — omit to leave unlabelled" },
+        pin_date: { type: "string", description: 'force part of this work onto an exact date, natural language, e.g. "monday", "july 24" — pairs with pin_time. Anything else scheduled there moves automatically; the rest of it (if any) is still auto-placed.' },
         pin_time: {
           type: "string",
           description:
@@ -291,7 +291,7 @@ export function buildTools(ctx: ToolContext) {
   const update_task = betaTool({
     name: "update_task",
     description:
-      "Modify an existing task and re-flow the whole schedule: change priority, duration, chunking, pacing, due date, or set work_on_next to bump it into the next available slot ahead of everything flexible.",
+      "Modify an existing piece of work and re-flow the whole schedule: change priority, duration, chunking, pacing, due date, or set work_on_next to bump it into the next available slot ahead of everything flexible.",
     inputSchema: {
       type: "object",
       properties: {
@@ -310,27 +310,27 @@ export function buildTools(ctx: ToolContext) {
           description:
             'earliest date this may be scheduled ("tomorrow", "monday", "november 9") — use for "start it tomorrow" style requests, which a deadline alone cannot express',
         },
-        category: { type: "string", description: "name of the category to recolor this task by" },
+        category: { type: "string", description: "name of the label to move this work to" },
         time_of_day: {
           type: "string",
           enum: ["morning", "afternoon", "none"],
           description:
             'Use whenever the user names a general part of the day without an exact clock time. "morning" = before noon, "afternoon" = noon or later, "none" clears any existing constraint.',
         },
-        work_on_next: { type: "boolean", description: "schedule this task at the next available time, before other flexible tasks" },
+        work_on_next: { type: "boolean", description: "schedule this at the next available time, ahead of other flexible work" },
         important: {
           type: "boolean",
           description:
             "mark (true) or unmark (false) this task as important — the Eisenhower flag on the planning board. Independent of priority, which controls scheduling order.",
         },
-        pin_date: { type: "string", description: 'force part of this task onto an exact date, natural language, e.g. "monday", "july 24" — pairs with pin_time. Anything else scheduled there moves automatically; the rest of the task (if any) is still auto-placed.' },
+        pin_date: { type: "string", description: 'force part of this work onto an exact date, natural language, e.g. "monday", "july 24" — pairs with pin_time. Anything else scheduled there moves automatically; the rest of it (if any) is still auto-placed.' },
         pin_time: {
           type: "string",
           description:
             'clock time for pin_date, e.g. "2pm", "14:30", "noon", "midnight". Also accepts "right now"/"asap"/"immediately" (starts the next minute) and relative phrases like "in 30 minutes"/"in 2 hours"/"in an hour" — for any of these, pin_date can be omitted and defaults to today.',
         },
-        pin_length_min: { type: "number", description: "minutes to pin at that exact time (default: the task's chunk size)" },
-        clear_pin: { type: "boolean", description: "remove any pinned time and let this task auto-schedule freely again" },
+        pin_length_min: { type: "number", description: "minutes to pin at that exact time (default: its chunk size)" },
+        clear_pin: { type: "boolean", description: "remove any pinned time and let this auto-schedule freely again" },
       },
       required: ["title"],
     },
@@ -338,9 +338,9 @@ export function buildTools(ctx: ToolContext) {
       const { data: tasks } = await supabase.from("tasks").select("id,title,chunk_min,duration_min").eq("user_id", userId);
       const { match, ambiguous } = findByTitle(tasks ?? [], inp.title);
       if (ambiguous.length) {
-        return `"${inp.title}" matches multiple tasks: ${ambiguous.map((t) => t.title).join(", ")}. Say which one (use its exact title).`;
+        return `"${inp.title}" matches more than one thing: ${ambiguous.map((t) => t.title).join(", ")}. Say which one (use its exact title).`;
       }
-      if (!match) return `No task matching "${inp.title}". Tasks: ${(tasks ?? []).map((t) => t.title).join(", ") || "none"}.`;
+      if (!match) return `Nothing matching "${inp.title}". Current work: ${(tasks ?? []).map((t) => t.title).join(", ") || "none"}.`;
       console.log(`[assistant] update_task resolved: needle=${JSON.stringify(inp.title)} -> id=${match.id} title=${JSON.stringify(match.title)}`);
 
       const patch: Database["public"]["Tables"]["tasks"]["Update"] = {};
@@ -409,7 +409,7 @@ export function buildTools(ctx: ToolContext) {
   const remove_item = betaTool({
     name: "remove_item",
     description:
-      "Remove a task, project, proposal, or goal by title. Removing a task clears its calendar blocks; removing a project also removes its research blocks and linked tasks stay but unlink.",
+      "Remove a piece of work or a commitment by title. Removing work clears its time blocks; removing a commitment also removes its weekly-hours blocks, and work linked to it stays but unlinks.",
     inputSchema: { type: "object", properties: { title: { type: "string" } }, required: ["title"] },
     run: async ({ title }) => {
       const [{ data: tasks }, { data: proposals }, { data: goals }, { data: projects }, { data: events }] =
@@ -493,16 +493,16 @@ export function buildTools(ctx: ToolContext) {
   const add_trackable = betaTool({
     name: "add_trackable",
     description:
-      "Add a project (tracked toward a deadline, can carry a weekly research minimum), proposal (deadline-tracked), or goal (no deadline).",
+      "Add a commitment. Three kinds: project (can carry a weekly-hours minimum, optionally with a deadline), proposal (deadline-tracked), or goal (no deadline, just a cadence). The user calls all three commitments — pick the kind that matches what they described.",
     inputSchema: {
       type: "object",
       properties: {
         kind: { type: "string", enum: ["project", "proposal", "goal"] },
         title: { type: "string" },
         due: { type: "string", description: 'natural language, e.g. "friday", "aug 3", "in 2 weeks"' },
-        weekly_research_hrs: { type: "number", description: "projects only: weekly research minimum in hours" },
-        cadence: { type: "string", description: "goals only: e.g. Daily, Weekly" },
-        category: { type: "string", description: "projects only: name of the category to color this project's research chunks by" },
+        weekly_research_hrs: { type: "number", description: "project kind only: weekly hours the engine must defend for this commitment" },
+        cadence: { type: "string", description: "goal kind only: e.g. Daily, Weekly" },
+        category: { type: "string", description: "project kind only: name of the label for this commitment's weekly-hours blocks" },
       },
       required: ["kind", "title"],
     },
@@ -607,7 +607,7 @@ export function buildTools(ctx: ToolContext) {
   const add_event = betaTool({
     name: "add_event",
     description:
-      "Add a fixed calendar event (meeting, appointment). It blocks that time; any auto-scheduled task sitting there is automatically moved while keeping its deadline, total hours, and pacing rules.",
+      "Add a fixed calendar event (meeting, appointment). It blocks that time; any auto-scheduled work sitting there is automatically moved while keeping its deadline, total hours, and pacing rules.",
     inputSchema: {
       type: "object",
       properties: {
@@ -703,11 +703,11 @@ export function buildTools(ctx: ToolContext) {
   const record_progress = betaTool({
     name: "record_progress",
     description:
-      "Log full, partial, or zero completion of a started/past scheduled block. minutes_done less than the block length reschedules the remainder later in the week; 0 marks it missed (all rescheduled).",
+      "Log full, partial, or zero completion of a started or past time block. minutes_done less than the block length reschedules the remainder later in the week; 0 marks it missed (all rescheduled).",
     inputSchema: {
       type: "object",
       properties: {
-        title: { type: "string", description: "task or research block title" },
+        title: { type: "string", description: "title of the work or weekly-hours block" },
         minutes_done: { type: "number" },
         fully_done: { type: "boolean" },
       },
@@ -770,7 +770,7 @@ export function buildTools(ctx: ToolContext) {
   const pin_research = betaTool({
     name: "pin_research",
     description:
-      'Fix a research project\'s time to an exact slot — ALWAYS use this (never add_event) when the user says they\'re working on a research project now or at a specific time ("I\'m doing ACE2-S2S right now for an hour", "put temp_thresh at 2pm tomorrow"). The block keeps its Research category and done-checkbox, its minutes count toward that project\'s weekly hours, and whatever was scheduled there reflows automatically. One pin per project per day — re-pinning the same day moves it.',
+      'Fix a commitment\'s weekly hours to an exact slot — ALWAYS use this (never add_event) when the user says they are working on one of their commitments now or at a specific time ("I am doing my main project right now for an hour", "put the analysis at 2pm tomorrow"). The block keeps its label and done-checkbox, its minutes count toward that commitment\'s weekly hours, and whatever was scheduled there reflows automatically. One pin per commitment per day — re-pinning the same day moves it.',
     inputSchema: {
       type: "object",
       properties: {
@@ -836,7 +836,7 @@ export function buildTools(ctx: ToolContext) {
   const update_recurring = betaTool({
     name: "update_recurring",
     description:
-      'Create, update, or remove a standing recurring-block rule (email, lunch, gym, lit scan...). Rules persist across sessions. Give a window for flexible placement, anytime=true for "wherever it fits", or window_start with no window_end for a fixed time.',
+      'Create, update, or remove a routine — a standing weekly slot (email, lunch, gym, lit scan...). Routines persist across sessions. Give a window for flexible placement, anytime=true for "wherever it fits", or window_start with no window_end for a fixed time.',
     inputSchema: {
       type: "object",
       properties: {
@@ -893,7 +893,7 @@ export function buildTools(ctx: ToolContext) {
   const remember_rule = betaTool({
     name: "remember_rule",
     description:
-      'Save (or forget) a free-form standing preference the assistant must always honor when scheduling and advising, e.g. "keep Friday afternoons free", "prefer 2h research chunks".',
+      'Save (or forget) a free-form standing preference you must always honour when scheduling and advising, e.g. "keep Friday afternoons free", "prefer 2h research chunks".',
     inputSchema: {
       type: "object",
       properties: { note: { type: "string" }, forget: { type: "boolean" } },
@@ -918,7 +918,7 @@ export function buildTools(ctx: ToolContext) {
 
   const get_status = betaTool({
     name: "get_status",
-    description: "Get deadline/research status for a project or proposal by title, or omit title for a full overview.",
+    description: "Get deadline and weekly-hours status for a commitment by title, or omit title for a full overview.",
     inputSchema: { type: "object", properties: { title: { type: "string" } } },
     run: async ({ title }) => {
       const rows = await queryScheduleRows(supabase, userId);

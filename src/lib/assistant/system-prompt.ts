@@ -55,7 +55,7 @@ export function buildPromptContext(rows: RawScheduleRows, inputs: ScheduleInputs
       title: t.title,
       priority: t.priority,
       durationMin: t.duration_min,
-      linkedCommitment: t.project_id ?? t.proposal_id ?? null,
+      linkedCommitment: t.project_id,
       label: t.category_id ? (labelById.get(t.category_id) ?? null) : null,
     })),
     // One thing with optional facets — only the ones actually set are reported,

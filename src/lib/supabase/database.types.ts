@@ -199,7 +199,6 @@ export interface Database {
           floor_at: string;
           max_per_day_min: number | null;
           project_id: string | null;
-          proposal_id: string | null;
           category_id: string | null;
           ord: number;
           created_at: string;
@@ -223,7 +222,6 @@ export interface Database {
           floor_at?: string;
           max_per_day_min?: number | null;
           project_id?: string | null;
-          proposal_id?: string | null;
           category_id?: string | null;
           ord?: number;
           pinned_date?: string | null;
@@ -244,7 +242,6 @@ export interface Database {
           floor_at: string;
           max_per_day_min: number | null;
           project_id: string | null;
-          proposal_id: string | null;
           category_id: string | null;
           ord: number;
           pinned_date: string | null;
@@ -296,9 +293,7 @@ export interface Database {
           id: string;
           user_id: string;
           project_id: string | null;
-          proposal_id: string | null;
           task_id: string | null;
-          goal_id: string | null;
           title: string;
           content: string;
           kind: NoteKind;
@@ -309,18 +304,14 @@ export interface Database {
           id?: string;
           user_id: string;
           project_id?: string | null;
-          proposal_id?: string | null;
           task_id?: string | null;
-          goal_id?: string | null;
           title: string;
           content?: string;
           kind?: NoteKind;
         },
         Partial<{
           project_id: string | null;
-          proposal_id: string | null;
           task_id: string | null;
-          goal_id: string | null;
           title: string;
           content: string;
           kind: NoteKind;

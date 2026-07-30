@@ -146,7 +146,7 @@ export function buildScheduleInputs(
       deadline,
       floor,
       maxPerDayMin: t.max_per_day_min,
-      projectId: t.project_id ?? t.proposal_id ?? null,
+      projectId: t.project_id,
       categoryId: t.category_id,
       ord: t.ord,
       pin,

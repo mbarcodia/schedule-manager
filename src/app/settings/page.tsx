@@ -623,9 +623,7 @@ export default function SettingsPage() {
             ))}
           </dl>
           <p className="mt-3 text-[11px] text-muted-2 leading-relaxed">
-            Two more things sit deliberately outside that list because they take no calendar time at all: to-dos
-            (items on a named checklist) and reminders (a dated push notification with as many lead times as you
-            want). Both live on the planner board.
+            A reminder isn&apos;t a separate thing — it&apos;s a to-do with a date and a lead time.
           </p>
         </div>
 
@@ -828,11 +826,9 @@ export default function SettingsPage() {
         <div id="grace-window" className="mt-8 pt-5 border-t border-border scroll-mt-4">
           <h2 className="text-base font-medium mb-1">Un-ticked work</h2>
           <p className="text-xs text-muted mb-3 leading-relaxed">
-            When a block&apos;s time passes and you haven&apos;t ticked it off, it stays exactly where it is — greyed
-            out and labelled <span className="text-text">DID YOU?</span> — for this long, so you can still tick it if
-            you simply forgot. Its hours are re-planned straight away either way, which keeps the rest of the week
-            honest; ticking the box inside the window takes the replacement back out. Once the window passes, the block
-            counts as genuinely missed and the replacement time stands.
+            When a block&apos;s time passes un-ticked it stays put, greyed and labelled{" "}
+            <span className="text-text">DID YOU?</span>, for this long. Its hours are re-planned immediately either
+            way; ticking it inside the window removes the replacement. After that it counts as missed.
           </p>
           <div className="flex items-center gap-1.5 mb-2">
             {GRACE_HOUR_OPTIONS.map((h) => (
@@ -850,131 +846,92 @@ export default function SettingsPage() {
             ))}
           </div>
           <p className="text-[11px] text-muted-2">
-            You&apos;ll get a notification shortly before a window runs out (if notifications are on). Ticking something
-            off early, or late inside the window, asks whether you did it in its original slot or just now — so the
-            hours are logged where they actually happened.
+            You&apos;re notified shortly before a window runs out. Ticking something off early or late asks whether
+            you did it in its original slot or just now, so the hours land in the right place.
           </p>
         </div>
 
         <div id="planner-guide" className="mt-8 pt-5 border-t border-border scroll-mt-4">
           <h2 className="text-base font-medium mb-1">How the planner works</h2>
           <p className="text-xs text-muted mb-4 leading-relaxed">
-            The <span className="text-text">Planner</span> link opens a board with six views. The first three read
-            the live schedule rather than being lists you maintain by hand, so what you see there and what&apos;s on
-            your calendar can never drift apart. The last three are yours to write in.
+            Six views. The first three read the live schedule, so they can&apos;t drift from your calendar. The last
+            three are yours to write in.
           </p>
 
           <div className="rounded-lg border border-border bg-panel p-3.5 mb-3 text-xs text-muted leading-relaxed flex flex-col gap-2.5">
             <div>
-              <span className="text-text font-medium">Progress</span> — your work grouped by what the schedule says
-              about it this week. Something is in <span className="text-text">Backlog</span> when no time is booked for
-              it this week, <span className="text-text">This Week</span> when time is booked but nothing has started,{" "}
-              <span className="text-text">In Progress</span> when a block is running now or partly logged, and{" "}
-              <span className="text-text">Done</span> when every block for it this week is checked off. Dragging a card
-              changes the actual schedule: In Progress pins it to today, This Week moves it up the queue, Backlog
-              unpins it. Done is display-only on purpose — completion comes from checking blocks off on the calendar,
-              so your logged hours stay honest. Because the engine re-plans each week, Done clears every Monday;
-              archive something when it&apos;s genuinely finished.
+              <span className="text-text font-medium">Progress</span> — work grouped by what the schedule says about it
+              this week: <span className="text-text">Backlog</span> (no time booked),{" "}
+              <span className="text-text">This Week</span> (booked, not started),{" "}
+              <span className="text-text">In Progress</span> (running or partly logged),{" "}
+              <span className="text-text">Done</span> (every block checked off). Dragging changes the schedule: In
+              Progress pins to today, This Week moves it up the queue, Backlog unpins. You can&apos;t drag into Done —
+              tick blocks off on the calendar instead. Done clears each Monday, so archive anything truly finished.
             </div>
             <div>
-              <span className="text-text font-medium">Priorities</span> — the same work split by importance against
-              urgency. You set importance with the ★ on any card; urgency is derived from the deadline (within three
-              days counts, no deadline never does). The useful signal is the quadrants you&apos;d rather not be in:
-              urgent-but-unimportant work eating the week, and important-but-not-urgent work that never gets booked.
+              <span className="text-text font-medium">Priorities</span> — the same work by importance (the ★, yours to
+              set) against urgency (deadline within three days). Watch for urgent-but-unimportant work eating the week,
+              and important-but-not-urgent work that never gets booked.
             </div>
             <div>
-              <span className="text-text font-medium">Timeline</span> — one bar per project with a date to work
-              toward over the next six months, coloured by whether the hours booked can still cover what&apos;s left;
-              overdue turns red. Targets appear as dots along each bar, and projects with no dates at all sit in a
-              separate lane.
+              <span className="text-text font-medium">Timeline</span> — six months of projects with dates, coloured by
+              whether booked hours still cover what&apos;s left; overdue turns red. Targets are the dots along each
+              bar. Projects with no dates sit in their own lane.
             </div>
             <div>
-              <span className="text-text font-medium">To-Do</span> — lists you name, for things you have to do. An item
-              can stay a bare line, or gain a date, notification lead times, booked hours and a fixed slot on the
-              calendar — added whenever you decide it needs them, not up front.
+              <span className="text-text font-medium">To-Do</span> — lists you name. An item can stay a bare line or
+              gain a date, reminders, booked hours and a calendar slot, whenever you decide it needs them.
             </div>
             <div>
               <span className="text-text font-medium">Lists</span> — things you&apos;re keeping rather than doing: a
-              reading list, questions for a supervision, what to pack. A paragraph, a checklist, or both. Nothing here
-              is ever scheduled or notified.
+              reading list, what to pack. Never scheduled or notified.
             </div>
             <div>
-              <span className="text-text font-medium">Archive</span> — finished work, kept rather than deleted so
-              their logged hours survive. The weekly review archives anything fully done with nothing left scheduled;
-              you can archive or restore by hand any time. Because the record stays intact, the chat can answer
-              &ldquo;what did I get done this semester?&rdquo; from real hours.
+              <span className="text-text font-medium">Archive</span> — finished work, kept so its logged hours survive.
+              Lets the chat answer &ldquo;what did I get done this semester?&rdquo; from real hours.
             </div>
             <div>
-              <span className="text-text font-medium">The strip along the top</span> shows this week live: done out of
-              total, how many pieces of work are in progress against a soft limit of three, missed blocks, and at-risk
-              deadlines. <span className="text-text">Time to plan</span> and{" "}
-              <span className="text-text">Discuss this week&apos;s review</span> both drop you into the chat with a
-              prompt filled in — they never send on their own, so you can edit first.
+              <span className="text-text font-medium">The top strip</span> — this week live: done/total, work in
+              progress against a limit of three, missed blocks, at-risk deadlines. Its two links open the chat with a
+              prompt filled in, never sent.
             </div>
           </div>
 
-          <div className="rounded-lg border border-border bg-panel p-3.5 mb-3 text-xs text-muted leading-relaxed">
+          <div className="rounded-lg border border-border bg-panel p-3.5 text-xs text-muted leading-relaxed">
             <div className="text-sm font-medium text-text mb-1.5">Two modes in the chat</div>
             <p className="mb-2">
-              The buttons above the message box pick which job the chat is doing, because the two want opposite
-              behaviour:
-            </p>
-            <p className="mb-2">
-              Booking-page rules are the exception to &ldquo;just ask the chat&rdquo;: they live in{" "}
-              <span className="text-text">Settings → Booking page</span> only, because they govern what strangers can
-              do to your calendar and that shouldn&apos;t be changeable by a sentence in a chat window. Each link
-              lists its own rules underneath it, and <span className="text-text">edit</span> exposes all of them:
-              meeting lengths, which days and the earliest/latest time each day, minimum notice before a booking,
-              a gap around meetings, a daily cap, and which labels are protected from being booked over.
-            </p>
-            <p className="mb-2">
-              <span className="text-text">Quick task</span> — for a single change. It acts immediately with no
-              questions and no plan: &ldquo;log 45 minutes on grading&rdquo;, &ldquo;move my gym block to 6pm&rdquo;,
-              &ldquo;archive the outreach task&rdquo;. Routine one-liners are also sent to a smaller model here, which
-              is cheaper and quicker at no cost to the answer.
+              <span className="text-text">Quick change</span> — one edit, done immediately, no questions: &ldquo;log 45
+              minutes on grading&rdquo;, &ldquo;move my gym block to 6pm&rdquo;. Simple one-liners use a smaller model.
             </p>
             <p>
-              <span className="text-text">Planning session</span> — for a stretch of time: a semester, a month, a new
-              proposal. It interviews you a few questions at a time and fills the board in as your answers land,
-              working outward from what can&apos;t move (term dates, teaching, deadlines, travel) to what can
-              (research hours, writing). It always uses your chosen model, never a smaller one. The suggested
-              openers beneath the buttons fill the box for you — edit them before sending. A semester plan is a real
-              conversation, so expect to spend a few minutes on it, and expect to be told when the term you&apos;ve
-              described doesn&apos;t fit the hours you actually have.
+              <span className="text-text">Planning session</span> — a semester, a month, a new project. It interviews
+              you a few questions at a time and fills the board as you answer, working from what can&apos;t move
+              (term dates, teaching, deadlines) to what can. Always uses your chosen model. It will tell you when what
+              you&apos;ve described doesn&apos;t fit the hours you have.
             </p>
           </div>
-
-          <p className="text-xs text-muted leading-relaxed">
-            Where the chat fits: it sits beside your calendar and shares every one of these tools. Saying &ldquo;I&apos;m
-            working on the model study right now for an hour&rdquo; puts a real block on the calendar and reflows the rest;
-            &ldquo;time to plan&rdquo; starts a short interview that fills the board out for you. The board is for
-            seeing where things stand; the chat is for changing it.
-          </p>
         </div>
 
         <div className="mt-8 pt-5 border-t border-border">
           <h2 id="block-labels" className="text-base font-medium mb-1 scroll-mt-4">Time block names</h2>
           <p className="text-xs text-muted mb-4 leading-relaxed">
-            Every time block on the calendar shows a small tag naming what kind it is. What each one actually means:
+            Every time block carries a tag naming its kind:
           </p>
           <div className="rounded-lg border border-border bg-panel p-3.5 mb-4 text-xs text-muted leading-relaxed flex flex-col gap-2.5">
             <div>
-              <span className="text-text font-medium">Work</span> — a one-off piece of work you or the chat added.
-              No special placement rule beyond priority and deadline.
+              <span className="text-text font-medium">Work</span> — a one-off piece of work. Placed by priority and
+              deadline.
             </div>
             <div>
-              <span className="text-text font-medium">Research</span> — hours generated automatically each week for
-              a project that has a weekly-hours minimum (set on the project, not here) — placed in mornings
-              first.
+              <span className="text-text font-medium">Research</span> — hours generated each week for a project with a
+              weekly-hours minimum. Prefers mornings unless the project says otherwise.
             </div>
             <div>
-              <span className="text-text font-medium">Deep focus</span> — work explicitly restricted to mornings
-              before noon. This is different from Research: it&apos;s one-off work with the morning-only rule turned
-              on, not a project with a weekly minimum.
+              <span className="text-text font-medium">Deep focus</span> — one-off work restricted to mornings. Unlike
+              Research, it has no weekly minimum behind it.
             </div>
             <div>
-              <span className="text-text font-medium">Routine</span> — a standing weekly slot (like Emails or
-              Lunch) that repeats on its own schedule.
+              <span className="text-text font-medium">Routine</span> — a standing weekly slot, like Emails or Lunch.
             </div>
           </div>
           <p className="text-xs text-muted mb-3 leading-relaxed">
@@ -1063,11 +1020,10 @@ export default function SettingsPage() {
         <div className="mt-8 pt-5 border-t border-border">
           <h2 id="categories" className="text-base font-medium mb-1 scroll-mt-4">Labels</h2>
           <p className="text-xs text-muted mb-4">
-            Groups your work and projects, and colours the calendar: work carries its label&apos;s colour as a
-            bar down the left edge of its time block, and weekly-hours blocks pick up their project&apos;s label.
-            Name these whatever fits your work — Research, Writing, Teaching, Service. Add, rename, recolour, or
-            remove any of them anytime. &quot;Min chunk&quot; is a hard floor in minutes — the scheduler will never
-            shrink a block with this label smaller than this to fill a gap (default 30 if left blank).
+            Colour-coded groupings, named for whatever your work is — Research, Writing, Teaching. Work wears its
+            label&apos;s colour on the left edge of its block; weekly-hours blocks take their project&apos;s label.
+            &quot;Min chunk&quot; is a floor in minutes: the scheduler won&apos;t shrink a block with this label below
+            it (default 30).
           </p>
 
           <div className="flex flex-col gap-2">
@@ -1354,6 +1310,9 @@ export default function SettingsPage() {
           <button onClick={signOut} className="text-xs text-muted underline underline-offset-2 hover:text-text">
             Sign out
           </button>
+          <p className="mt-6 text-[11px] text-muted-2">
+            Schedule-Manager — Built by Marybeth C. Arcodia with Claude (Anthropic) — 2026
+          </p>
         </div>
           </div>
         </div>

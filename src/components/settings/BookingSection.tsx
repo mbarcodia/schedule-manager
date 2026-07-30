@@ -181,7 +181,9 @@ export function BookingSection({ categories }: { categories: CategoryRow[] }) {
       <h2 id="booking" className="text-base font-medium mb-1 scroll-mt-4">Booking page</h2>
       <p className="text-xs text-muted mb-4">
         A public link (like Calendly) where anyone can book time with you. Slots come from your working hours,
-        connected calendars, and protected labels — booked meetings land on your calendar automatically.
+        connected calendars, and protected labels — booked meetings land on your calendar automatically. Each
+        link&apos;s rules are set here rather than through the chat, since they govern what strangers can do to your
+        calendar.
       </p>
 
       {/* Setup checklist — guides a brand-new account through its own setup

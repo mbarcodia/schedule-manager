@@ -12,18 +12,18 @@ const downgrade = [
   "log 45 minutes on grading",
   "mark AgenAI BAMS done",
   "add a 2h task for syllabus prep",
-  "move ACE2 to 3pm",
+  "move the model study to 3pm",
   "archive the dev app task",
   "delete the lunch block",
-  "Set temp_thresh to 5h/week",
-  "pin ACE2-S2S right now for an hour",
+  "Set threshold study to 5h/week",
+  "pin Ocean model study right now for an hour",
 ];
 
 const keepBig = [
   // questions and judgement
   "what should I work on today?",
   "is this week realistic",
-  "why is temp_thresh slipping",
+  "why is threshold study slipping",
   "compare the two proposal deadlines",
   "help me plan the fall semester",
   "review my week",
@@ -33,9 +33,9 @@ const keepBig = [
   "add a task — actually, what do you think I should prioritize first?",
   // multi-sentence / long
   "add a task for grading. Also move my emails block to the afternoon.",
-  "add a 3h task for the ACE2 revision due next Friday, then rebalance the rest of the week around it so nothing else slips past its deadline",
+  "add a 3h task for the manuscript revision due next Friday, then rebalance the rest of the week around it so nothing else slips past its deadline",
   // not an imperative edit at all
-  "I'm going to work on ACE2-S2S now",
+  "I'm going to work on Ocean model study now",
   "thanks!",
 ];
 

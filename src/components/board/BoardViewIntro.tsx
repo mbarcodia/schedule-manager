@@ -6,7 +6,7 @@
 
 import { useEffect, useState } from "react";
 
-export type BoardViewId = "kanban" | "eisenhower" | "timeline" | "todos" | "reminders" | "archive";
+export type BoardViewId = "kanban" | "eisenhower" | "timeline" | "todos" | "lists" | "archive";
 
 const INTROS: Record<BoardViewId, { title: string; body: string }> = {
   kanban: {
@@ -25,14 +25,14 @@ const INTROS: Record<BoardViewId, { title: string; body: string }> = {
       "One bar per commitment that has any date to work toward — its own deadline, or a target inside it — running from today to the furthest of them, coloured by whether the hours you've booked can realistically cover what's left. Overdue bars turn red. Targets are the dots along each bar: hollow while pending, red once their date passes, filled once you click them. Commitments with no dates at all sit in their own lane on top. This is the view for spotting two deadlines landing in the same fortnight while there's still time to move something.",
   },
   todos: {
-    title: "To-dos — things to do, not hours to schedule",
+    title: "To-Do — things to do, with as much or as little structure as they need",
     body:
-      "Named checklists that deliberately hold no time. Nothing here is placed on your calendar and nothing competes for your working hours — it's for the small stuff you just need to remember to do. Tell the chat \"add write email to Rich to my This week list\" and it lands here, creating the list if it doesn't exist. When an item turns out to need real time, ask for it as work instead and the scheduler will book hours for it.",
+      "Lists you name yourself, holding anything from a one-line errand to a talk you have to prepare for. An item starts as plain text and stays that way unless you ask for more: open it and you can set when it happens, ask to be reminded a week and a day beforehand, book hours on your calendar for it, and separately book time to prepare for it \u2014 say two hours of prep, finished by the morning of the day itself. You can add any of that later, so jotting something down now and deciding in three weeks that it needs real time is the normal path, not a redo. Ticking an item off also clears whatever hours it had booked, so your calendar never holds time for work you\u2019ve already finished. Each list can chase you: pick a rhythm and anything still unticked when the week, month or year ends becomes a notification.",
   },
-  reminders: {
-    title: "Reminders — dated nudges, delivered as notifications",
+  lists: {
+    title: "Lists — things you\u2019re keeping track of",
     body:
-      "A reminder is a date you want to be told about in advance, grouped under whatever headings you like (Presentations, Reviews, Deadlines). Each one can have several lead times, so a seminar can nudge you a week before and again the day before. Reminders take no calendar time either — if you also want hours to prepare, ask for that separately and both will exist: the nudge and the booked work.",
+      "For anything you want to keep rather than do: a reading list, questions for your next supervision, what to pack for a conference, the standing agenda for a recurring meeting. Each list holds a paragraph, a checklist, or both. Nothing here is ever scheduled or notified and ticking something off has no consequences anywhere else \u2014 that\u2019s the whole difference from To-Do. Completed items strike through and grey out rather than vanishing; each list decides for itself whether to keep showing them, and the eye hides any single item you\u2019d rather not look at.",
   },
   archive: {
     title: "Archive — everything you've finished",

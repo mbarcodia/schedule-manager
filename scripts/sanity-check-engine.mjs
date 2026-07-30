@@ -36,16 +36,16 @@ const inputs = {
   ],
   projects: [
     {
-      id: "proj-ace",
-      title: "ACE S2S",
+      id: "proj-a",
+      title: "Ocean model study",
       weeklyMinMin: 480,
       researchOrd: 1,
       preferMorning: true,
       chunk: 120,
     },
     {
-      id: "proj-mapp",
-      title: "MAPP temp thresholds",
+      id: "proj-b",
+      title: "Threshold analysis",
       weeklyMinMin: 360,
       researchOrd: 2,
       preferMorning: true,
@@ -92,15 +92,15 @@ for (const b of weekendBlocks) {
 }
 
 const researchWk0 = result.blocks.filter(
-  (b) => b.projectId === "proj-ace" && Math.floor(b.gday / 7) === 0,
+  (b) => b.projectId === "proj-a" && Math.floor(b.gday / 7) === 0,
 );
 const researchMin = researchWk0.reduce((s, b) => s + (b.end - b.start), 0);
-console.log(`\nACE S2S research minutes scheduled in week 0: ${researchMin} (target 480)`);
+console.log(`\nOcean model study research minutes scheduled in week 0: ${researchMin} (target 480)`);
 
 const problems = [];
 const strayWeekend = weekendBlocks.filter((b) => !(b.gday === 5));
 if (strayWeekend.length) problems.push(`${strayWeekend.length} block(s) on a day that was never opted in`);
-if (researchMin !== 480) problems.push(`ACE S2S got ${researchMin}m of research in week 0, not its 480m floor`);
+if (researchMin !== 480) problems.push(`Ocean model study got ${researchMin}m of research in week 0, not its 480m floor`);
 for (const p of problems) console.log(`FAIL ${p}`);
 console.log(problems.length ? "" : "\nall engine sanity checks passed");
 process.exit(problems.length ? 1 : 0);

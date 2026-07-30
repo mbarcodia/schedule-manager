@@ -125,8 +125,11 @@ export function PlannerSidebar({ refreshKey }: PlannerSidebarProps) {
     <div className="flex-none w-[320px] border-l border-border flex flex-col min-h-0">
       <div className="flex-none px-4 py-3.5 border-b border-border flex items-start justify-between gap-2">
         <div>
-          <div className="font-medium text-[13px]">Commitments & notes</div>
-          <div className="mt-0.5 text-[11px] text-muted">Notes the planner keeps, organized by commitment.</div>
+          <div className="font-medium text-[13px]">Commitment notes</div>
+          <div className="mt-0.5 text-[11px] text-muted">
+              What the planner has learned about each commitment. Separate from the Lists tab, which is yours to
+              write.
+            </div>
         </div>
         <a
           href="/api/planner/export"

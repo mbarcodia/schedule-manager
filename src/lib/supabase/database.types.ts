@@ -13,6 +13,8 @@ export type EventSource = "manual" | "google" | "icloud" | "outlook";
 export type SubjectType = "task" | "research" | "anchor";
 export type ChatRole = "user" | "assistant";
 export type CalendarProvider = "outlook_ics" | "icloud_ics" | "google_ics";
+/** How often a to-do list chases whatever is still unfinished in it. */
+export type ChaseCadence = "week" | "month" | "year";
 
 /** Keys are "0".."6" (0=Mon..6=Sun). null = day off by default. */
 export type WeeklyHoursJson = Record<string, { start: number; end: number } | null>;
@@ -484,9 +486,31 @@ export interface Database {
         Record<string, never>
       >;
       todo_lists: Table<
-        { id: string; user_id: string; name: string; sort_order: number; created_at: string },
-        { id?: string; user_id: string; name: string; sort_order?: number },
-        Partial<{ name: string; sort_order: number }>
+        {
+          id: string;
+          user_id: string;
+          name: string;
+          chase: ChaseCadence | null;
+          last_chased_at: string | null;
+          show_completed: boolean;
+          sort_order: number;
+          created_at: string;
+        },
+        {
+          id?: string;
+          user_id: string;
+          name: string;
+          chase?: ChaseCadence | null;
+          show_completed?: boolean;
+          sort_order?: number;
+        },
+        Partial<{
+          name: string;
+          chase: ChaseCadence | null;
+          last_chased_at: string | null;
+          show_completed: boolean;
+          sort_order: number;
+        }>
       >;
       todo_items: Table<
         {
@@ -496,11 +520,73 @@ export interface Database {
           text: string;
           done: boolean;
           completed_at: string | null;
+          due_at: string | null;
+          lead_minutes: number[];
+          sent_leads: number[];
+          notes: string | null;
+          hidden: boolean;
+          task_id: string | null;
+          prep_task_id: string | null;
+          event_id: string | null;
+          sort_order: number;
+          created_at: string;
+        },
+        {
+          id?: string;
+          user_id: string;
+          list_id: string;
+          text: string;
+          done?: boolean;
+          due_at?: string | null;
+          lead_minutes?: number[];
+          sent_leads?: number[];
+          notes?: string | null;
+          sort_order?: number;
+        },
+        Partial<{
+          text: string;
+          done: boolean;
+          completed_at: string | null;
+          due_at: string | null;
+          lead_minutes: number[];
+          sent_leads: number[];
+          notes: string | null;
+          hidden: boolean;
+          task_id: string | null;
+          prep_task_id: string | null;
+          event_id: string | null;
+          sort_order: number;
+          list_id: string;
+        }>
+      >;
+      /** The Lists tab: things you're keeping track of, never scheduled. */
+      lists: Table<
+        {
+          id: string;
+          user_id: string;
+          title: string;
+          body: string;
+          show_completed: boolean;
+          sort_order: number;
+          created_at: string;
+        },
+        { id?: string; user_id: string; title: string; body?: string; sort_order?: number },
+        Partial<{ title: string; body: string; show_completed: boolean; sort_order: number }>
+      >;
+      list_items: Table<
+        {
+          id: string;
+          user_id: string;
+          list_id: string;
+          text: string;
+          done: boolean;
+          completed_at: string | null;
+          hidden: boolean;
           sort_order: number;
           created_at: string;
         },
         { id?: string; user_id: string; list_id: string; text: string; done?: boolean; sort_order?: number },
-        Partial<{ text: string; done: boolean; completed_at: string | null; sort_order: number; list_id: string }>
+        Partial<{ text: string; done: boolean; completed_at: string | null; hidden: boolean; sort_order: number }>
       >;
       reminders: Table<
         {

@@ -1,18 +1,22 @@
-// Chat tools for the two unscheduled kinds of thing: to-do items and
-// reminders. Kept in their own file (and named unmistakably) because the whole
-// point is that the model must not confuse them with Work:
+// Chat tools for to-do items. A reminder is not a separate kind of thing any
+// more: it's a to-do that has a date and some lead times, because "the talk on
+// the 10th" and "warn me a week before the talk on the 10th" were always the
+// same thing described twice.
 //
 //   add_task      -> hours the engine schedules on the calendar
-//   add_todo      -> a line on a named checklist, no hours, never scheduled
-//   add_reminder  -> a dated nudge that arrives as a push notification
+//   add_todo      -> a line on a named list; optionally dated, optionally
+//                    reminding, never occupying calendar time by itself
+//   schedule_todo -> books hours for an existing to-do, and/or prep time
 //
-// "Add write email to Rich to THIS WEEK" is a to-do. "Remind me a week before
-// the IDSC seminar" is a reminder. "Block 3 hours to prepare it" is Work.
+// "Add call the plumber to THIS WEEK" is a to-do. "Remind me a week before the
+// seminar on the 10th" is a to-do with a date and a lead. "Book 3 hours to
+// prepare for it" is schedule_todo. Only the last one takes calendar time.
 
 import { betaTool } from "@anthropic-ai/sdk/helpers/beta/json-schema";
-import { markMutated, type ToolContext } from "@/lib/assistant/tools";
+import { findCategoryId, markMutated, type ToolContext } from "@/lib/assistant/tools";
 import { parseDeadlineDate, parseTimeInText, findByTitle } from "@/lib/assistant/nlp-dates";
 import { zonedTimeToUtc } from "@/lib/scheduling/time";
+import type { Database } from "@/lib/supabase/database.types";
 
 /** Named lead times so the model doesn't have to do minute arithmetic. */
 const LEAD_PHRASES: { pattern: RegExp; minutes: number }[] = [
@@ -79,16 +83,29 @@ export function buildTodoReminderTools(ctx: ToolContext) {
   const add_todo = betaTool({
     name: "add_todo",
     description:
-      'Add a line to a named to-do list. Use this for things that need DOING but not SCHEDULING — no hours, no calendar block ("add write email to Rich to my This Week list", "put review the draft on my before-meeting list"). Creates the list if it does not exist yet. If the user gives an amount of time or wants it on the calendar, that is Work — use add_task instead.',
+      'Add a line to a named to-do list. Use this for things that need DOING but not necessarily SCHEDULING ("add call the plumber to my This Week list", "put review the draft on my before-meeting list"). Creates the list if it does not exist yet. Optionally give it a date and lead times and it also becomes a reminder — that is how reminders are made; there is no separate reminder object. If the user wants hours booked on the calendar for it, add it here and then call schedule_todo.',
     inputSchema: {
       type: "object",
       properties: {
         text: { type: "string", description: "the to-do line itself" },
         list: { type: "string", description: 'name of the list, e.g. "This week". Defaults to "General".' },
+        when: {
+          type: "string",
+          description: 'optional date (and time) the thing happens or is due, e.g. "november 10", "friday 2pm"',
+        },
+        leads: {
+          type: "string",
+          description:
+            'optional notification lead times relative to `when`, a list is fine: "1 week before, 1 day before". Also accepts "on the day". Ignored without `when`.',
+        },
+        notes: { type: "string", description: "anything extra to carry in the notification" },
       },
       required: ["text"],
     },
-    run: async ({ text, list }) => {
+    run: async ({ text, list, when, leads, notes }) => {
+      const dueAt = when ? resolveWhen(ctx, when) : null;
+      if (when && !dueAt) return `Couldn't understand the date "${when}" — try "november 10", "friday", or "in 2 weeks".`;
+      const leadMinutes = dueAt && leads ? parseLeadMinutes(leads) : [];
       const listName = (list ?? "General").trim() || "General";
       const { data: lists } = await supabase.from("todo_lists").select("id,name").eq("user_id", userId);
       const existing = findByTitle((lists ?? []).map((l) => ({ ...l, title: l.name })), listName).match;
@@ -106,17 +123,28 @@ export function buildTodoReminderTools(ctx: ToolContext) {
         created = true;
       }
 
-      const { error } = await supabase.from("todo_items").insert({ user_id: userId, list_id: listId, text });
+      const { error } = await supabase.from("todo_items").insert({
+        user_id: userId,
+        list_id: listId,
+        text,
+        due_at: dueAt,
+        lead_minutes: leadMinutes,
+        notes: notes?.trim() || null,
+      });
       if (error) return `Couldn't add that to "${listName}".`;
       markMutated(ctx);
       const onList = existing?.name ?? listName;
-      return `Added "${text}" to the ${onList} list${created ? " (new list)" : ""}. It's a checklist item — no calendar time was booked for it.`;
+      const dateNote = dueAt
+        ? ` for ${new Date(dueAt).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: ctx.timezone })}`
+        : "";
+      const leadNote = leadMinutes.length ? `, notifying ${leadMinutes.map(describeLead).join(" and ")}` : "";
+      return `Added "${text}" to the ${onList} list${created ? " (new list)" : ""}${dateNote}${leadNote}. No calendar time is booked for it — say so if you want hours.`;
     },
   });
 
   const complete_todo = betaTool({
     name: "complete_todo",
-    description: "Tick off a to-do item by its text (fuzzy match). Use for 'I sent the email to Rich', 'mark X done on my list'.",
+    description: "Tick off a to-do item by its text (fuzzy match). Use for 'I sent that email', 'mark X done on my list'. Any hours booked for it are archived at the same time, so the calendar stops holding time for finished work.",
     inputSchema: {
       type: "object",
       properties: {
@@ -177,7 +205,7 @@ export function buildTodoReminderTools(ctx: ToolContext) {
   const add_reminder = betaTool({
     name: "add_reminder",
     description:
-      'Set a dated reminder that arrives as a push notification, with one or more lead times. Use for "remind me a week before and a day before the IDSC seminar on November 10". A reminder does NOT occupy calendar time and is not Work — if the user also wants hours booked to prepare, make a separate add_task call for that.',
+      'Set a dated reminder that arrives as a push notification, with one or more lead times ("remind me a week before and a day before the seminar on November 10"). A reminder IS a dated to-do: this puts it on a list so it can later gain hours or preparation time without being re-created. It occupies no calendar time — call schedule_todo if the user also wants time booked.',
     inputSchema: {
       type: "object",
       properties: {
@@ -188,7 +216,7 @@ export function buildTodoReminderTools(ctx: ToolContext) {
           description:
             'when to be notified, relative to that date — a list is fine: "1 week before, 1 day before". Also accepts "on the day". Defaults to 1 day before.',
         },
-        heading: { type: "string", description: 'grouping shown on the Reminders view, e.g. "Presentations", "Reviews"' },
+        heading: { type: "string", description: 'which list it belongs on, e.g. "Presentations", "Reviews". Defaults to "Reminders".' },
         notes: { type: "string", description: "anything extra to include in the notification" },
       },
       required: ["title", "when"],
@@ -197,13 +225,28 @@ export function buildTodoReminderTools(ctx: ToolContext) {
       const dueAt = resolveWhen(ctx, when);
       if (!dueAt) return `Couldn't understand the date "${when}" — try "november 10", "friday", or "in 2 weeks".`;
       const leadMinutes = parseLeadMinutes(leads);
-      const { error } = await supabase.from("reminders").insert({
+      const listName = (heading ?? "Reminders").trim() || "Reminders";
+
+      const { data: lists } = await supabase.from("todo_lists").select("id,name").eq("user_id", userId);
+      const existing = findByTitle((lists ?? []).map((l) => ({ ...l, title: l.name })), listName).match;
+      let listId = existing?.id;
+      if (!listId) {
+        const { data: madeList, error } = await supabase
+          .from("todo_lists")
+          .insert({ user_id: userId, name: listName })
+          .select("id")
+          .single();
+        if (error || !madeList) return `Couldn't create the "${listName}" list.`;
+        listId = madeList.id;
+      }
+
+      const { error } = await supabase.from("todo_items").insert({
         user_id: userId,
-        title,
+        list_id: listId,
+        text: title,
         due_at: dueAt,
-        heading: heading?.trim() || null,
-        notes: notes?.trim() || null,
         lead_minutes: leadMinutes,
+        notes: notes?.trim() || null,
       });
       if (error) return `Couldn't save that reminder.`;
       markMutated(ctx);
@@ -215,31 +258,39 @@ export function buildTodoReminderTools(ctx: ToolContext) {
         minute: "2-digit",
         timeZone: ctx.timezone,
       });
-      return `Reminder set: "${title}" on ${whenLabel}${heading ? ` under ${heading}` : ""}, notifying ${leadMinutes.map(describeLead).join(" and ")}. No calendar time was booked — ask separately if you want hours to prepare.`;
+      return `Reminder set: "${title}" on ${whenLabel}, on the ${existing?.name ?? listName} list, notifying ${leadMinutes.map(describeLead).join(" and ")}. No calendar time was booked — ask if you want hours, or preparation time.`;
     },
   });
 
   const list_reminders = betaTool({
     name: "list_reminders",
-    description: "Show upcoming reminders and their lead times, optionally within one heading.",
+    description: "Show upcoming dated to-dos and their lead times, optionally within one list.",
     inputSchema: {
       type: "object",
-      properties: { heading: { type: "string" } },
+      properties: { heading: { type: "string", description: "narrow to one list" } },
     },
     run: async ({ heading }) => {
+      const { data: lists } = await supabase.from("todo_lists").select("id,name").eq("user_id", userId);
+      const nameById = new Map((lists ?? []).map((l) => [l.id, l.name]));
       let query = supabase
-        .from("reminders")
-        .select("title,heading,due_at,lead_minutes")
+        .from("todo_items")
+        .select("text,due_at,lead_minutes,list_id")
         .eq("user_id", userId)
+        .eq("done", false)
+        .not("due_at", "is", null)
         .gte("due_at", new Date().toISOString())
         .order("due_at");
-      if (heading) query = query.ilike("heading", `%${heading}%`);
+      if (heading) {
+        const match = findByTitle((lists ?? []).map((l) => ({ ...l, title: l.name })), heading).match;
+        if (!match) return `No list matching "${heading}".`;
+        query = query.eq("list_id", match.id);
+      }
       const { data } = await query;
-      if (!data?.length) return heading ? `No upcoming reminders under "${heading}".` : "No upcoming reminders.";
+      if (!data?.length) return heading ? `Nothing dated on "${heading}".` : "No upcoming dated to-dos.";
       return data
         .map(
           (r) =>
-            `- ${r.title} — ${new Date(r.due_at).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: ctx.timezone })}${r.heading ? ` [${r.heading}]` : ""} (${r.lead_minutes.map(describeLead).join(", ")})`,
+            `- ${r.text} — ${new Date(r.due_at!).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: ctx.timezone })} [${nameById.get(r.list_id) ?? "?"}]${r.lead_minutes.length ? ` (${r.lead_minutes.map(describeLead).join(", ")})` : " (no reminders set)"}`,
         )
         .join("\n");
     },
@@ -247,24 +298,124 @@ export function buildTodoReminderTools(ctx: ToolContext) {
 
   const remove_reminder = betaTool({
     name: "remove_reminder",
-    description: "Delete a reminder by title (fuzzy match).",
+    description:
+      "Stop the notifications for a dated to-do, by title (fuzzy match). The item itself stays on its list — deleting the whole thing is remove_item.",
     inputSchema: {
       type: "object",
       properties: { title: { type: "string" } },
       required: ["title"],
     },
     run: async ({ title }) => {
-      const { data } = await supabase.from("reminders").select("id,title").eq("user_id", userId);
-      const found = findByTitle(data ?? [], title);
+      const { data } = await supabase
+        .from("todo_items")
+        .select("id,text")
+        .eq("user_id", userId)
+        .not("due_at", "is", null);
+      const found = findByTitle((data ?? []).map((r) => ({ ...r, title: r.text })), title);
       if (found.ambiguous.length) {
-        return `"${title}" matches several reminders: ${found.ambiguous.map((r) => r.title).join(", ")}. Which one?`;
+        return `"${title}" matches several: ${found.ambiguous.map((r) => r.title).join(", ")}. Which one?`;
       }
-      if (!found.match) return `No reminder matching "${title}".`;
-      await supabase.from("reminders").delete().eq("id", found.match.id);
+      if (!found.match) return `No dated to-do matching "${title}".`;
+      await supabase.from("todo_items").update({ lead_minutes: [], sent_leads: [] }).eq("id", found.match.id);
       markMutated(ctx);
-      return `Removed the reminder "${found.match.title}".`;
+      return `Notifications off for "${found.match.title}". It's still on its list.`;
     },
   });
 
-  return [add_todo, complete_todo, list_todos, add_reminder, list_reminders, remove_reminder];
+  const schedule_todo = betaTool({
+    name: "schedule_todo",
+    description:
+      'Book calendar hours for a to-do that already exists, and/or hours to PREPARE for it. This is how something jotted down earlier becomes real scheduled Work without being retyped ("book 3 hours for the report on my list", "I need 2 hours of prep for the seminar, done by the morning of the talk"). Prep is separate from the thing itself: it has its own duration and its own window.',
+    inputSchema: {
+      type: "object",
+      properties: {
+        text: { type: "string", description: "which to-do (fuzzy match on its text)" },
+        hours: { type: "number", description: "hours to book for the thing itself" },
+        due: { type: "string", description: 'deadline for those hours, natural language. Omit for no deadline.' },
+        prep_hours: { type: "number", description: "hours to book for preparing, booked as its own separate work" },
+        prep_by: { type: "string", description: 'when preparation must be finished, e.g. "1pm on november 10". Defaults to when the thing itself happens.' },
+        prep_from: { type: "string", description: "earliest preparation may start" },
+        priority: { type: "string", enum: ["high", "medium", "low"] },
+        category: { type: "string", description: "label name for the booked time" },
+      },
+      required: ["text"],
+    },
+    run: async ({ text, hours, due, prep_hours, prep_by, prep_from, priority, category }) => {
+      if (!hours && !prep_hours) return "Say how many hours to book, for the thing itself or for preparing.";
+      const { data: items } = await supabase
+        .from("todo_items")
+        .select("id,text,due_at,task_id,prep_task_id")
+        .eq("user_id", userId)
+        .eq("done", false);
+      const found = findByTitle((items ?? []).map((i) => ({ ...i, title: i.text })), text);
+      if (found.ambiguous.length) {
+        return `"${text}" matches several to-dos: ${found.ambiguous.map((i) => i.title).join(", ")}. Which one?`;
+      }
+      if (!found.match) return `No to-do matching "${text}".`;
+      const item = found.match;
+
+      const categoryId = category ? await findCategoryId(ctx, category) : null;
+      const patch: Database["public"]["Tables"]["todo_items"]["Update"] = {};
+      const done: string[] = [];
+
+      if (hours) {
+        const deadlineAt = due ? resolveWhen(ctx, due) : null;
+        if (due && !deadlineAt) return `Couldn't understand the deadline "${due}".`;
+        const fields = {
+          title: item.text,
+          duration_min: Math.round(hours * 60),
+          chunk_min: Math.min(120, Math.round(hours * 60)),
+          priority: priority ?? "medium",
+          deadline_at: deadlineAt,
+          category_id: categoryId,
+        };
+        if (item.task_id) {
+          await supabase.from("tasks").update(fields).eq("id", item.task_id);
+        } else {
+          const { data: made, error } = await supabase
+            .from("tasks")
+            .insert({ ...fields, user_id: userId })
+            .select("id")
+            .single();
+          if (error || !made) return `Couldn't book the time: ${error?.message ?? "unknown error"}`;
+          patch.task_id = made.id;
+        }
+        done.push(`${hours}h for it${deadlineAt ? ", with a deadline" : ""}`);
+      }
+
+      if (prep_hours) {
+        const prepByAt = prep_by ? resolveWhen(ctx, prep_by) : item.due_at;
+        if (prep_by && !prepByAt) return `Couldn't understand "${prep_by}".`;
+        const prepFromAt = prep_from ? resolveWhen(ctx, prep_from) : null;
+        if (prep_from && !prepFromAt) return `Couldn't understand "${prep_from}".`;
+        const fields = {
+          title: `Prep: ${item.text}`,
+          duration_min: Math.round(prep_hours * 60),
+          chunk_min: Math.min(120, Math.round(prep_hours * 60)),
+          priority: priority ?? "medium",
+          floor_at: prepFromAt ?? new Date().toISOString(),
+          deadline_at: prepByAt,
+          category_id: categoryId,
+        };
+        if (item.prep_task_id) {
+          await supabase.from("tasks").update(fields).eq("id", item.prep_task_id);
+        } else {
+          const { data: made, error } = await supabase
+            .from("tasks")
+            .insert({ ...fields, user_id: userId })
+            .select("id")
+            .single();
+          if (error || !made) return `Couldn't book the prep time: ${error?.message ?? "unknown error"}`;
+          patch.prep_task_id = made.id;
+        }
+        done.push(`${prep_hours}h of prep${prepByAt ? ", finished beforehand" : ""}`);
+      }
+
+      if (Object.keys(patch).length) await supabase.from("todo_items").update(patch).eq("id", item.id);
+      markMutated(ctx);
+      return `Booked ${done.join(" and ")} for "${item.text}". It stays on its list; ticking it off there will clear the time again.`;
+    },
+  });
+
+  return [add_todo, complete_todo, list_todos, add_reminder, list_reminders, remove_reminder, schedule_todo];
 }

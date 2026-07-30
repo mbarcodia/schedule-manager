@@ -1,7 +1,7 @@
 // Sends routine one-line commands to a smaller model.
 //
 // Most messages to this app are not planning conversations — they're single
-// mechanical edits ("log 45 minutes on grading", "move ACE2 to 3pm"). Running
+// mechanical edits ("log 45 minutes on grading", "move the model study to 3pm"). Running
 // those on the largest model burns tokens, time, and energy for no gain in
 // answer quality. This picks the cheaper model for exactly that shape of
 // request and leaves everything else on the user's chosen model.

@@ -20,7 +20,7 @@ function inputs(researchPins) {
     projects: [
       {
         id: PROJECT_ID,
-        title: "ACE2-S2S",
+        title: "Ocean model study",
         weeklyMinMin: WEEKLY_MIN,
         chunk: 120,
         preferMorning: true,

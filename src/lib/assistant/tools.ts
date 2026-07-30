@@ -111,7 +111,7 @@ function ambiguousMsg(kind: string, needle: string, candidates: { title: string 
 /** Fuzzy-matches a category by name (case-insensitive substring, either
  * direction) — returns null silently if no match; callers just omit
  * category_id rather than failing the whole tool call over it. */
-async function findCategoryId(ctx: ToolContext, needle: string): Promise<string | null> {
+export async function findCategoryId(ctx: ToolContext, needle: string): Promise<string | null> {
   const { data: categories } = await ctx.supabase.from("categories").select("id,name").eq("user_id", ctx.userId);
   const n = needle.toLowerCase().trim();
   const match = (categories ?? []).find((c) => {

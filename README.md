@@ -25,6 +25,7 @@ way, so you can say what you mean and be understood.
 | **Work** | Hours that get scheduled onto the calendar. Usually belongs to a commitment. This is the only one of these that consumes time. |
 | **Routine** | A standing weekly slot: email, lunch, gym, lab meeting. Repeats on its own. |
 | **Time block** | What any of the above looks like once it's on the calendar. |
+| **To-do** | Something to do, on a list you name. Occupies no time by itself; can gain a date, reminders, booked hours and prep time whenever you decide it needs them. |
 | **Label** | A colour-coded grouping you name yourself — Research, Writing, Teaching, Service. Work wears its label's colour on the left edge of its time block. |
 
 A commitment's weekly hours can be given an **active window** — a course that
@@ -32,9 +33,10 @@ only needs five hours a week from December, a project that pauses over a
 conference. Without one, the hours are booked from today onward, which is right
 for something already running and wrong for anything that starts later.
 
-Two more things exist deliberately *outside* this, because they take no calendar
-time at all: **to-dos** (items on a named checklist) and **reminders** (a dated
-push notification, with as many lead times as you want).
+A **reminder** isn't a separate thing: it's a to-do with a date and one or more
+lead times. The **Lists** tab is separate again — that's for things you're
+keeping track of (a reading list, what to pack) rather than things you'll do, and
+nothing on it is ever scheduled or notified.
 
 ## What it does
 
@@ -68,6 +70,8 @@ Everything below is built and working — this is the whole feature set, not a r
 - **Kanban** — Backlog / This Week / In Progress / Done, derived from what the schedule actually says; drag a card to change the schedule
 - **Eisenhower** — importance (you set it) against urgency (read from deadlines)
 - **Timeline** — six months of commitment deadlines with their targets marked along the way, coloured by whether booked hours can still cover them
+- **To-Do** — lists you name, holding anything from a one-line errand to a talk you must prepare for; any item can gain a date, notification lead times, booked hours and separate preparation time, at any point after you write it down
+- **Lists** — reading lists, packing lists, standing agendas: a paragraph, a checklist, or both, with nothing scheduled or notified
 - **Archive** — finished work is archived, never deleted, so logged hours survive for "what did I get done this semester?"
 - A live weekly-review strip (done/total, work-in-progress limit, missed blocks, at-risk deadlines) and a guided "Time to plan" interview
 
@@ -265,7 +269,7 @@ in **Settings**, which has a jump-list down the left side.
    in-person location, then create a link. See ["Booking page"](#booking-page).
 
 Then just talk to the chat beside the calendar: *"I teach Tuesdays and
-Thursdays 9:30–10:45"*, *"add 6 hours of ACE2 analysis a week"*, *"3h grading
+Thursdays 9:30–10:45"*, *"add 6 hours of model analysis a week"*, *"3h grading
 due Friday, no more than 1h a day"*. It creates the commitments, work, and
 routines for you — you don't have to fill anything in by hand.
 
@@ -413,7 +417,7 @@ planner works" explains each view and how it maps onto the real schedule.
   research time, archive finished work, and keep notes.
 - Each note has a kind (idea, todo, paper, update, other) and can be linked
   to a project/proposal/goal/task, or left unlinked.
-- Create and edit notes either by asking in chat ("add a note to ACE2 about
+- Create and edit notes either by asking in chat ("add a note to the model study about
   the new element we need to design") or directly in the sidebar.
 - The sidebar groups notes under their linked project; **Export notes** in
   the sidebar header downloads everything as one Markdown file.

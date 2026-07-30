@@ -14,18 +14,18 @@ import { Timeline } from "@/components/board/Timeline";
 import { WeeklyReviewCard } from "@/components/board/WeeklyReviewCard";
 import { BoardViewIntro } from "@/components/board/BoardViewIntro";
 import { TodoView } from "@/components/board/TodoView";
-import { RemindersView } from "@/components/board/RemindersView";
+import { ListsView } from "@/components/board/ListsView";
 import { PlannerSidebar } from "@/components/planner/PlannerSidebar";
 import { useScheduleData } from "@/hooks/useScheduleData";
 
-type BoardView = "kanban" | "eisenhower" | "timeline" | "todos" | "reminders" | "archive";
+type BoardView = "kanban" | "eisenhower" | "timeline" | "todos" | "lists" | "archive";
 
 const VIEWS: { id: BoardView; label: string }[] = [
   { id: "kanban", label: "Kanban" },
   { id: "eisenhower", label: "Eisenhower" },
   { id: "timeline", label: "Timeline" },
-  { id: "todos", label: "To-dos" },
-  { id: "reminders", label: "Reminders" },
+  { id: "todos", label: "To-Do" },
+  { id: "lists", label: "Lists" },
   { id: "archive", label: "Archive" },
 ];
 
@@ -75,8 +75,8 @@ export default function PlannerPage() {
         {view === "kanban" && <KanbanBoard scheduleData={scheduleData} onMutated={onMutated} />}
         {view === "eisenhower" && <EisenhowerBoard scheduleData={scheduleData} onMutated={onMutated} />}
         {view === "timeline" && <Timeline scheduleData={scheduleData} />}
-        {view === "todos" && <TodoView />}
-        {view === "reminders" && <RemindersView />}
+        {view === "todos" && <TodoView onMutated={onMutated} />}
+        {view === "lists" && <ListsView />}
         {view === "archive" && (
           <ArchiveView
             onMutated={() => {

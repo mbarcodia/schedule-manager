@@ -124,6 +124,10 @@ const VOCABULARY: [string, string][] = [
     "anything ongoing you've signed up for — a research project, a proposal, a course, a standing aim. One kind of thing with optional parts, mixed however you like: weekly hours the scheduler defends (optionally only between two dates, and optionally fixed to mornings or afternoons), a hard deadline, an ongoing cadence.",
   ],
   [
+    "To-do",
+    "something to do, on a list you name. It occupies no calendar time by itself, and can gain a date, notification lead times, booked hours and separate preparation time at any point after you jot it down \u2014 a reminder is simply a to-do that has a date and a lead time.",
+  ],
+  [
     "Target",
     "a date inside a commitment that takes no time of its own — \u201cfirst round of analysis done by the end of August\u201d. It shows as a marker on the timeline and you click it when you hit it. If getting there needs hours, that's Work, added separately.",
   ],
@@ -721,7 +725,7 @@ export default function SettingsPage() {
               Chat with it on the calendar page; the <span className="text-text">Planner</span> link opens the board
               and notes. Each note has a kind (idea, todo, paper, update, other) and can be linked to a
               project/proposal/task or left unlinked. Create and edit notes either by asking in chat (&quot;add a
-              note to ACE2 about…&quot;) or directly in the sidebar. The sidebar groups notes under their linked
+              note to the model study about…&quot;) or directly in the sidebar. The sidebar groups notes under their linked
               project; &quot;Export notes&quot; in the sidebar header downloads everything as one Markdown file.
             </p>
             <p>The planner reads your existing notes when relevant, so you don&apos;t need to repeat context.</p>
@@ -898,7 +902,7 @@ export default function SettingsPage() {
 
           <p className="text-xs text-muted leading-relaxed">
             Where the chat fits: it sits beside your calendar and shares every one of these tools. Saying &ldquo;I&apos;m
-            working on ACE2 right now for an hour&rdquo; puts a real block on the calendar and reflows the rest;
+            working on the model study right now for an hour&rdquo; puts a real block on the calendar and reflows the rest;
             &ldquo;time to plan&rdquo; starts a short interview that fills the board out for you. The board is for
             seeing where things stand; the chat is for changing it.
           </p>

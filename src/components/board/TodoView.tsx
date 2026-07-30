@@ -1,21 +1,46 @@
 "use client";
 
-// Named checklists. Nothing here touches the schedule — that's the point:
-// a to-do is something to do, not hours to place.
+// To-Do: things you have to do, grouped into lists you name.
+//
+// A to-do starts as a bare line of text and stays that way unless you ask for
+// more. Open one and it can gain a date, reminders counting back from that
+// date, hours booked on the calendar, and separately hours booked to prepare
+// for it — each optional, each editable later. That "later" matters: the common
+// path is jotting something down now and deciding weeks afterwards that it
+// actually needs time.
+//
+// Reminders used to be their own tab, which meant "present at the seminar" and
+// "warn me a week before the seminar" were two unrelated records.
 
 import { useCallback, useEffect, useState } from "react";
+import { EyeSlashIcon, EyeIcon } from "@phosphor-icons/react";
 import { createClient } from "@/lib/supabase/client";
-import type { Database } from "@/lib/supabase/database.types";
+import { TodoItemPanel } from "./TodoItemPanel";
+import type { ChaseCadence, Database } from "@/lib/supabase/database.types";
 
 type ListRow = Database["public"]["Tables"]["todo_lists"]["Row"];
 type ItemRow = Database["public"]["Tables"]["todo_items"]["Row"];
+type CategoryRow = Database["public"]["Tables"]["categories"]["Row"];
+type TaskRow = Database["public"]["Tables"]["tasks"]["Row"];
 
-export function TodoView() {
+const CHASE_LABEL: Record<ChaseCadence, string> = {
+  week: "chased weekly",
+  month: "chased monthly",
+  year: "chased yearly",
+};
+
+const fmtDue = (iso: string) =>
+  new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+
+export function TodoView({ onMutated }: { onMutated?: () => void }) {
   const [lists, setLists] = useState<ListRow[] | null>(null);
   const [items, setItems] = useState<ItemRow[]>([]);
+  const [categories, setCategories] = useState<CategoryRow[]>([]);
+  const [tasks, setTasks] = useState<TaskRow[]>([]);
   const [newList, setNewList] = useState("");
+  const [newChase, setNewChase] = useState<ChaseCadence | "">("");
   const [draft, setDraft] = useState<Record<string, string>>({});
-  const [showDone, setShowDone] = useState(false);
+  const [openItem, setOpenItem] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const supabase = createClient();
@@ -23,18 +48,27 @@ export function TodoView() {
       data: { user },
     } = await supabase.auth.getUser();
     if (!user) return;
-    const [{ data: listRows }, { data: itemRows }] = await Promise.all([
+    const [{ data: listRows }, { data: itemRows }, { data: catRows }, { data: taskRows }] = await Promise.all([
       supabase.from("todo_lists").select("*").order("sort_order").order("name"),
       supabase.from("todo_items").select("*").order("sort_order").order("created_at"),
+      supabase.from("categories").select("*").order("sort_order"),
+      supabase.from("tasks").select("*").is("archived_at", null),
     ]);
     setLists(listRows ?? []);
     setItems(itemRows ?? []);
+    setCategories(catRows ?? []);
+    setTasks(taskRows ?? []);
   }, []);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
   }, [load]);
+
+  async function refresh() {
+    await load();
+    onMutated?.();
+  }
 
   async function addList() {
     const name = newList.trim();
@@ -45,8 +79,9 @@ export function TodoView() {
     } = await supabase.auth.getUser();
     if (!user) return;
     setNewList("");
-    await supabase.from("todo_lists").insert({ user_id: user.id, name });
-    await load();
+    setNewChase("");
+    await supabase.from("todo_lists").insert({ user_id: user.id, name, chase: newChase || null });
+    await refresh();
   }
 
   async function addItem(listId: string) {
@@ -59,67 +94,104 @@ export function TodoView() {
     if (!user) return;
     setDraft((d) => ({ ...d, [listId]: "" }));
     await supabase.from("todo_items").insert({ user_id: user.id, list_id: listId, text });
-    await load();
+    await refresh();
   }
 
+  /** Ticking a to-do finishes whatever it had booked: the hours leave the
+   * calendar rather than sitting there for work that's already done. Archiving
+   * rather than deleting keeps the logged history for retrospectives. */
   async function toggle(item: ItemRow) {
     const supabase = createClient();
+    const done = !item.done;
     await supabase
       .from("todo_items")
-      .update({ done: !item.done, completed_at: item.done ? null : new Date().toISOString() })
+      .update({ done, completed_at: done ? new Date().toISOString() : null })
       .eq("id", item.id);
-    await load();
+    const linkedIds = [item.task_id, item.prep_task_id].filter((id): id is string => id != null);
+    if (linkedIds.length) {
+      await supabase
+        .from("tasks")
+        .update({ archived_at: done ? new Date().toISOString() : null })
+        .in("id", linkedIds);
+    }
+    await refresh();
   }
 
-  async function removeItem(id: string) {
+  async function setHidden(item: ItemRow, hidden: boolean) {
     const supabase = createClient();
-    await supabase.from("todo_items").delete().eq("id", id);
-    await load();
+    await supabase.from("todo_items").update({ hidden }).eq("id", item.id);
+    await refresh();
+  }
+
+  async function setShowCompleted(list: ListRow, show: boolean) {
+    const supabase = createClient();
+    await supabase.from("todo_lists").update({ show_completed: show }).eq("id", list.id);
+    await refresh();
+  }
+
+  async function setChase(list: ListRow, chase: ChaseCadence | "") {
+    const supabase = createClient();
+    await supabase.from("todo_lists").update({ chase: chase || null }).eq("id", list.id);
+    await refresh();
+  }
+
+  async function removeItem(item: ItemRow) {
+    const supabase = createClient();
+    const linkedIds = [item.task_id, item.prep_task_id].filter((id): id is string => id != null);
+    if (linkedIds.length) await supabase.from("tasks").delete().in("id", linkedIds);
+    await supabase.from("todo_items").delete().eq("id", item.id);
+    await refresh();
   }
 
   async function removeList(list: ListRow) {
     if (!confirm(`Delete the "${list.name}" list and everything on it?`)) return;
     const supabase = createClient();
     await supabase.from("todo_lists").delete().eq("id", list.id);
-    await load();
+    await refresh();
   }
 
   if (lists === null) return <div className="px-5 py-4 text-[12px] text-muted">Loading…</div>;
 
+  const field =
+    "rounded-md border border-border bg-surface px-2.5 py-1.5 text-xs text-text outline-none focus-visible:border-accent";
+
   return (
     <div className="flex-1 min-h-0 overflow-y-auto p-4">
-      <div className="flex items-center gap-3 mb-3 flex-wrap">
+      <div className="flex items-center gap-2 mb-3 flex-wrap">
         <input
           value={newList}
           onChange={(e) => setNewList(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && addList()}
           placeholder="New list name (e.g. This week)"
-          className="rounded-md border border-border bg-surface px-2.5 py-1.5 text-xs text-text outline-none focus-visible:border-accent"
+          className={field}
         />
+        <select value={newChase} onChange={(e) => setNewChase(e.target.value as ChaseCadence | "")} className={field}>
+          <option value="">never chase unfinished items</option>
+          <option value="week">chase at the end of each week</option>
+          <option value="month">chase at the end of each month</option>
+          <option value="year">chase at the end of each year</option>
+        </select>
         <button onClick={addList} className="text-xs text-accent hover:underline">
           + Add list
         </button>
-        <label className="ml-auto flex items-center gap-1.5 text-[11px] text-muted">
-          <input type="checkbox" checked={showDone} onChange={(e) => setShowDone(e.target.checked)} />
-          show completed
-        </label>
       </div>
 
       {lists.length === 0 && (
         <p className="text-[12px] text-muted max-w-xl">
-          No lists yet. Create one above, or just tell the chat — &ldquo;add write email to Rich to my This week
-          list&rdquo; — and it will make the list if it doesn&apos;t exist. Items here never take calendar time; ask
-          for hours separately when something needs real work booked.
+          No lists yet. Create one above, or just tell the chat — &ldquo;add call the plumber to my This week
+          list&rdquo; — and it will make the list if it doesn&apos;t exist.
         </p>
       )}
 
-      <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))" }}>
+      <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))" }}>
         {lists.map((list) => {
-          const listItems = items.filter((i) => i.list_id === list.id && (showDone || !i.done));
-          const openCount = items.filter((i) => i.list_id === list.id && !i.done).length;
+          const all = items.filter((i) => i.list_id === list.id);
+          const visible = all.filter((i) => !i.hidden && (list.show_completed || !i.done));
+          const openCount = all.filter((i) => !i.done).length;
+          const hiddenCount = all.filter((i) => i.hidden).length;
           return (
             <div key={list.id} className="rounded-lg border border-border bg-panel p-3 flex flex-col min-h-[120px]">
-              <div className="flex items-baseline gap-1.5 mb-2">
+              <div className="flex items-baseline gap-1.5 mb-1">
                 <span className="text-[12px] font-medium text-text truncate">{list.name}</span>
                 <span className="text-[10px] text-muted-2">{openCount}</span>
                 <button
@@ -130,34 +202,99 @@ export function TodoView() {
                 </button>
               </div>
 
-              <div className="flex flex-col gap-1 flex-1">
-                {listItems.map((item) => (
-                  <div key={item.id} className="group flex items-start gap-2">
-                    <input
-                      type="checkbox"
-                      checked={item.done}
-                      onChange={() => toggle(item)}
-                      className="mt-0.5 flex-none"
-                    />
-                    <span
-                      className="text-[11.5px] leading-snug flex-1 min-w-0"
-                      style={{
-                        color: item.done ? "var(--color-muted-2, #75798c)" : "var(--color-text, #e9e9ed)",
-                        textDecoration: item.done ? "line-through" : "none",
-                      }}
-                    >
-                      {item.text}
-                    </span>
-                    <button
-                      onClick={() => removeItem(item.id)}
-                      className="flex-none text-[10px] text-muted-2 opacity-0 group-hover:opacity-100 hover:text-text"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                ))}
-                {listItems.length === 0 && <div className="text-[10.5px] text-muted-2">nothing here</div>}
+              <div className="flex items-center gap-2 mb-2 flex-wrap">
+                <select
+                  value={list.chase ?? ""}
+                  onChange={(e) => setChase(list, e.target.value as ChaseCadence | "")}
+                  className="rounded border border-border bg-surface px-1.5 py-0.5 text-[10px] text-muted outline-none"
+                  title="Chase whatever is still unfinished when the period ends"
+                >
+                  <option value="">no chasing</option>
+                  <option value="week">{CHASE_LABEL.week}</option>
+                  <option value="month">{CHASE_LABEL.month}</option>
+                  <option value="year">{CHASE_LABEL.year}</option>
+                </select>
+                <label className="flex items-center gap-1 text-[10px] text-muted-2">
+                  <input
+                    type="checkbox"
+                    checked={list.show_completed}
+                    onChange={(e) => setShowCompleted(list, e.target.checked)}
+                  />
+                  show completed
+                </label>
               </div>
+
+              <div className="flex flex-col gap-0.5 flex-1">
+                {visible.map((item) => {
+                  const scheduled = item.task_id != null;
+                  const prepped = item.prep_task_id != null;
+                  return (
+                    <div key={item.id}>
+                      <div className="group flex items-start gap-2">
+                        <input
+                          type="checkbox"
+                          checked={item.done}
+                          onChange={() => toggle(item)}
+                          className="mt-0.5 flex-none"
+                        />
+                        <button
+                          onClick={() => setOpenItem(openItem === item.id ? null : item.id)}
+                          className="text-left text-[11.5px] leading-snug flex-1 min-w-0"
+                          style={{
+                            color: item.done ? "var(--color-muted-2, #75798c)" : "var(--color-text, #e9e9ed)",
+                            textDecoration: item.done ? "line-through" : "none",
+                          }}
+                        >
+                          {item.text}
+                          {(item.due_at || scheduled || prepped || item.lead_minutes.length > 0) && (
+                            <span className="ml-1.5 text-[9.5px] text-muted-2 whitespace-nowrap">
+                              {item.due_at ? fmtDue(item.due_at) : null}
+                              {item.lead_minutes.length > 0 ? " · reminders" : null}
+                              {scheduled ? " · booked" : null}
+                              {prepped ? " · prep" : null}
+                            </span>
+                          )}
+                        </button>
+                        <button
+                          onClick={() => setHidden(item, true)}
+                          title="Hide this item"
+                          className="flex-none text-muted-2 opacity-0 group-hover:opacity-100 hover:text-text"
+                        >
+                          <EyeSlashIcon size={12} />
+                        </button>
+                        <button
+                          onClick={() => removeItem(item)}
+                          title="Delete this item"
+                          className="flex-none text-[10px] text-muted-2 opacity-0 group-hover:opacity-100 hover:text-text"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                      {openItem === item.id && (
+                        <TodoItemPanel
+                          item={item}
+                          categories={categories}
+                          tasks={tasks}
+                          onClose={() => setOpenItem(null)}
+                          onSaved={refresh}
+                        />
+                      )}
+                    </div>
+                  );
+                })}
+                {visible.length === 0 && <div className="text-[10.5px] text-muted-2">nothing here</div>}
+              </div>
+
+              {hiddenCount > 0 && (
+                <button
+                  onClick={() => {
+                    for (const i of all.filter((x) => x.hidden)) void setHidden(i, false);
+                  }}
+                  className="mt-1 flex items-center gap-1 text-[10px] text-muted-2 hover:text-text"
+                >
+                  <EyeIcon size={11} /> show {hiddenCount} hidden
+                </button>
+              )}
 
               <input
                 value={draft[list.id] ?? ""}

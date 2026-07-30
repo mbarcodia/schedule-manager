@@ -25,9 +25,14 @@ export function buildPromptContext(rows: RawScheduleRows, inputs: ScheduleInputs
     return `${label}: ${w ? `${minToLabel(w.start)}-${minToLabel(w.end)}` : "off"}`;
   }).join(", ");
 
+  // THIS week only (gday 0-6). Without the week filter this summed the whole
+  // 12-week horizon and reported it as "scheduled this week", so a project with
+  // a 6h/week minimum was described to the model as having 69.5h booked this
+  // week — making every judgement about capacity nonsense. The chips in
+  // trackables.ts always filtered correctly; this didn't.
   const schedByProject: Record<string, number> = {};
   schedule.blocks.forEach((b) => {
-    if (b.projectId && b.status !== "missed") {
+    if (b.projectId && b.status !== "missed" && Math.floor(b.gday / 7) === 0) {
       schedByProject[b.projectId] = (schedByProject[b.projectId] || 0) + (b.end - b.start);
     }
   });

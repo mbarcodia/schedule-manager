@@ -15,6 +15,7 @@ import { readFileSync } from "node:fs";
 import { queryScheduleRows } from "../src/lib/scheduling/query-rows.ts";
 import { buildScheduleInputs } from "../src/lib/scheduling/from-db.ts";
 import { computeSchedule } from "../src/lib/scheduling/engine.ts";
+import { buildPlannerDynamicContext } from "../src/lib/planner/system-prompt.ts";
 
 const env = Object.fromEntries(
   readFileSync(new URL("../.env.local", import.meta.url), "utf8")
@@ -154,14 +155,25 @@ try {
   // Signup creates no labels (migration 0027) — Settings offers suggestions
   // instead, so nobody inherits a set that doesn't fit their work.
   const { data: seeded } = await admin.from("categories").select("id,name").eq("user_id", userId);
-  check("signup creates no labels", (seeded ?? []).length, 0);
-  const { data: label, error: labelErr } = await admin
-    .from("categories")
-    .insert({ user_id: userId, name: "Research", color: "#d9748f", sort_order: 0, min_chunk_min: 30 })
-    .select("id")
-    .single();
-  checkThat("a label can be added", label != null, labelErr?.message ?? "");
-  if (!label) throw new Error("label insert failed");
+  checkThat(
+    "signup creates no labels",
+    (seeded ?? []).length === 0,
+    `${seeded?.length ?? 0} seeded — migration 0027 not applied yet`,
+  );
+  // Works either side of that migration, so one pending migration can't block
+  // the rest of the suite.
+  let label = seeded?.[0] ?? null;
+  if (!label) {
+    const { data: made, error: labelErr } = await admin
+      .from("categories")
+      .insert({ user_id: userId, name: "Research", color: "#d9748f", sort_order: 0 })
+      .select("id")
+      .single();
+    checkThat("a label can be added", made != null, labelErr?.message ?? "");
+    if (!made) throw new Error("label insert failed");
+    label = made;
+  }
+  await admin.from("categories").update({ min_chunk_min: 30 }).eq("id", label.id);
 
   await admin.from("recurring_rules").insert({
     user_id: userId,
@@ -218,7 +230,20 @@ try {
       ...w,
     });
   }
-  console.log(`  seeded 2 projects, 1 target, ${work.length} pieces of work, 1 routine`);
+  // Deliberately more hours than one week holds, linked to the same project and
+  // low priority with no deadline, so it spills into later weeks. Without this
+  // the snapshot's "this week" figure would equal the horizon-wide one and the
+  // check below couldn't tell a correct implementation from the old broken one.
+  await admin.from("tasks").insert({
+    user_id: userId,
+    project_id: proj2.id,
+    title: "Long background reading",
+    priority: "low",
+    duration_min: 1800,
+    chunk_min: 120,
+    floor_at: at(0, 9),
+  });
+  console.log(`  seeded 2 projects, 1 target, ${work.length + 1} pieces of work, 1 routine`);
 
   // ------------------------------------------------------- initial schedule
   console.log("\n== scheduling ==");
@@ -380,6 +405,45 @@ try {
     .single();
   check("leads stored newest-first", due.lead_minutes, [10080, 1440]);
   check("nothing marked sent yet", due.sent_leads, []);
+
+  // -------------------------------------------------- what the chat is told
+  // The chat can only judge capacity honestly if the snapshot's numbers are
+  // right. This one summed the whole 12-week horizon and called it "this week".
+  console.log("\n== the state snapshot the chat reads ==");
+  s = await recompute();
+  const ctx = buildPlannerDynamicContext(s.rows, s.inputs, s.schedule, []);
+  const snap = JSON.parse(ctx.match(/Current state: (\{.*\})\n/s)?.[1] ?? "{}");
+  check(
+    "snapshot reports the user's vocabulary",
+    Object.keys(snap).filter((k) => ["work", "projects", "labels"].includes(k)).sort(),
+    ["labels", "projects", "work"],
+  );
+  // Blocks carry the id of the project they belong to, but the TITLE of the work
+  // item — so this has to match on the id, not the name.
+  const idByTitle = new Map(s.rows.projects.map((r) => [r.title, r.id]));
+  for (const p of snap.projects ?? []) {
+    const id = idByTitle.get(p.title);
+    const week0 = s.schedule.blocks
+      .filter((b) => b.projectId === id && b.gday < 7 && b.status !== "missed")
+      .reduce((a, b) => a + (b.end - b.start), 0);
+    check(`scheduledThisWeekHrs counts only this week: ${p.title}`, p.scheduledThisWeekHrs, +(week0 / 60).toFixed(1));
+  }
+  // And prove the horizon-wide figure would have been different, so this test
+  // would actually have caught the original bug.
+  const grantId = idByTitle.get("Grant application");
+  const allWeeks = s.schedule.blocks
+    .filter((b) => b.projectId === grantId && b.status !== "missed")
+    .reduce((a, b) => a + (b.end - b.start), 0);
+  const thisWeek = s.schedule.blocks
+    .filter((b) => b.projectId === grantId && b.gday < 7 && b.status !== "missed")
+    .reduce((a, b) => a + (b.end - b.start), 0);
+  checkThat(
+    "the fixture distinguishes this week from the whole horizon",
+    allWeeks !== thisWeek,
+    `both ${allWeeks} — the check would pass even with the bug present`,
+  );
+  checkThat("at-risk fields are present for the chat to reason from", 
+    ["willMissDeadline", "cuttingItClose", "didNotFit", "missedTimeBlocks"].every((k) => k in snap));
 
   // ---------------------------------------------------------------- cleanup
   console.log("\n== cleanup ==");

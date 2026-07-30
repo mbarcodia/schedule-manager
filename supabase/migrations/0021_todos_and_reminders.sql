@@ -1,7 +1,7 @@
 -- Two deliberately UNSCHEDULED kinds of thing, kept separate from Work (tasks)
 -- because they don't consume hours and must never be placed on the calendar:
 --
---   To-do items — named checklists ("This week", "Before the ACE2 meeting").
+--   To-do items — named checklists ("This week", "Before the group meeting").
 --                 No duration, no deadline maths, just text you tick off.
 --   Reminders    — a dated thing you want to be nudged about, with one or more
 --                 lead times ("1 week before" AND "1 day before").

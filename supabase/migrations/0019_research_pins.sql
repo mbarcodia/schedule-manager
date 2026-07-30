@@ -3,7 +3,7 @@
 -- Research blocks aren't task rows: the engine synthesizes one weekly chunk
 -- per research project (`research-<projectId>-w<N>` in engine.ts taskDefs),
 -- so update_task's pin couldn't touch them. Without this, "I'm working on
--- ACE2-S2S right now for an hour" had to be faked with add_event, which
+-- the model study right now for an hour" had to be faked with add_event, which
 -- produced a generic meeting instead of a Research block — wrong category
 -- colour, no done-checkbox, and no credit toward the project's weekly hours.
 --

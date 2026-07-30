@@ -16,7 +16,12 @@ import { buildIcs } from "@/lib/booking/ics";
 
 const patchSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("cancel") }),
-  z.object({ action: z.literal("reschedule"), startIso: z.string().datetime() }),
+  z.object({
+    action: z.literal("reschedule"),
+    startIso: z.string().datetime(),
+    // Changing a meeting is a chance to change where it happens, not just when.
+    locationMode: z.enum(["zoom", "office"]).optional(),
+  }),
 ]);
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -32,7 +37,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   if (!booking) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const [{ data: link }, { data: profile }] = await Promise.all([
-    admin.from("booking_links").select("slug,title,durations,active").eq("id", booking.link_id).single(),
+    admin.from("booking_links").select("slug,title,durations,active,location_modes").eq("id", booking.link_id).single(),
     admin.from("profiles").select("display_name,office_location,timezone").eq("id", booking.user_id).single(),
   ]);
 
@@ -45,6 +50,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     officeLocation: profile?.office_location ?? null,
     ownerName: profile?.display_name ?? null,
     title: link?.title ?? "Meeting",
+    locationModes: link?.location_modes ?? [],
     // Rescheduling reuses the link's public availability endpoint.
     slug: link?.active ? link.slug : null,
   });
@@ -90,12 +96,18 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   ]);
   const timezone = profile?.timezone ?? "UTC";
 
+  // A reschedule may carry a new location; anything else keeps the original.
+  const nextLocationMode =
+    parsed.data.action === "reschedule" && parsed.data.locationMode && link?.location_modes.includes(parsed.data.locationMode)
+      ? parsed.data.locationMode
+      : booking.location_mode;
+
   const details = {
     linkTitle: link?.title ?? "Meeting",
     visitorName: booking.visitor_name,
     visitorEmail: booking.visitor_email,
     ownerName: profile?.display_name ?? null,
-    locationMode: booking.location_mode,
+    locationMode: nextLocationMode,
     meetingUrl: profile?.booking_meeting_url ?? null,
     officeLocation: profile?.office_location ?? null,
     note: booking.visitor_note,
@@ -197,6 +209,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       starts_at: startsAt.toISOString(),
       ends_at: endsAt.toISOString(),
       event_id: event?.id ?? null,
+      location_mode: nextLocationMode,
       last_changed_by: actor,
     })
     .eq("id", booking.id);

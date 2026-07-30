@@ -625,6 +625,7 @@ export interface Database {
           starts_at: string;
           ends_at: string;
           duration_min: number;
+          location_mode: BookingLocationMode;
           status: BookingStatus;
           cancelled_at: string | null;
           last_changed_by: "owner" | "visitor" | null;

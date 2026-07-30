@@ -778,6 +778,14 @@ export default function SettingsPage() {
               behaviour:
             </p>
             <p className="mb-2">
+              Booking-page rules are the exception to &ldquo;just ask the chat&rdquo;: they live in{" "}
+              <span className="text-text">Settings → Booking page</span> only, because they govern what strangers can
+              do to your calendar and that shouldn&apos;t be changeable by a sentence in a chat window. Each link
+              lists its own rules underneath it, and <span className="text-text">edit</span> exposes all of them:
+              meeting lengths, which days and the earliest/latest time each day, minimum notice before a booking,
+              a gap around meetings, a daily cap, and which task categories are protected from being booked over.
+            </p>
+            <p className="mb-2">
               <span className="text-text">Quick task</span> — for a single change. It acts immediately with no
               questions and no plan: &ldquo;log 45 minutes on grading&rdquo;, &ldquo;move my gym block to 6pm&rdquo;,
               &ldquo;archive the dev app task&rdquo;. Routine one-liners are also sent to a smaller model here, which

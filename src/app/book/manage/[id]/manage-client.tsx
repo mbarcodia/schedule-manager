@@ -15,6 +15,7 @@ interface BookingInfo {
   ownerName: string | null;
   title: string;
   slug: string | null;
+  locationModes: ("zoom" | "office")[];
 }
 
 interface Slot {
@@ -36,6 +37,9 @@ const fmtFull = (iso: string) =>
 export function ManageClient({ bookingId }: { bookingId: string }) {
   const [info, setInfo] = useState<BookingInfo | null>(null);
   const [mode, setMode] = useState<"view" | "picking">("view");
+  /** Changing a meeting re-asks where it happens, not just when. Seeded from
+   * the booking's current location once info arrives. */
+  const [locationMode, setLocationMode] = useState<"zoom" | "office" | null>(null);
   const [week, setWeek] = useState(0);
   const [slots, setSlots] = useState<Slot[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -44,7 +48,11 @@ export function ManageClient({ bookingId }: { bookingId: string }) {
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/book/manage/${bookingId}`);
-    if (res.ok) setInfo(await res.json());
+    if (res.ok) {
+      const data: BookingInfo = await res.json();
+      setInfo(data);
+      setLocationMode(data.locationMode);
+    }
   }, [bookingId]);
 
   useEffect(() => {
@@ -135,7 +143,7 @@ export function ManageClient({ bookingId }: { bookingId: string }) {
 
             {done === "moved" && (
               <p className="text-sm mb-4" style={{ color: "#3dd68c" }}>
-                Moved — everyone&apos;s calendars have been updated.
+                Changed — everyone&apos;s calendars have been updated.
               </p>
             )}
             {error && (
@@ -151,7 +159,7 @@ export function ManageClient({ bookingId }: { bookingId: string }) {
                     onClick={() => setMode("picking")}
                     className="rounded-md border border-accent text-accent px-3.5 py-2 text-sm font-medium hover:bg-accent/10"
                   >
-                    Reschedule
+                    Change
                   </button>
                 )}
                 <button
@@ -183,9 +191,37 @@ export function ManageClient({ bookingId }: { bookingId: string }) {
                     later →
                   </button>
                   <button onClick={() => setMode("view")} className="ml-auto text-xs text-muted hover:text-text">
-                    cancel change
+                    keep current booking
                   </button>
                 </div>
+
+                {info.locationModes.length > 1 && (
+                  <div className="mb-3">
+                    <div className="text-xs text-muted mb-1.5">Where should it happen?</div>
+                    <div className="flex gap-1.5 flex-wrap">
+                      {info.locationModes.map((m) => (
+                        <button
+                          key={m}
+                          onClick={() => setLocationMode(m)}
+                          className="rounded-md px-3 py-1.5 text-sm border"
+                          style={{
+                            borderColor: locationMode === m ? "var(--color-accent)" : "var(--color-border)",
+                            background: locationMode === m ? "rgba(145,132,217,0.08)" : "transparent",
+                          }}
+                        >
+                          {m === "office" ? "In person" : "Video call"}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="mt-1.5 text-xs text-muted">
+                      {locationMode === "office"
+                        ? info.officeLocation
+                          ? `We'll meet at ${info.officeLocation}.`
+                          : "We'll meet in person."
+                        : "Your meeting link will be emailed to you."}
+                    </p>
+                  </div>
+                )}
 
                 {slots === null ? (
                   <p className="text-sm text-muted py-6">Loading times…</p>
@@ -211,7 +247,12 @@ export function ManageClient({ bookingId }: { bookingId: string }) {
                             <button
                               key={s.startIso}
                               disabled={busy}
-                              onClick={() => void act({ action: "reschedule", startIso: s.startIso }, "moved")}
+                              onClick={() =>
+                                void act(
+                                  { action: "reschedule", startIso: s.startIso, locationMode: locationMode ?? undefined },
+                                  "moved",
+                                )
+                              }
                               className="rounded-md border border-border px-2.5 py-1.5 text-sm hover:border-accent disabled:opacity-50"
                             >
                               {new Date(s.startIso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}

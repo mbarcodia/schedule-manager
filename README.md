@@ -42,7 +42,7 @@ Everything below is built and working — this is the whole feature set, not a r
 
 **Public booking page** (Calendly-style, optional)
 - Share a link; visitors see only free slots computed from your working hours, calendars, and protected task categories
-- Per-link meeting lengths, bookable days/times, buffers, minimum notice, and a daily cap
+- Per-link rules, all in **Settings → Booking page** (each link summarises its own underneath it): meeting lengths, bookable days with an earliest/latest time per day, minimum notice before someone can book, a buffer around meetings, and a maximum number of bookings per day. These are intentionally UI-only rather than chat-editable — they control what strangers can do to your calendar.
 - Visitors choose video or in person when you offer both; bookings land on your calendar (and optionally your real Google Calendar, which emails them an invite)
 - Either side can cancel or reschedule from a private link
 

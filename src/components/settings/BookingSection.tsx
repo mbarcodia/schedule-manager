@@ -347,6 +347,24 @@ export function BookingSection({ categories }: { categories: CategoryRow[] }) {
               </div>
             </div>
 
+            {/* Every rule this link enforces, in words — so you don't have to
+                open the editor to know what guests can and can't do. */}
+            <p className="mt-1.5 text-[10.5px] text-muted leading-relaxed">
+              {link.durations.join(" / ")} min ·{" "}
+              {(() => {
+                const open = DOW_LABELS.map((d, i) => ({ d, w: link.day_windows[String(i)] ?? null })).filter((x) => x.w);
+                if (!open.length) return "no bookable days set";
+                const earliest = Math.min(...open.map((x) => x.w!.start));
+                const latest = Math.max(...open.map((x) => x.w!.end));
+                return `${open.map((x) => x.d).join(", ")}, no earlier than ${minToLabel(earliest)} and no later than ${minToLabel(latest)}`;
+              })()}{" "}
+              · at least {link.min_notice_hours}h notice · max {link.max_per_day}/day
+              {link.buffer_min > 0 ? ` · ${link.buffer_min}m gap around meetings` : " · no gap enforced"}
+              {link.blocking_category_ids.length > 0
+                ? ` · ${link.blocking_category_ids.length} protected categor${link.blocking_category_ids.length > 1 ? "ies" : "y"}`
+                : ""}
+            </p>
+
             {expanded === link.id && (
               <div className="mt-3 pt-3 border-t border-border flex flex-col gap-3 text-xs">
                 {/* Durations */}

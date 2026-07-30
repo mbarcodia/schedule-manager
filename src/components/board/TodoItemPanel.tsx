@@ -53,11 +53,7 @@ export function TodoItemPanel({
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
-  // prep_task_id is a leftover from when preparation was booked separately.
-  // Nothing creates one now; adopt any that still exists as the item's booking
-  // so it stays visible and editable rather than becoming an orphan.
-  const linked = tasks.find((t) => t.id === item.task_id) ?? tasks.find((t) => t.id === item.prep_task_id) ?? null;
-  const adoptedPrep = item.task_id == null && linked != null;
+  const linked = tasks.find((t) => t.id === item.task_id) ?? null;
 
   const [dueAt, setDueAt] = useState(toLocalInput(item.due_at));
   const [leads, setLeads] = useState<number[]>(item.lead_minutes);
@@ -147,16 +143,11 @@ export function TodoItemPanel({
         }
         patch.task_id = created!.id;
       }
-      if (adoptedPrep) {
-        patch.task_id = linked!.id;
-        patch.prep_task_id = null;
-      }
     } else if (linked) {
       // Unticking "book time" removes the hours from the calendar but keeps the
       // to-do itself, which is the whole point of the two being separate.
       await supabase.from("tasks").delete().eq("id", linked.id);
       patch.task_id = null;
-      patch.prep_task_id = null;
     }
 
     await supabase.from("todo_items").update(patch).eq("id", item.id);

@@ -342,7 +342,7 @@ export function buildTodoReminderTools(ctx: ToolContext) {
       if (!hours) return "Say how many hours to book.";
       const { data: items } = await supabase
         .from("todo_items")
-        .select("id,text,due_at,task_id,prep_task_id")
+        .select("id,text,due_at,task_id")
         .eq("user_id", userId)
         .eq("done", false);
       const found = findByTitle((items ?? []).map((i) => ({ ...i, title: i.text })), text);

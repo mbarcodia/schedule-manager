@@ -526,7 +526,6 @@ export interface Database {
           notes: string | null;
           hidden: boolean;
           task_id: string | null;
-          prep_task_id: string | null;
           event_id: string | null;
           sort_order: number;
           created_at: string;
@@ -553,7 +552,6 @@ export interface Database {
           notes: string | null;
           hidden: boolean;
           task_id: string | null;
-          prep_task_id: string | null;
           event_id: string | null;
           sort_order: number;
           list_id: string;

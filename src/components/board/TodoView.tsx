@@ -41,7 +41,7 @@ function settingsSummary(item: ItemRow): string | null {
   const parts = [
     item.due_at ? fmtDue(item.due_at) : null,
     item.lead_minutes.length ? `${item.lead_minutes.length} reminder${item.lead_minutes.length > 1 ? "s" : ""}` : null,
-    item.task_id || item.prep_task_id ? "time booked" : null,
+    item.task_id ? "time booked" : null,
   ].filter(Boolean);
   return parts.length ? parts.join(" · ") : null;
 }
@@ -121,12 +121,11 @@ export function TodoView({ onMutated }: { onMutated?: () => void }) {
       .from("todo_items")
       .update({ done, completed_at: done ? new Date().toISOString() : null })
       .eq("id", item.id);
-    const linkedIds = [item.task_id, item.prep_task_id].filter((id): id is string => id != null);
-    if (linkedIds.length) {
+    if (item.task_id) {
       await supabase
         .from("tasks")
         .update({ archived_at: done ? new Date().toISOString() : null })
-        .in("id", linkedIds);
+        .eq("id", item.task_id);
     }
     await refresh();
   }
@@ -151,8 +150,7 @@ export function TodoView({ onMutated }: { onMutated?: () => void }) {
 
   async function removeItem(item: ItemRow) {
     const supabase = createClient();
-    const linkedIds = [item.task_id, item.prep_task_id].filter((id): id is string => id != null);
-    if (linkedIds.length) await supabase.from("tasks").delete().in("id", linkedIds);
+    if (item.task_id) await supabase.from("tasks").delete().eq("id", item.task_id);
     await supabase.from("todo_items").delete().eq("id", item.id);
     await refresh();
   }

@@ -183,6 +183,9 @@ interface RunSchedulerResult {
   nearDeadline: string[];
 }
 
+/** tasks[].deadline uses this to mean "no deadline" (see from-db.ts). */
+const NO_DEADLINE = 99999;
+
 function runScheduler(
   inputs: ScheduleInputs,
   taskList: TaskDef[],
@@ -222,30 +225,52 @@ function runScheduler(
     const floor = Math.max(t.floor || 0, floorMin || 0);
     let chunkLen = Math.min(t.chunk || t.remaining, t.remaining);
 
-    const tryLen = (len: number): Slot | null => {
+    const tryLen = (len: number, ceil: number | undefined): Slot | null => {
       const dayOk = t.maxPerDayMin
         ? (d: GDay) => ((perDay[t.id] || {})[d] || 0) + len <= t.maxPerDayMin!
         : null;
-      if (t.timeOfDay === "afternoon") return findSlot(inputs, floor, len, false, busy, dayOk, t.ceilAbs, true);
-      if (t.timeOfDay === "morning" || t.tag === "deep-focus") return findSlot(inputs, floor, len, true, busy, dayOk, t.ceilAbs);
+      if (t.timeOfDay === "afternoon") return findSlot(inputs, floor, len, false, busy, dayOk, ceil, true);
+      if (t.timeOfDay === "morning" || t.tag === "deep-focus") return findSlot(inputs, floor, len, true, busy, dayOk, ceil);
       if (t.preferMorning)
         return (
-          findSlot(inputs, floor, len, true, busy, dayOk, t.ceilAbs) ||
-          findSlot(inputs, floor, len, false, busy, dayOk, t.ceilAbs)
+          findSlot(inputs, floor, len, true, busy, dayOk, ceil) ||
+          findSlot(inputs, floor, len, false, busy, dayOk, ceil)
         );
-      return findSlot(inputs, floor, len, false, busy, dayOk, t.ceilAbs);
+      return findSlot(inputs, floor, len, false, busy, dayOk, ceil);
     };
 
     const shrinkFloor = t.minChunk ?? 30;
-    let slot = tryLen(chunkLen);
-    while (!slot && chunkLen > shrinkFloor) {
-      chunkLen = Math.max(shrinkFloor, chunkLen - 30);
-      slot = tryLen(chunkLen);
-    }
-    if (!slot) {
+    /** Places the chunk under a ceiling, shrinking toward minChunk to fit. */
+    const placeUnder = (ceil: number | undefined): { slot: Slot; len: number } | null => {
+      let len = Math.min(t.chunk || t.remaining, t.remaining);
+      let found = tryLen(len, ceil);
+      while (!found && len > shrinkFloor) {
+        len = Math.max(shrinkFloor, len - 30);
+        found = tryLen(len, ceil);
+      }
+      return found ? { slot: found, len } : null;
+    };
+
+    // A deadline bounds where the work may go, not just the order it's
+    // considered in. Without this the search walks forward for a gap the size
+    // of the preferred chunk and takes the first one it finds — happily landing
+    // past the deadline when the time before it was free but only in smaller
+    // pieces. Two hours of prep for a Wednesday talk went to Thursday because
+    // Monday and Tuesday offered 90-minute holes rather than 120-minute ones.
+    const deadlineCeil = t.deadline === NO_DEADLINE ? undefined : t.deadline;
+    const withinDeadline =
+      deadlineCeil == null ? undefined : t.ceilAbs == null ? deadlineCeil : Math.min(t.ceilAbs, deadlineCeil);
+
+    let placed = withinDeadline != null ? placeUnder(withinDeadline) : null;
+    // Nothing fits before the deadline even in the smallest pieces allowed —
+    // schedule it late rather than not at all, and let the risk report say so.
+    if (!placed) placed = placeUnder(t.ceilAbs);
+    if (!placed) {
       t.remaining = -1;
       continue;
     }
+    const slot = placed.slot;
+    chunkLen = placed.len;
     markBusy(slot.abs, chunkLen, busy);
     perDay[t.id] = perDay[t.id] || {};
     perDay[t.id][slot.gday] = (perDay[t.id][slot.gday] || 0) + chunkLen;
@@ -285,7 +310,7 @@ function runScheduler(
         (t) =>
           t.finishedAbs != null &&
           t.deadline != null &&
-          t.deadline !== 99999 &&
+          t.deadline !== NO_DEADLINE &&
           t.finishedAbs > t.deadline,
       )
       .map((t) => t.title),
@@ -296,7 +321,7 @@ function runScheduler(
         (t) =>
           t.finishedAbs != null &&
           t.deadline != null &&
-          t.deadline !== 99999 &&
+          t.deadline !== NO_DEADLINE &&
           t.finishedAbs <= t.deadline &&
           Math.floor(t.finishedAbs / 1440) === Math.floor(t.deadline / 1440),
       )

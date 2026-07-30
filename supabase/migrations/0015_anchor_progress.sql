@@ -1,4 +1,4 @@
--- Recurring blocks (anchors — Emails, Lunch+Qwalk, etc.) previously had no
+-- Recurring blocks (anchors — Emails, Lunch, etc.) previously had no
 -- way to be marked done/missed at all; only tasks and research chunks could
 -- log progress. Add 'anchor' as a third subject_type so the same
 -- progress_log mechanism covers them (subject_id = recurring_rules.id).

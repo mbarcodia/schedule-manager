@@ -10,10 +10,10 @@ const SMALL = "claude-sonnet-5";
 
 const downgrade = [
   "log 45 minutes on grading",
-  "mark AgenAI BAMS done",
+  "mark the model study done",
   "add a 2h task for syllabus prep",
   "move the model study to 3pm",
-  "archive the dev app task",
+  "archive the outreach task",
   "delete the lunch block",
   "Set threshold study to 5h/week",
   "pin Ocean model study right now for an hour",
@@ -28,7 +28,7 @@ const keepBig = [
   "help me plan the fall semester",
   "review my week",
   "time to plan",
-  "should I drop the ROSES proposal",
+  "should I drop the smaller proposal",
   "explain how the research hours work",
   "add a task — actually, what do you think I should prioritize first?",
   // multi-sentence / long

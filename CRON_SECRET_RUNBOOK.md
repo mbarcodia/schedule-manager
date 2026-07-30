@@ -22,7 +22,7 @@ memory for the 2026-07-24 incident this replaces the silent-failure-email for).
 
 3. Sync the GitHub Actions secret:
    ```bash
-   printf '%s' "$LOCAL_SECRET" | gh secret set CRON_SECRET --repo mbarcodia/schedule-manager
+   printf '%s' "$LOCAL_SECRET" | gh secret set CRON_SECRET --repo <your-github-user>/<your-repo>
    ```
 
 4. Redeploy prod so the env var change actually takes effect:
@@ -37,7 +37,7 @@ memory for the 2026-07-24 incident this replaces the silent-failure-email for).
      "$PROD_BASE_URL/api/cron/eod-checkin?hour=$H" \
      -H "Authorization: Bearer $LOCAL_SECRET"
    # should print 200
-   gh workflow run digest-notifications.yml --repo mbarcodia/schedule-manager
+   gh workflow run digest-notifications.yml --repo <your-github-user>/<your-repo>
    ```
 
 ## Why this keeps happening

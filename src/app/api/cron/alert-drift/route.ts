@@ -23,7 +23,9 @@ export async function POST(request: Request) {
   const sent = await sendPushToUser(supabase, ownerId, {
     title: "Cron auth broken",
     body: `${reason}. Likely CRON_SECRET drift between Vercel and GitHub Actions — see CRON_SECRET_RUNBOOK.md for the fix.`,
-    url: "https://github.com/mbarcodia/schedule-manager/blob/main/web/CRON_SECRET_RUNBOOK.md",
+    // Deliberately not a hardcoded repo URL: every self-hosted copy has its own
+    // fork, and CRON_SECRET_RUNBOOK.md sits in the clone the reader already has.
+    url: "/settings",
   });
 
   return NextResponse.json({ sent });

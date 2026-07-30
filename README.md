@@ -66,11 +66,11 @@ Everything below is built and working — this is the whole feature set, not a r
 - Keeps durable notes per project (kinds: idea, todo, paper, update, other), exportable as one Markdown file
 - Runs on your own Anthropic API key **or** your existing Claude Pro/Max subscription
 
-**Planner board** (four views over the same live schedule — nothing is a hand-maintained list)
-- **Kanban** — Backlog / This Week / In Progress / Done, derived from what the schedule actually says; drag a card to change the schedule
-- **Eisenhower** — importance (you set it) against urgency (read from deadlines)
+**Planner board** (six views: the first three read the live schedule and can't drift from it, the last three are yours to write in)
+- **Progress** — Backlog / This Week / In Progress / Done, derived from what the schedule actually says; drag a card to change the schedule
+- **Priorities** — importance (you set it) against urgency (read from deadlines)
 - **Timeline** — six months of project deadlines with their targets marked along the way, coloured by whether booked hours can still cover them
-- **To-Do** — lists you name, holding anything from a one-line errand to a talk you must prepare for; any item can gain a date, notification lead times, booked hours with both a start and a finish-by (which is how you book preparation \u2014 those blocks are labelled \u201cPrep:\u201d), and a fixed slot held on the calendar as an event, at any point after you write it down, and a list can notify you about whatever is still unticked when the week, month or year ends
+- **To-Do** — lists you name, holding anything from a one-line errand to a talk you must prepare for; any item can gain a date, notification lead times, booked hours with both a start and a finish-by (which is how you book preparation — those blocks are labelled “Prep:”), and a fixed slot held on the calendar as an event, at any point after you write it down, and a list can notify you about whatever is still unticked when the week, month or year ends
 - **Lists** — reading lists, packing lists, standing agendas: a paragraph, a checklist, or both, with nothing scheduled or notified
 - **Archive** — finished work is archived, never deleted, so logged hours survive for "what did I get done this semester?"
 - A live weekly-review strip (done/total, work-in-progress limit, missed blocks, at-risk deadlines) and a guided "Time to plan" interview
@@ -416,7 +416,7 @@ planner works" explains each view and how it maps onto the real schedule.
 - The chat can do everything: create/edit tasks and events, log progress, pin
   research time, archive finished work, and keep notes.
 - Each note has a kind (idea, todo, paper, update, other) and can be linked
-  to a project/proposal/goal/task, or left unlinked.
+  to a project or a piece of work, or left unlinked.
 - Create and edit notes either by asking in chat ("add a note to the model study about
   the new element we need to design") or directly in the sidebar.
 - The sidebar groups notes under their linked project; **Export notes** in

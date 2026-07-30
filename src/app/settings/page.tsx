@@ -125,11 +125,11 @@ const VOCABULARY: [string, string][] = [
   ],
   [
     "To-do",
-    "something to do, on a list you name. It occupies no calendar time by itself, and can gain a date, notification lead times, and booked hours (with a start and a finish-by, which is how preparation gets booked) at any point after you jot it down \u2014 a reminder is simply a to-do that has a date and a lead time.",
+    "something to do, on a list you name. It occupies no calendar time by itself, and can gain a date, notification lead times, and booked hours (with a start and a finish-by, which is how preparation gets booked) at any point after you jot it down — a reminder is simply a to-do that has a date and a lead time.",
   ],
   [
     "Target",
-    "a date inside a project that takes no time of its own — \u201cfirst round of analysis done by the end of August\u201d. It shows as a marker on the timeline and you click it when you hit it. If getting there needs hours, that's Work, added separately.",
+    "a date inside a project that takes no time of its own — “first round of analysis done by the end of August”. It shows as a marker on the timeline and you click it when you hit it. If getting there needs hours, that's Work, added separately.",
   ],
   [
     "Work",
@@ -930,7 +930,7 @@ export default function SettingsPage() {
             <p className="mb-2">
               <span className="text-text">Quick task</span> — for a single change. It acts immediately with no
               questions and no plan: &ldquo;log 45 minutes on grading&rdquo;, &ldquo;move my gym block to 6pm&rdquo;,
-              &ldquo;archive the dev app task&rdquo;. Routine one-liners are also sent to a smaller model here, which
+              &ldquo;archive the outreach task&rdquo;. Routine one-liners are also sent to a smaller model here, which
               is cheaper and quicker at no cost to the answer.
             </p>
             <p>

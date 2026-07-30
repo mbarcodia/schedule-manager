@@ -8,8 +8,12 @@ const timezone = "America/New_York";
 const inputs = {
   timezone,
   horizonWeeks: 12,
-  workStartHour: 9,
-  workEndHour: 17,
+  // Mon-Fri 9-17, weekends off. (This fixture used to carry the prototype's
+  // single workStartHour/workEndHour pair, which the engine stopped reading
+  // when per-weekday hours landed — hence the crash this replaces.)
+  weeklyHours: Object.fromEntries(
+    Array.from({ length: 7 }, (_, d) => [d, d < 5 ? { start: 9 * 60, end: 17 * 60 } : null]),
+  ),
   tasks: [
     {
       id: "t1",
@@ -57,12 +61,18 @@ const inputs = {
     // Explicitly allow this week's Saturday (gday 5)
     5: { allowWeekend: true, start: 10 * 60, end: 14 * 60 },
   },
+  researchPins: [],
+  graceHours: 4,
+  tagLabels: { task: "Task", research: "Research", deepFocus: "Deep focus", block: "Block" },
   completed: {},
   partial: {},
   pinned: {},
 };
 
-const result = computeSchedule(inputs, new Date());
+// A fixed Monday morning, so nothing in the fixture's week has already passed —
+// with a real `new Date()` the output changes shape depending on the hour it's
+// run, which makes the printed schedule impossible to compare against.
+const result = computeSchedule(inputs, new Date(2026, 6, 27, 8, 0));
 
 console.log("=== Blocks (first 20) ===");
 for (const b of result.blocks.slice(0, 20)) {
@@ -86,3 +96,11 @@ const researchWk0 = result.blocks.filter(
 );
 const researchMin = researchWk0.reduce((s, b) => s + (b.end - b.start), 0);
 console.log(`\nACE S2S research minutes scheduled in week 0: ${researchMin} (target 480)`);
+
+const problems = [];
+const strayWeekend = weekendBlocks.filter((b) => !(b.gday === 5));
+if (strayWeekend.length) problems.push(`${strayWeekend.length} block(s) on a day that was never opted in`);
+if (researchMin !== 480) problems.push(`ACE S2S got ${researchMin}m of research in week 0, not its 480m floor`);
+for (const p of problems) console.log(`FAIL ${p}`);
+console.log(problems.length ? "" : "\nall engine sanity checks passed");
+process.exit(problems.length ? 1 : 0);

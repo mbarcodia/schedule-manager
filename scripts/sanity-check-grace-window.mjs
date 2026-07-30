@@ -134,5 +134,25 @@ const tickedChunk = chunks(ticked).find((b) => b.gday === placed.gday && b.start
 check("ticked during grace", tickedChunk?.status, "done");
 check("ticked leaves no replacement", chunks(ticked).length, 1);
 
+// Choosing "Just now" instead pins the hour at the moment of ticking (see
+// useScheduleData.pinDone). The task must then be fully credited — no leftover
+// duration re-placed elsewhere, and no second copy of the original slot.
+const pinnedInputs = inputs(4);
+const pinStart = 10 * 60; // pinDone backdates the pin so it ends "now" (11:00)
+pinnedInputs.pinned[`${TASK_ID}@${WED_GDAY}-${pinStart}`] = {
+  taskId: TASK_ID,
+  projectId: null,
+  tagLabel: "Task",
+  title: "Write abstract",
+  gday: WED_GDAY,
+  start: pinStart,
+  end: pinStart + DURATION,
+  priority: "high",
+};
+const justNow = computeSchedule(pinnedInputs, wednesday(11, 0)).blocks;
+check("pinned 'just now' is done", chunks(justNow).find((b) => b.start === pinStart)?.status, "done");
+check("pinned 'just now' leaves nothing owing", liveMinutes(justNow), DURATION);
+check("pinned 'just now' leaves one block", chunks(justNow).length, 1);
+
 console.log(failures ? `\n${failures} check(s) failed` : "\nall grace-window checks passed");
 process.exit(failures ? 1 : 0);

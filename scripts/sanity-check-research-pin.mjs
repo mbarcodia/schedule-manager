@@ -53,13 +53,19 @@ const researchMinutes = (blocks, week) =>
     )
     .reduce((sum, b) => sum + (b.end - b.start), 0);
 
+// A fixed Monday morning. With a real `new Date()` the Wednesday-14:00 pin
+// below is already in the past whenever this runs after 3pm midweek, so the
+// pinned hour reads as missed and the weekly total looks 60m short — a failure
+// that says nothing about pinning.
+const NOW = new Date(2026, 6, 27, 8, 0);
+
 // Baseline: no pins.
-const base = computeSchedule(inputs([]), new Date());
+const base = computeSchedule(inputs([]), NOW);
 const baseWeek0 = researchMinutes(base.blocks, 0);
 
 // Pinned: 60 minutes fixed to Wednesday (gday 2) at 14:00 this week.
 const PIN = { projectId: PROJECT_ID, gday: 2, start: 14 * 60, length: 60 };
-const pinned = computeSchedule(inputs([PIN]), new Date());
+const pinned = computeSchedule(inputs([PIN]), NOW);
 const pinnedWeek0 = researchMinutes(pinned.blocks, 0);
 const atSlot = pinned.blocks.filter((b) => b.gday === PIN.gday && b.start === PIN.start);
 

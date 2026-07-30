@@ -510,22 +510,34 @@ export function computeSchedule(
     return { ...t, duration: Math.max(rem, 0) };
   });
 
+  // Answering "I did it, just now" on an un-ticked past slot pins the work at
+  // the moment of ticking. That pin carries the credit, so leaving the original
+  // slot in place — still asking DID YOU?, and calling itself MISSED once the
+  // grace window lapses — would contradict what the user just told us. Drop it
+  // and free its time, but only when a pin is what settled the task: a plainly
+  // missed slot on a task finished some other way is still real history.
+  const pinCredited = new Set(pinnedList.map((c) => c.taskId!));
+  const settledByPin = new Set(preDone.filter((id) => pinCredited.has(id)));
+  const live = kept.filter(
+    (c) => !((c.status === "grace" || c.status === "missed") && settledByPin.has(c.taskId!)),
+  );
+
   const busy2 = new Set(baseBusy);
-  kept.forEach((c) => markBusy(c.abs!, c.end - c.start, busy2));
+  live.forEach((c) => markBusy(c.abs!, c.end - c.start, busy2));
   pinnedList.forEach((c) => markBusy(c.abs!, c.end - c.start, busy2));
 
   const nowCeil = Math.ceil(NOW / 15) * 15;
   const res = runScheduler(inputs, defs2, busy2, nowCeil, preDone);
 
-  kept.forEach((c) => blocks.push(c));
+  live.forEach((c) => blocks.push(c));
   pinnedList.forEach((c) => blocks.push(c));
   futurePins.forEach((c) => blocks.push(c));
   res.chunks.forEach((c) => blocks.push(c));
 
   const missed = [
-    ...new Set(kept.filter((c) => c.status === "missed").map((c) => c.title)),
+    ...new Set(live.filter((c) => c.status === "missed").map((c) => c.title)),
   ];
-  kept
+  live
     .filter((c) => c.status === "partial" && (c.partMin ?? 0) < c.end - c.start)
     .forEach((c) => {
       const shortMin = c.end - c.start - (c.partMin ?? 0);

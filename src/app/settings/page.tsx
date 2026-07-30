@@ -125,7 +125,7 @@ const VOCABULARY: [string, string][] = [
   ],
   [
     "To-do",
-    "something to do, on a list you name. It occupies no calendar time by itself, and can gain a date, notification lead times, booked hours and separate preparation time at any point after you jot it down \u2014 a reminder is simply a to-do that has a date and a lead time.",
+    "something to do, on a list you name. It occupies no calendar time by itself, and can gain a date, notification lead times, and booked hours (with a start and a finish-by, which is how preparation gets booked) at any point after you jot it down \u2014 a reminder is simply a to-do that has a date and a lead time.",
   ],
   [
     "Target",

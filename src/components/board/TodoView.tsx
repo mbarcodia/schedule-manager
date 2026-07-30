@@ -41,8 +41,7 @@ function settingsSummary(item: ItemRow): string | null {
   const parts = [
     item.due_at ? fmtDue(item.due_at) : null,
     item.lead_minutes.length ? `${item.lead_minutes.length} reminder${item.lead_minutes.length > 1 ? "s" : ""}` : null,
-    item.task_id ? "time booked" : null,
-    item.prep_task_id ? "prep booked" : null,
+    item.task_id || item.prep_task_id ? "time booked" : null,
   ].filter(Boolean);
   return parts.length ? parts.join(" · ") : null;
 }

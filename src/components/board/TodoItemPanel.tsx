@@ -1,9 +1,15 @@
 "use client";
 
 // Everything you can attach to a single to-do, in one place: when it happens,
-// what warning you want, hours booked for it, and hours booked to prepare for
-// it. All four are optional and all four are editable later — the common case
-// is a bare line of text, and the panel only opens when you ask for it.
+// what warning you want, and hours booked for it. All three are optional and
+// all three are editable later — the common case is a bare line of text, and
+// the panel only opens when you ask for it.
+//
+// Booked time carries both ends of its window: a start, before which the
+// scheduler may not place it, and a finish-by. That pair is what makes
+// preparation expressible without a second kind of booking — "two hours,
+// finished by the morning of the talk" is just a booking whose deadline is
+// earlier than the thing it's for.
 
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
@@ -47,8 +53,11 @@ export function TodoItemPanel({
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
-  const linked = tasks.find((t) => t.id === item.task_id) ?? null;
-  const prep = tasks.find((t) => t.id === item.prep_task_id) ?? null;
+  // prep_task_id is a leftover from when preparation was booked separately.
+  // Nothing creates one now; adopt any that still exists as the item's booking
+  // so it stays visible and editable rather than becoming an orphan.
+  const linked = tasks.find((t) => t.id === item.task_id) ?? tasks.find((t) => t.id === item.prep_task_id) ?? null;
+  const adoptedPrep = item.task_id == null && linked != null;
 
   const [dueAt, setDueAt] = useState(toLocalInput(item.due_at));
   const [leads, setLeads] = useState<number[]>(item.lead_minutes);
@@ -56,6 +65,7 @@ export function TodoItemPanel({
 
   const [wantsTime, setWantsTime] = useState(linked != null);
   const [hours, setHours] = useState(linked ? String(linked.duration_min / 60) : "1");
+  const [start, setStart] = useState(toLocalInput(linked?.floor_at ?? null));
   const [noDeadline, setNoDeadline] = useState(linked ? linked.deadline_at == null : false);
   const [deadline, setDeadline] = useState(toLocalInput(linked?.deadline_at ?? null));
   const [priority, setPriority] = useState<(typeof PRIORITIES)[number]>(
@@ -63,11 +73,6 @@ export function TodoItemPanel({
   );
   const [categoryId, setCategoryId] = useState(linked?.category_id ?? "");
   const [maxPerDay, setMaxPerDay] = useState(linked?.max_per_day_min ? String(linked.max_per_day_min / 60) : "");
-
-  const [wantsPrep, setWantsPrep] = useState(prep != null);
-  const [prepHours, setPrepHours] = useState(prep ? String(prep.duration_min / 60) : "2");
-  const [prepFrom, setPrepFrom] = useState(toLocalInput(prep?.floor_at ?? null));
-  const [prepBy, setPrepBy] = useState(toLocalInput(prep?.deadline_at ?? null));
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -120,6 +125,9 @@ export function TodoItemPanel({
         duration_min: Math.round(hoursNum * 60),
         chunk_min: Math.min(120, Math.round(hoursNum * 60)),
         priority,
+        // Empty start means "any time from now", which is the scheduler's
+        // default anyway.
+        floor_at: fromLocalInput(start) ?? new Date().toISOString(),
         deadline_at: noDeadline ? null : fromLocalInput(deadline),
         category_id: categoryId || null,
         max_per_day_min: maxPerDay ? Math.round(Number(maxPerDay) * 60) : null,
@@ -139,49 +147,15 @@ export function TodoItemPanel({
         }
         patch.task_id = created!.id;
       }
+      if (adoptedPrep) {
+        patch.task_id = linked!.id;
+        patch.prep_task_id = null;
+      }
     } else if (linked) {
       // Unticking "book time" removes the hours from the calendar but keeps the
       // to-do itself, which is the whole point of the two being separate.
       await supabase.from("tasks").delete().eq("id", linked.id);
       patch.task_id = null;
-    }
-
-    const prepNum = Number(prepHours);
-    if (wantsPrep && (!Number.isFinite(prepNum) || prepNum <= 0)) {
-      setBusy(false);
-      setError("How many hours of preparation?");
-      return;
-    }
-
-    if (wantsPrep) {
-      const prepFields = {
-        title: `Prep: ${item.text}`,
-        duration_min: Math.round(prepNum * 60),
-        chunk_min: Math.min(120, Math.round(prepNum * 60)),
-        priority,
-        // Prep is defined by its window: not before one moment, finished by
-        // another (typically shortly before the thing itself).
-        floor_at: fromLocalInput(prepFrom) ?? new Date().toISOString(),
-        deadline_at: fromLocalInput(prepBy) ?? due,
-        category_id: categoryId || null,
-      };
-      if (prep) {
-        await supabase.from("tasks").update(prepFields).eq("id", prep.id);
-      } else {
-        const { data: created, error: err } = await supabase
-          .from("tasks")
-          .insert({ ...prepFields, user_id: user.id })
-          .select("id")
-          .single();
-        if (err) {
-          setBusy(false);
-          setError(`Couldn't book the prep time: ${err.message}`);
-          return;
-        }
-        patch.prep_task_id = created!.id;
-      }
-    } else if (prep) {
-      await supabase.from("tasks").delete().eq("id", prep.id);
       patch.prep_task_id = null;
     }
 
@@ -232,17 +206,29 @@ export function TodoItemPanel({
               <input value={hours} onChange={(e) => setHours(e.target.value)} className={`${field} w-14`} />
               <span className="text-[11px] text-muted">hours needed</span>
             </div>
+            <label className="text-[10px] text-muted-2">start</label>
+            <input type="datetime-local" value={start} onChange={(e) => setStart(e.target.value)} className={field} />
+            <div className="text-[10px] text-muted-2">
+              The earliest it may be scheduled. Leave empty to allow any time from now.
+            </div>
             <label className="flex items-center gap-1.5 text-[11px] text-muted">
               <input type="checkbox" checked={noDeadline} onChange={(e) => setNoDeadline(e.target.checked)} />
               no deadline
             </label>
             {!noDeadline && (
-              <input
-                type="datetime-local"
-                value={deadline}
-                onChange={(e) => setDeadline(e.target.value)}
-                className={field}
-              />
+              <>
+                <label className="text-[10px] text-muted-2">finish by</label>
+                <input
+                  type="datetime-local"
+                  value={deadline}
+                  onChange={(e) => setDeadline(e.target.value)}
+                  className={field}
+                />
+                <div className="text-[10px] text-muted-2">
+                  Set this earlier than the thing itself to book preparation — say two hours finished by the morning
+                  of a talk.
+                </div>
+              </>
             )}
             <div className="flex gap-1.5 flex-wrap">
               <select
@@ -273,28 +259,6 @@ export function TodoItemPanel({
                 className={`${field} w-14`}
               />
               <span className="text-[11px] text-muted">max hours per day (optional)</span>
-            </div>
-          </div>
-        )}
-      </section>
-
-      <section className="flex flex-col gap-1">
-        <label className="flex items-center gap-1.5 text-[11px] text-text">
-          <input type="checkbox" checked={wantsPrep} onChange={(e) => setWantsPrep(e.target.checked)} />
-          Book preparation time as well
-        </label>
-        {wantsPrep && (
-          <div className="flex flex-col gap-1.5 pl-5">
-            <div className="flex items-center gap-1.5">
-              <input value={prepHours} onChange={(e) => setPrepHours(e.target.value)} className={`${field} w-14`} />
-              <span className="text-[11px] text-muted">hours of prep</span>
-            </div>
-            <label className="text-[10px] text-muted-2">not before</label>
-            <input type="datetime-local" value={prepFrom} onChange={(e) => setPrepFrom(e.target.value)} className={field} />
-            <label className="text-[10px] text-muted-2">finished by</label>
-            <input type="datetime-local" value={prepBy} onChange={(e) => setPrepBy(e.target.value)} className={field} />
-            <div className="text-[10px] text-muted-2">
-              Leave &ldquo;finished by&rdquo; empty to have it done by the time the thing itself happens.
             </div>
           </div>
         )}

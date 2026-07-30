@@ -325,23 +325,21 @@ export function buildTodoReminderTools(ctx: ToolContext) {
   const schedule_todo = betaTool({
     name: "schedule_todo",
     description:
-      'Book calendar hours for a to-do that already exists, and/or hours to PREPARE for it. This is how something jotted down earlier becomes real scheduled Work without being retyped ("book 3 hours for the report on my list", "I need 2 hours of prep for the seminar, done by the morning of the talk"). Prep is separate from the thing itself: it has its own duration and its own window.',
+      'Book calendar hours for a to-do that already exists. This is how something jotted down earlier becomes real scheduled Work without being retyped ("book 3 hours for the report on my list"). The booking has both ends of a window: `start` is the earliest it may be scheduled and `due` is when it must be finished — which is also how preparation is expressed, by setting `due` earlier than the thing itself ("2 hours, finished by the morning of the talk").',
     inputSchema: {
       type: "object",
       properties: {
         text: { type: "string", description: "which to-do (fuzzy match on its text)" },
-        hours: { type: "number", description: "hours to book for the thing itself" },
-        due: { type: "string", description: 'deadline for those hours, natural language. Omit for no deadline.' },
-        prep_hours: { type: "number", description: "hours to book for preparing, booked as its own separate work" },
-        prep_by: { type: "string", description: 'when preparation must be finished, e.g. "1pm on november 10". Defaults to when the thing itself happens.' },
-        prep_from: { type: "string", description: "earliest preparation may start" },
+        hours: { type: "number", description: "hours to book" },
+        start: { type: "string", description: "earliest the hours may be scheduled, natural language. Omit to allow any time from now." },
+        due: { type: "string", description: 'when the hours must be finished, natural language, e.g. "1pm on november 10". Omit for no deadline.' },
         priority: { type: "string", enum: ["high", "medium", "low"] },
         category: { type: "string", description: "label name for the booked time" },
       },
-      required: ["text"],
+      required: ["text", "hours"],
     },
-    run: async ({ text, hours, due, prep_hours, prep_by, prep_from, priority, category }) => {
-      if (!hours && !prep_hours) return "Say how many hours to book, for the thing itself or for preparing.";
+    run: async ({ text, hours, start, due, priority, category }) => {
+      if (!hours) return "Say how many hours to book.";
       const { data: items } = await supabase
         .from("todo_items")
         .select("id,text,due_at,task_id,prep_task_id")
@@ -358,14 +356,17 @@ export function buildTodoReminderTools(ctx: ToolContext) {
       const patch: Database["public"]["Tables"]["todo_items"]["Update"] = {};
       const done: string[] = [];
 
-      if (hours) {
+      {
         const deadlineAt = due ? resolveWhen(ctx, due) : null;
         if (due && !deadlineAt) return `Couldn't understand the deadline "${due}".`;
+        const startAt = start ? resolveWhen(ctx, start) : null;
+        if (start && !startAt) return `Couldn't understand the start "${start}".`;
         const fields = {
           title: item.text,
           duration_min: Math.round(hours * 60),
           chunk_min: Math.min(120, Math.round(hours * 60)),
           priority: priority ?? "medium",
+          floor_at: startAt ?? new Date().toISOString(),
           deadline_at: deadlineAt,
           category_id: categoryId,
         };
@@ -380,35 +381,9 @@ export function buildTodoReminderTools(ctx: ToolContext) {
           if (error || !made) return `Couldn't book the time: ${error?.message ?? "unknown error"}`;
           patch.task_id = made.id;
         }
-        done.push(`${hours}h for it${deadlineAt ? ", with a deadline" : ""}`);
-      }
-
-      if (prep_hours) {
-        const prepByAt = prep_by ? resolveWhen(ctx, prep_by) : item.due_at;
-        if (prep_by && !prepByAt) return `Couldn't understand "${prep_by}".`;
-        const prepFromAt = prep_from ? resolveWhen(ctx, prep_from) : null;
-        if (prep_from && !prepFromAt) return `Couldn't understand "${prep_from}".`;
-        const fields = {
-          title: `Prep: ${item.text}`,
-          duration_min: Math.round(prep_hours * 60),
-          chunk_min: Math.min(120, Math.round(prep_hours * 60)),
-          priority: priority ?? "medium",
-          floor_at: prepFromAt ?? new Date().toISOString(),
-          deadline_at: prepByAt,
-          category_id: categoryId,
-        };
-        if (item.prep_task_id) {
-          await supabase.from("tasks").update(fields).eq("id", item.prep_task_id);
-        } else {
-          const { data: made, error } = await supabase
-            .from("tasks")
-            .insert({ ...fields, user_id: userId })
-            .select("id")
-            .single();
-          if (error || !made) return `Couldn't book the prep time: ${error?.message ?? "unknown error"}`;
-          patch.prep_task_id = made.id;
-        }
-        done.push(`${prep_hours}h of prep${prepByAt ? ", finished beforehand" : ""}`);
+        done.push(
+          `${hours}h${startAt ? ", starting no earlier than then" : ""}${deadlineAt ? ", finished by then" : ""}`,
+        );
       }
 
       if (Object.keys(patch).length) await supabase.from("todo_items").update(patch).eq("id", item.id);

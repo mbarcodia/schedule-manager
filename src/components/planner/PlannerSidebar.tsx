@@ -12,10 +12,9 @@ import type { Database, NoteKind } from "@/lib/supabase/database.types";
 
 type NoteRow = Database["public"]["Tables"]["notes"]["Row"];
 
-interface Trackable {
+interface Commitment {
   id: string;
   title: string;
-  kind: "project" | "proposal" | "goal";
 }
 
 interface PlannerSidebarProps {
@@ -32,7 +31,7 @@ const KIND_LABEL: Record<NoteKind, string> = {
 };
 
 export function PlannerSidebar({ refreshKey }: PlannerSidebarProps) {
-  const [trackables, setTrackables] = useState<Trackable[]>([]);
+  const [commitments, setCommitments] = useState<Commitment[]>([]);
   const [notes, setNotes] = useState<NoteRow[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
@@ -43,17 +42,11 @@ export function PlannerSidebar({ refreshKey }: PlannerSidebarProps) {
       data: { user },
     } = await supabase.auth.getUser();
     if (!user) return;
-    const [{ data: projects }, { data: proposals }, { data: goals }, { data: noteRows }] = await Promise.all([
+    const [{ data: rows }, { data: noteRows }] = await Promise.all([
       supabase.from("projects").select("id,title").eq("user_id", user.id),
-      supabase.from("proposals").select("id,title").eq("user_id", user.id),
-      supabase.from("goals").select("id,title").eq("user_id", user.id),
       supabase.from("notes").select("*").eq("user_id", user.id).order("updated_at", { ascending: false }),
     ]);
-    setTrackables([
-      ...(projects ?? []).map((p): Trackable => ({ id: p.id, title: p.title, kind: "project" })),
-      ...(proposals ?? []).map((p): Trackable => ({ id: p.id, title: p.title, kind: "proposal" })),
-      ...(goals ?? []).map((g): Trackable => ({ id: g.id, title: g.title, kind: "goal" })),
-    ]);
+    setCommitments(rows ?? []);
     setNotes(noteRows ?? []);
   }, []);
 
@@ -124,15 +117,8 @@ export function PlannerSidebar({ refreshKey }: PlannerSidebarProps) {
     );
   }
 
-  const notesFor = (t: Trackable) =>
-    notes.filter((n) =>
-      t.kind === "project"
-        ? n.project_id === t.id
-        : t.kind === "proposal"
-          ? n.proposal_id === t.id
-          : n.goal_id === t.id,
-    );
-  const unlinked = notes.filter((n) => !n.project_id && !n.proposal_id && !n.goal_id && !n.task_id);
+  const notesFor = (c: Commitment) => notes.filter((n) => n.project_id === c.id);
+  const unlinked = notes.filter((n) => !n.project_id && !n.task_id);
   const taskLinked = notes.filter((n) => n.task_id);
 
   return (
@@ -151,16 +137,16 @@ export function PlannerSidebar({ refreshKey }: PlannerSidebarProps) {
         </a>
       </div>
       <div className="flex-1 overflow-y-auto px-3 py-3 flex flex-col gap-3 min-h-0">
-        {trackables.map((t) => (
-          <div key={t.id}>
+        {commitments.map((c) => (
+          <div key={c.id}>
             <div className="flex items-baseline gap-1.5 px-1 pb-1">
               {/* Which of the three kinds a commitment is isn't something the
                   user acts on, so it stays out of the way. */}
-              <span className="text-[12px] font-medium text-text truncate">{t.title}</span>
+              <span className="text-[12px] font-medium text-text truncate">{c.title}</span>
             </div>
             <div className="flex flex-col gap-1">
-              {notesFor(t).map(renderNote)}
-              {notesFor(t).length === 0 && <div className="px-1 text-[10.5px] text-muted-2">no notes yet</div>}
+              {notesFor(c).map(renderNote)}
+              {notesFor(c).length === 0 && <div className="px-1 text-[10.5px] text-muted-2">no notes yet</div>}
             </div>
           </div>
         ))}
@@ -176,7 +162,7 @@ export function PlannerSidebar({ refreshKey }: PlannerSidebarProps) {
             <div className="flex flex-col gap-1">{unlinked.map(renderNote)}</div>
           </div>
         )}
-        {trackables.length === 0 && notes.length === 0 && (
+        {commitments.length === 0 && notes.length === 0 && (
           <div className="px-1 text-[11px] text-muted">
             Nothing here yet — tell the planner about a commitment and it will start keeping track.
           </div>

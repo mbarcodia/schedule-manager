@@ -85,30 +85,23 @@ function titleToFloorAt(ctx: ToolContext, rawLower: string): string | null {
 }
 
 export type TrackableLookup =
-  | { status: "found"; projectId: string | null; proposalId: string | null; title: string }
+  | { status: "found"; commitmentId: string; title: string }
   | { status: "ambiguous"; candidates: string[] }
   | { status: "none" };
 
-/** Resolves a project/proposal by title. Both kinds are scored together
- * (not project-then-proposal in sequence) so a same-titled project and
- * proposal are correctly flagged ambiguous instead of the project silently
- * winning by search order. */
+/** Resolves a commitment by title. (Was a two-table search until proposals and
+ * goals folded in — there is only one place to look now, so a same-titled pair
+ * can no longer be silently resolved by search order.) */
 export async function findTrackableId(ctx: ToolContext, needle: string): Promise<TrackableLookup> {
-  const [{ data: projects }, { data: proposals }] = await Promise.all([
-    ctx.supabase.from("projects").select("id,title").eq("user_id", ctx.userId),
-    ctx.supabase.from("proposals").select("id,title").eq("user_id", ctx.userId),
-  ]);
-  const combined = [
-    ...(projects ?? []).map((p) => ({ id: p.id, title: p.title, isProject: true })),
-    ...(proposals ?? []).map((p) => ({ id: p.id, title: p.title, isProject: false })),
-  ];
-  const { match, ambiguous } = findByTitle(combined, needle);
+  const { data: commitments } = await ctx.supabase
+    .from("projects")
+    .select("id,title")
+    .eq("user_id", ctx.userId);
+  const { match, ambiguous } = findByTitle(commitments ?? [], needle);
   if (ambiguous.length) return { status: "ambiguous", candidates: ambiguous.map((c) => c.title) };
   if (!match) return { status: "none" };
-  console.log(`[assistant] trackable resolved: needle=${JSON.stringify(needle)} -> id=${match.id} title=${JSON.stringify(match.title)}`);
-  return match.isProject
-    ? { status: "found", projectId: match.id, proposalId: null, title: match.title }
-    : { status: "found", projectId: null, proposalId: match.id, title: match.title };
+  console.log(`[assistant] commitment resolved: needle=${JSON.stringify(needle)} -> id=${match.id} title=${JSON.stringify(match.title)}`);
+  return { status: "found", commitmentId: match.id, title: match.title };
 }
 
 function ambiguousMsg(kind: string, needle: string, candidates: { title: string }[]): string {
@@ -221,16 +214,16 @@ export function buildTools(ctx: ToolContext) {
     run: async (inp) => {
       const duration = inp.duration_min || 30;
 
-      let link: { projectId: string | null; proposalId: string | null; title: string } | null = null;
+      let link: { projectId: string; title: string } | null = null;
       if (inp.project) {
         const lookup = await findTrackableId(ctx, inp.project);
         if (lookup.status === "ambiguous") {
-          return `"${inp.project}" matches multiple projects/proposals: ${lookup.candidates.join(", ")}. Say which one (use its exact title), or add the task without a project link.`;
+          return `"${inp.project}" matches more than one commitment: ${lookup.candidates.join(", ")}. Say which one (use its exact title), or add the work without a link.`;
         }
         if (lookup.status === "none") {
-          return `No project or proposal matching "${inp.project}" — add it first, or add the task without a project link.`;
+          return `No commitment matching "${inp.project}" — add it first, or add the work without a link.`;
         }
-        link = { projectId: lookup.projectId, proposalId: lookup.proposalId, title: lookup.title };
+        link = { projectId: lookup.commitmentId, title: lookup.title };
       }
 
       const categoryId = inp.category ? await findCategoryId(ctx, inp.category) : null;
@@ -260,7 +253,6 @@ export function buildTools(ctx: ToolContext) {
         floor_at: notBeforeAt ?? new Date().toISOString(),
         max_per_day_min: inp.max_per_day_min || null,
         project_id: link?.projectId ?? null,
-        proposal_id: link?.proposalId ?? null,
         category_id: categoryId,
         pinned_date: pin?.pinned_date ?? null,
         pinned_start_min: pin?.pinned_start_min ?? null,
@@ -412,17 +404,15 @@ export function buildTools(ctx: ToolContext) {
       "Remove a piece of work or a commitment by title. Removing work clears its time blocks; removing a commitment also removes its weekly-hours blocks, and work linked to it stays but unlinks.",
     inputSchema: { type: "object", properties: { title: { type: "string" } }, required: ["title"] },
     run: async ({ title }) => {
-      const [{ data: tasks }, { data: proposals }, { data: goals }, { data: projects }, { data: events }] =
-        await Promise.all([
-          supabase.from("tasks").select("id,title").eq("user_id", userId),
-          supabase.from("proposals").select("id,title").eq("user_id", userId),
-          supabase.from("goals").select("id,title").eq("user_id", userId),
-          supabase.from("projects").select("id,title").eq("user_id", userId),
-          supabase.from("events").select("id,title").eq("user_id", userId),
-        ]);
+      const [{ data: tasks }, { data: commitments }, { data: targets }, { data: events }] = await Promise.all([
+        supabase.from("tasks").select("id,title").eq("user_id", userId),
+        supabase.from("projects").select("id,title").eq("user_id", userId),
+        supabase.from("targets").select("id,title").eq("user_id", userId),
+        supabase.from("events").select("id,title").eq("user_id", userId),
+      ]);
 
       const tMatch = findByTitle(tasks ?? [], title);
-      if (tMatch.ambiguous.length) return ambiguousMsg("tasks", title, tMatch.ambiguous);
+      if (tMatch.ambiguous.length) return ambiguousMsg("pieces of work", title, tMatch.ambiguous);
       const t = tMatch.match;
       if (t) {
         console.log(`[assistant] remove_item resolved: needle=${JSON.stringify(title)} -> task id=${t.id} title=${JSON.stringify(t.title)}`);
@@ -434,45 +424,40 @@ export function buildTools(ctx: ToolContext) {
         if (error) return `Couldn't remove "${t.title}": ${error.message}`;
         if (!deleted || deleted.length === 0) return `Couldn't remove "${t.title}" — nothing was deleted, try again.`;
         markMutated(ctx);
-        return `Removed task "${t.title}" and its calendar blocks.`;
+        return `Removed "${t.title}" and its time blocks.`;
       }
-      const pMatch = findByTitle(proposals ?? [], title);
-      if (pMatch.ambiguous.length) return ambiguousMsg("proposals", title, pMatch.ambiguous);
-      const p = pMatch.match;
-      if (p) {
-        console.log(`[assistant] remove_item resolved: needle=${JSON.stringify(title)} -> proposal id=${p.id} title=${JSON.stringify(p.title)}`);
-        const { data: deleted, error } = await supabase.from("proposals").delete().eq("id", p.id).select("id");
-        if (error) return `Couldn't remove "${p.title}": ${error.message}`;
-        if (!deleted || deleted.length === 0) return `Couldn't remove "${p.title}" — nothing was deleted, try again.`;
+      const tgMatch = findByTitle(targets ?? [], title);
+      if (tgMatch.ambiguous.length) return ambiguousMsg("targets", title, tgMatch.ambiguous);
+      const tg = tgMatch.match;
+      if (tg) {
+        const { data: deleted, error } = await supabase.from("targets").delete().eq("id", tg.id).select("id");
+        if (error) return `Couldn't remove "${tg.title}": ${error.message}`;
+        if (!deleted || deleted.length === 0) return `Couldn't remove "${tg.title}" — nothing was deleted, try again.`;
         markMutated(ctx);
-        return `Removed proposal "${p.title}".`;
+        return `Removed the target "${tg.title}".`;
       }
-      const gMatch = findByTitle(goals ?? [], title);
-      if (gMatch.ambiguous.length) return ambiguousMsg("goals", title, gMatch.ambiguous);
-      const g = gMatch.match;
-      if (g) {
-        console.log(`[assistant] remove_item resolved: needle=${JSON.stringify(title)} -> goal id=${g.id} title=${JSON.stringify(g.title)}`);
-        const { data: deleted, error } = await supabase.from("goals").delete().eq("id", g.id).select("id");
-        if (error) return `Couldn't remove "${g.title}": ${error.message}`;
-        if (!deleted || deleted.length === 0) return `Couldn't remove "${g.title}" — nothing was deleted, try again.`;
-        markMutated(ctx);
-        return `Removed goal "${g.title}".`;
-      }
-      const prMatch = findByTitle(projects ?? [], title);
-      if (prMatch.ambiguous.length) return ambiguousMsg("projects", title, prMatch.ambiguous);
-      const pr = prMatch.match;
-      if (pr) {
-        console.log(`[assistant] remove_item resolved: needle=${JSON.stringify(title)} -> project id=${pr.id} title=${JSON.stringify(pr.title)}`);
+      const cMatch = findByTitle(commitments ?? [], title);
+      if (cMatch.ambiguous.length) return ambiguousMsg("commitments", title, cMatch.ambiguous);
+      const c = cMatch.match;
+      if (c) {
+        console.log(`[assistant] remove_item resolved: needle=${JSON.stringify(title)} -> commitment id=${c.id} title=${JSON.stringify(c.title)}`);
         await Promise.all([
-          supabase.from("progress_log").delete().match({ user_id: userId, subject_type: "research", subject_id: pr.id }),
-          supabase.from("pinned_chunks").delete().match({ user_id: userId, subject_type: "research", subject_id: pr.id }),
-          supabase.from("tasks").update({ project_id: null }).eq("project_id", pr.id),
+          supabase.from("progress_log").delete().match({ user_id: userId, subject_type: "research", subject_id: c.id }),
+          supabase.from("pinned_chunks").delete().match({ user_id: userId, subject_type: "research", subject_id: c.id }),
+          supabase.from("tasks").update({ project_id: null }).eq("project_id", c.id),
         ]);
-        const { data: deleted, error } = await supabase.from("projects").delete().eq("id", pr.id).select("id");
-        if (error) return `Couldn't remove "${pr.title}": ${error.message}`;
-        if (!deleted || deleted.length === 0) return `Couldn't remove "${pr.title}" — nothing was deleted, try again.`;
+        // Targets are children of the commitment, so they go with it (the
+        // foreign key cascades) — worth saying out loud in the reply.
+        const targetCount = (targets ?? []).length
+          ? (await supabase.from("targets").select("id").eq("commitment_id", c.id)).data?.length ?? 0
+          : 0;
+        const { data: deleted, error } = await supabase.from("projects").delete().eq("id", c.id).select("id");
+        if (error) return `Couldn't remove "${c.title}": ${error.message}`;
+        if (!deleted || deleted.length === 0) return `Couldn't remove "${c.title}" — nothing was deleted, try again.`;
         markMutated(ctx);
-        return `Removed project "${pr.title}" and its weekly research blocks.`;
+        return `Removed the commitment "${c.title}", its weekly-hours blocks${
+          targetCount ? ` and its ${targetCount} target${targetCount > 1 ? "s" : ""}` : ""
+        }. Work that was linked to it stays, now unlinked.`;
       }
       const evMatch = findByTitle(events ?? [], title);
       if (evMatch.ambiguous.length) return ambiguousMsg("events", title, evMatch.ambiguous);
@@ -485,7 +470,7 @@ export function buildTools(ctx: ToolContext) {
         markMutated(ctx);
         return `Removed event "${ev.title}" — the freed time refills automatically.`;
       }
-      const all = [...(tasks ?? []), ...(proposals ?? []), ...(goals ?? []), ...(projects ?? [])];
+      const all = [...(tasks ?? []), ...(targets ?? []), ...(commitments ?? [])];
       return `Nothing matching "${title}" found. Current items: ${all.map((x) => x.title).join(", ") || "none"}.`;
     },
   });
@@ -493,114 +478,190 @@ export function buildTools(ctx: ToolContext) {
   const add_trackable = betaTool({
     name: "add_trackable",
     description:
-      "Add a commitment. Three kinds: project (can carry a weekly-hours minimum, optionally with a deadline), proposal (deadline-tracked), or goal (no deadline, just a cadence). The user calls all three commitments — pick the kind that matches what they described.",
+      "Add or update a COMMITMENT — anything ongoing the user has signed up for (a research project, a proposal, a course, a standing aim). One kind of thing with optional facets, any combination legal: weekly hours the engine defends, a hard deadline, an active window for when those hours apply, which half of the day they belong in, a cadence. Re-declaring an existing title updates it in place rather than creating a duplicate, so this is also how you change a commitment.",
     inputSchema: {
       type: "object",
       properties: {
-        kind: { type: "string", enum: ["project", "proposal", "goal"] },
         title: { type: "string" },
-        due: { type: "string", description: 'natural language, e.g. "friday", "aug 3", "in 2 weeks"' },
-        weekly_research_hrs: { type: "number", description: "project kind only: weekly hours the engine must defend for this commitment" },
-        cadence: { type: "string", description: "goal kind only: e.g. Daily, Weekly" },
-        category: { type: "string", description: "project kind only: name of the label for this commitment's weekly-hours blocks" },
+        due: { type: "string", description: 'hard deadline for the whole commitment, natural language, e.g. "december 31", "in 2 weeks"' },
+        weekly_research_hrs: { type: "number", description: "hours per week the engine must find and defend for this commitment" },
+        active_from: {
+          type: "string",
+          description:
+            'the weekly hours only start applying from this date, natural language, e.g. "december 1". Without it the hours are booked from today, which is wrong for anything that starts next term.',
+        },
+        active_until: { type: "string", description: "the weekly hours stop applying after this date" },
+        hours_time_of_day: {
+          type: "string",
+          enum: ["morning", "afternoon"],
+          description: "restrict this commitment's weekly hours to one half of the day. Omit to let them go anywhere, mornings first.",
+        },
+        cadence: { type: "string", description: 'rhythm for a commitment with no deadline, e.g. "Weekly", "Ongoing". Descriptive only — nothing is scheduled from it.' },
+        category: { type: "string", description: "name of the label for this commitment's weekly-hours blocks" },
       },
-      required: ["kind", "title"],
+      required: ["title"],
     },
     run: async (inp) => {
-      const deadlineDate = inp.due ? parseDeadlineDate(inp.due.toLowerCase(), ctx.today) : null;
-      const deadline_date = deadlineDate
-        ? `${deadlineDate.getFullYear()}-${String(deadlineDate.getMonth() + 1).padStart(2, "0")}-${String(deadlineDate.getDate()).padStart(2, "0")}`
-        : null;
-      const deadlineNote =
-        inp.due && !deadlineDate
-          ? ` Couldn't understand the deadline "${inp.due}", so no deadline was set — try a format like "friday" or "aug 3".`
-          : "";
+      const toDateString = (d: Date) =>
+        `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      const parseDate = (text: string | undefined) => {
+        if (!text) return { value: null as string | null, failed: false };
+        const d = parseDeadlineDate(text.toLowerCase(), ctx.today);
+        return { value: d ? toDateString(d) : null, failed: !d };
+      };
 
-      // Dedupe on exact (normalized) title within the same kind —
-      // re-declaring a project/proposal/goal that already exists updates it
-      // in place instead of creating a duplicate.
-      if (inp.kind === "project") {
-        const categoryId = inp.category ? await findCategoryId(ctx, inp.category) : null;
-        const { data: existing } = await supabase.from("projects").select("id,title").eq("user_id", userId);
-        const dupe = (existing ?? []).find((p) => normTitle(p.title) === normTitle(inp.title));
-        const patch: Database["public"]["Tables"]["projects"]["Update"] = { title: inp.title };
-        if (deadline_date) patch.deadline_date = deadline_date;
-        if (inp.weekly_research_hrs != null) {
-          patch.weekly_min_min = inp.weekly_research_hrs * 60;
-          patch.prefer_morning = true;
-        }
-        if (categoryId) patch.category_id = categoryId;
-        const summary = `${deadline_date ? ", due " + deadline_date : ""}${inp.weekly_research_hrs ? ", " + inp.weekly_research_hrs + "h/wk research minimum scheduled" : ""}.${deadlineNote}`;
-        if (dupe) {
-          const { error } = await supabase.from("projects").update(patch).eq("id", dupe.id);
-          if (error) return `Couldn't update project: ${error.message}`;
-          markMutated(ctx);
-          console.log(`[assistant] add_trackable upsert: project id=${dupe.id} title=${JSON.stringify(dupe.title)}`);
-          return `Project "${dupe.title}" already existed — updated it instead of creating a duplicate${summary}`;
-        }
-        const { data: inserted, error } = await supabase
-          .from("projects")
-          .insert({
-            user_id: userId,
-            title: inp.title,
-            deadline_date,
-            weekly_min_min: inp.weekly_research_hrs ? inp.weekly_research_hrs * 60 : null,
-            prefer_morning: !!inp.weekly_research_hrs,
-            chunk_min: 120,
-            research_ord: 5,
-            category_id: categoryId,
-          })
-          .select("id")
-          .single();
-        if (error) return `Couldn't add project: ${error.message}`;
-        markMutated(ctx);
-        console.log(`[assistant] add_trackable insert: project id=${inserted?.id} title=${JSON.stringify(inp.title)}`);
-        return `Project "${inp.title}" added${summary}`;
+      const deadline = parseDate(inp.due);
+      const from = parseDate(inp.active_from);
+      const until = parseDate(inp.active_until);
+      const unparsed = [
+        inp.due && deadline.failed ? `deadline "${inp.due}"` : null,
+        inp.active_from && from.failed ? `active-from date "${inp.active_from}"` : null,
+        inp.active_until && until.failed ? `active-until date "${inp.active_until}"` : null,
+      ].filter(Boolean);
+      const dateNote = unparsed.length
+        ? ` Couldn't understand the ${unparsed.join(" or the ")}, so ${unparsed.length > 1 ? "those were" : "that was"} left unset — try a format like "friday" or "aug 3".`
+        : "";
+      // The database rejects an inverted window; catching it here explains why
+      // instead of surfacing a constraint violation.
+      if (from.value && until.value && from.value > until.value) {
+        return `The active window ends (${until.value}) before it starts (${from.value}) — check those two dates.`;
       }
-      if (inp.kind === "proposal") {
-        const { data: existing } = await supabase.from("proposals").select("id,title").eq("user_id", userId);
-        const dupe = (existing ?? []).find((p) => normTitle(p.title) === normTitle(inp.title));
-        const summary = `${deadline_date ? ", due " + deadline_date : ""}.${deadlineNote}`;
-        if (dupe) {
-          const patch: Database["public"]["Tables"]["proposals"]["Update"] = { title: inp.title };
-          if (deadline_date) patch.deadline_date = deadline_date;
-          const { error } = await supabase.from("proposals").update(patch).eq("id", dupe.id);
-          if (error) return `Couldn't update proposal: ${error.message}`;
-          markMutated(ctx);
-          console.log(`[assistant] add_trackable upsert: proposal id=${dupe.id} title=${JSON.stringify(dupe.title)}`);
-          return `Proposal "${dupe.title}" already existed — updated it instead of creating a duplicate${summary}`;
-        }
-        const { data: inserted, error } = await supabase
-          .from("proposals")
-          .insert({ user_id: userId, title: inp.title, deadline_date })
-          .select("id")
-          .single();
-        if (error) return `Couldn't add proposal: ${error.message}`;
-        markMutated(ctx);
-        console.log(`[assistant] add_trackable insert: proposal id=${inserted?.id} title=${JSON.stringify(inp.title)}`);
-        return `Proposal "${inp.title}" added${summary}`;
+
+      const categoryId = inp.category ? await findCategoryId(ctx, inp.category) : null;
+
+      const patch: Database["public"]["Tables"]["projects"]["Update"] = { title: inp.title };
+      if (deadline.value) patch.deadline_date = deadline.value;
+      if (from.value) patch.active_from = from.value;
+      if (until.value) patch.active_until = until.value;
+      if (inp.cadence) patch.cadence = inp.cadence;
+      if (categoryId) patch.category_id = categoryId;
+      if (inp.hours_time_of_day) patch.time_of_day = inp.hours_time_of_day;
+      if (inp.weekly_research_hrs != null) {
+        patch.weekly_min_min = inp.weekly_research_hrs * 60;
+        // Mornings-first stays the default for weekly hours, but an explicit
+        // half-of-day wins — that's the whole point of the facet.
+        patch.prefer_morning = inp.hours_time_of_day !== "afternoon";
       }
-      const { data: existingGoals } = await supabase.from("goals").select("id,title").eq("user_id", userId);
-      const dupeGoal = (existingGoals ?? []).find((g) => normTitle(g.title) === normTitle(inp.title));
-      if (dupeGoal) {
-        const { error } = await supabase
-          .from("goals")
-          .update({ title: inp.title, cadence: inp.cadence || undefined })
-          .eq("id", dupeGoal.id);
-        if (error) return `Couldn't update goal: ${error.message}`;
+
+      const facets = [
+        inp.weekly_research_hrs ? `${inp.weekly_research_hrs}h/wk` : null,
+        deadline.value ? `due ${deadline.value}` : null,
+        from.value || until.value
+          ? `hours apply ${from.value ? `from ${from.value}` : "from now"}${until.value ? ` until ${until.value}` : ""}`
+          : null,
+        inp.hours_time_of_day ? `${inp.hours_time_of_day}s only` : null,
+        inp.cadence ? inp.cadence.toLowerCase() : null,
+      ].filter(Boolean);
+      const summary = facets.length ? ` — ${facets.join(", ")}.${dateNote}` : `.${dateNote}`;
+
+      // Dedupe on exact (normalized) title: re-declaring a commitment that
+      // already exists updates it rather than making a second one.
+      const { data: existing } = await supabase.from("projects").select("id,title").eq("user_id", userId);
+      const dupe = (existing ?? []).find((p) => normTitle(p.title) === normTitle(inp.title));
+      if (dupe) {
+        const { error } = await supabase.from("projects").update(patch).eq("id", dupe.id);
+        if (error) return `Couldn't update the commitment: ${error.message}`;
         markMutated(ctx);
-        console.log(`[assistant] add_trackable upsert: goal id=${dupeGoal.id} title=${JSON.stringify(dupeGoal.title)}`);
-        return `Goal "${dupeGoal.title}" already existed — updated it instead of creating a duplicate.`;
+        console.log(`[assistant] add_trackable upsert: commitment id=${dupe.id} title=${JSON.stringify(dupe.title)}`);
+        return `"${dupe.title}" already existed — updated it instead of creating a duplicate${summary}`;
       }
-      const { data: insertedGoal, error } = await supabase
-        .from("goals")
-        .insert({ user_id: userId, title: inp.title, cadence: inp.cadence || "Ongoing" })
+      const { data: inserted, error } = await supabase
+        .from("projects")
+        .insert({
+          user_id: userId,
+          title: inp.title,
+          deadline_date: deadline.value,
+          weekly_min_min: inp.weekly_research_hrs ? inp.weekly_research_hrs * 60 : null,
+          prefer_morning: !!inp.weekly_research_hrs && inp.hours_time_of_day !== "afternoon",
+          time_of_day: inp.hours_time_of_day ?? null,
+          active_from: from.value,
+          active_until: until.value,
+          cadence: inp.cadence ?? null,
+          chunk_min: 120,
+          research_ord: 5,
+          category_id: categoryId,
+        })
         .select("id")
         .single();
-      if (error) return `Couldn't add goal: ${error.message}`;
+      if (error) return `Couldn't add the commitment: ${error.message}`;
       markMutated(ctx);
-      console.log(`[assistant] add_trackable insert: goal id=${insertedGoal?.id} title=${JSON.stringify(inp.title)}`);
-      return `Goal "${inp.title}" added.`;
+      console.log(`[assistant] add_trackable insert: commitment id=${inserted?.id} title=${JSON.stringify(inp.title)}`);
+      return `Commitment "${inp.title}" added${summary}`;
+    },
+  });
+
+  const add_target = betaTool({
+    name: "add_target",
+    description:
+      'Add a TARGET: a dated checkpoint inside a commitment that consumes NO calendar hours ("first round of analysis done by the end of August"). Use this for the interim dates inside a long commitment instead of inventing work with a made-up duration — a target competes for nothing, which is why it exists. If hitting it needs hours, that is a separate add_task. Re-using an existing target title within the same commitment moves its date.',
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: { type: "string" },
+        commitment: { type: "string", description: "fuzzy title of the commitment this target belongs to" },
+        date: { type: "string", description: 'natural language, e.g. "end of august", "october 31"' },
+      },
+      required: ["title", "commitment", "date"],
+    },
+    run: async (inp) => {
+      const lookup = await findTrackableId(ctx, inp.commitment);
+      if (lookup.status === "ambiguous") {
+        return `"${inp.commitment}" matches more than one commitment: ${lookup.candidates.join(", ")}. Say which one (use its exact title).`;
+      }
+      if (lookup.status === "none") return `No commitment matching "${inp.commitment}" — add it first.`;
+
+      const d = parseDeadlineDate(inp.date.toLowerCase(), ctx.today);
+      if (!d) return `Couldn't understand the date "${inp.date}" — try a format like "october 31" or "end of august".`;
+      const target_date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+      const { data: existing } = await supabase
+        .from("targets")
+        .select("id,title")
+        .eq("commitment_id", lookup.commitmentId);
+      const dupe = (existing ?? []).find((t) => normTitle(t.title) === normTitle(inp.title));
+      if (dupe) {
+        const { error } = await supabase.from("targets").update({ target_date }).eq("id", dupe.id);
+        if (error) return `Couldn't move that target: ${error.message}`;
+        markMutated(ctx);
+        return `Moved "${dupe.title}" to ${target_date} (${lookup.title}).`;
+      }
+      const { error } = await supabase
+        .from("targets")
+        .insert({ user_id: userId, commitment_id: lookup.commitmentId, title: inp.title, target_date });
+      if (error) return `Couldn't add that target: ${error.message}`;
+      markMutated(ctx);
+      return `Target "${inp.title}" set for ${target_date} under ${lookup.title}. It takes no calendar time.`;
+    },
+  });
+
+  const complete_target = betaTool({
+    name: "complete_target",
+    description:
+      "Mark a target hit, or un-mark it. Targets are kept rather than deleted once hit, so a commitment reads as a sequence of dates made or missed.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "fuzzy title of the target" },
+        done: { type: "boolean", description: "default true; false un-marks it" },
+      },
+      required: ["title"],
+    },
+    run: async (inp) => {
+      const { data: targets } = await supabase
+        .from("targets")
+        .select("id,title,target_date")
+        .eq("user_id", userId);
+      const { match, ambiguous } = findByTitle(targets ?? [], inp.title);
+      if (ambiguous.length) return ambiguousMsg("targets", inp.title, ambiguous);
+      if (!match) return `No target matching "${inp.title}".`;
+      const done = inp.done !== false;
+      const { error } = await supabase
+        .from("targets")
+        .update({ completed_at: done ? new Date().toISOString() : null })
+        .eq("id", match.id);
+      if (error) return `Couldn't update that target: ${error.message}`;
+      markMutated(ctx);
+      return done ? `"${match.title}" marked hit.` : `"${match.title}" is open again.`;
     },
   });
 
@@ -924,20 +985,17 @@ export function buildTools(ctx: ToolContext) {
       const rows = await queryScheduleRows(supabase, userId);
       const { inputs } = buildScheduleInputs(rows);
       const schedule = computeSchedule(inputs);
-      const trackables = [
-        ...rows.projects.map((p) => ({
-          id: p.id,
-          title: p.title,
-          deadlineDate: p.deadline_date ? new Date(p.deadline_date) : null,
-          weeklyMinMin: p.weekly_min_min,
-          preferMorning: p.prefer_morning,
-        })),
-        ...rows.proposals.map((p) => ({ id: p.id, title: p.title, deadlineDate: p.deadline_date ? new Date(p.deadline_date) : null })),
-      ];
+      const trackables = rows.projects.map((p) => ({
+        id: p.id,
+        title: p.title,
+        deadlineDate: p.deadline_date ? new Date(p.deadline_date) : null,
+        weeklyMinMin: p.weekly_min_min,
+        preferMorning: p.prefer_morning,
+      }));
 
       if (title) {
         const { match: found, ambiguous } = findByTitle(trackables, title);
-        if (ambiguous.length) return ambiguousMsg("projects/proposals", title, ambiguous);
+        if (ambiguous.length) return ambiguousMsg("commitments", title, ambiguous);
         if (!found) return `Nothing matching "${title}". Tracking: ${trackables.map((t) => t.title).join(", ") || "nothing"}.`;
         return statusReply(found, ctx.today, ctx.weeklyHours, inputs.tasks, schedule);
       }
@@ -958,6 +1016,8 @@ export function buildTools(ctx: ToolContext) {
     update_task,
     remove_item,
     add_trackable,
+    add_target,
+    complete_target,
     add_event,
     adjust_day_hours,
     record_progress,

@@ -20,8 +20,6 @@ export function WeeklyReviewCard({ scheduleData }: { scheduleData: UseScheduleDa
     const statuses = data.rawTasks.map((t) => boardStatusFor(index, t.id));
     const atRisk = computeTrackableChips(
       data.projects,
-      data.proposals,
-      data.goals,
       data.inputs.tasks,
       schedule,
       new Date(),

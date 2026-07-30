@@ -82,8 +82,6 @@ export function PlannerChatPanel({ scheduleData }: PlannerChatPanelProps) {
     data && schedule
       ? computeTrackableChips(
           data.projects,
-          data.proposals,
-          data.goals,
           data.inputs.tasks,
           schedule,
           new Date(),
@@ -137,14 +135,19 @@ export function PlannerChatPanel({ scheduleData }: PlannerChatPanelProps) {
 
       {chips.length > 0 && (
         <div className="flex-none px-4 py-2.5 border-b border-border flex gap-1.5 overflow-x-auto">
-          {chips.map((c, i) => (
+          {chips.map((c) => (
             <div
-              key={i}
+              key={`${c.commitmentId}:${c.facet}`}
               title={c.tooltip}
               className="flex-none flex flex-col gap-0.5 rounded-md px-2.5 py-1.5 box-border"
               style={{ border: `1px solid ${c.border}`, background: c.bg, minWidth: 120 }}
             >
-              <div className="text-[9px] tracking-wide uppercase text-muted-2">{c.kind}</div>
+              {/* Which facet this chip reports on — weekly hours, a deadline,
+                  or an ongoing cadence. A commitment carrying both hours and a
+                  date gets one chip for each. */}
+              <div className="text-[9px] tracking-wide uppercase text-muted-2">
+                {c.facet === "weekly" ? "hours" : c.facet === "deadline" ? "deadline" : "ongoing"}
+              </div>
               <div
                 className="text-[11.5px] font-medium text-text whitespace-nowrap overflow-hidden text-ellipsis"
                 style={{ maxWidth: 140 }}

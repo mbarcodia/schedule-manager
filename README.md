@@ -15,16 +15,22 @@ instance is below. No account or access from the original author is required.
 
 ## What things are called
 
-Five words do all the work. The app, the chat, and these docs use them the same
+These words do all the work. The app, the chat, and these docs use them the same
 way, so you can say what you mean and be understood.
 
 | Word | What it is |
 | --- | --- |
-| **Commitment** | Anything ongoing you've signed up for — a research project, a proposal, a course, a standing aim. Can carry a weekly-hours target, a deadline, or both. |
+| **Commitment** | Anything ongoing you've signed up for — a research project, a proposal, a course, a standing aim. One kind of thing with optional parts, mixed freely: weekly hours the scheduler defends, a hard deadline, a cadence. |
+| **Target** | A date inside a commitment that takes no time of its own ("first round of analysis done by the end of August"). Shows as a marker on the timeline; click it when you hit it. |
 | **Work** | Hours that get scheduled onto the calendar. Usually belongs to a commitment. This is the only one of these that consumes time. |
 | **Routine** | A standing weekly slot: email, lunch, gym, lab meeting. Repeats on its own. |
 | **Time block** | What any of the above looks like once it's on the calendar. |
 | **Label** | A colour-coded grouping you name yourself — Research, Writing, Teaching, Service. Work wears its label's colour on the left edge of its time block. |
+
+A commitment's weekly hours can be given an **active window** — a course that
+only needs five hours a week from December, a project that pauses over a
+conference. Without one, the hours are booked from today onward, which is right
+for something already running and wrong for anything that starts later.
 
 Two more things exist deliberately *outside* this, because they take no calendar
 time at all: **to-dos** (items on a named checklist) and **reminders** (a dated
@@ -44,8 +50,10 @@ Everything below is built and working — this is the whole feature set, not a r
   notification before that runs out. Ticking a block early or late asks whether
   you did it in its original slot or just now, so the hours land in the right
   place
-- Commitments can carry a weekly-hours target the scheduler defends, and claim
-  mornings by priority
+- Commitments can carry a weekly-hours target the scheduler defends, claiming
+  mornings by priority — or afternoons, or only between two dates
+- Targets: dated checkpoints inside a commitment that consume no hours, so an
+  interim date doesn't have to be faked as work with an invented duration
 - Sliding view: show 1, 3, 5 or 7 days at a time and shift the window a day at
   a time, so a "week" can start on any weekday
 
@@ -59,7 +67,7 @@ Everything below is built and working — this is the whole feature set, not a r
 **Planner board** (four views over the same live schedule — nothing is a hand-maintained list)
 - **Kanban** — Backlog / This Week / In Progress / Done, derived from what the schedule actually says; drag a card to change the schedule
 - **Eisenhower** — importance (you set it) against urgency (read from deadlines)
-- **Timeline** — six months of commitment deadlines, coloured by whether booked hours can still cover them
+- **Timeline** — six months of commitment deadlines with their targets marked along the way, coloured by whether booked hours can still cover them
 - **Archive** — finished work is archived, never deleted, so logged hours survive for "what did I get done this semester?"
 - A live weekly-review strip (done/total, work-in-progress limit, missed blocks, at-risk deadlines) and a guided "Time to plan" interview
 

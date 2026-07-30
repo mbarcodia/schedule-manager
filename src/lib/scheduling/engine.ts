@@ -78,9 +78,21 @@ interface TaskDef extends Task {
 function taskDefs(inputs: ScheduleInputs): TaskDef[] {
   const research: TaskDef[] = [];
   for (let w = 0; w < inputs.horizonWeeks; w++) {
+    // A week's chunk is fenced to Mon-Fri of that week. An active window
+    // narrows that fence further, so a commitment that starts in December
+    // simply generates nothing for the weeks before it and a partial chunk for
+    // the week it begins mid-way through — rather than booking hours from today
+    // the moment it's created.
+    const weekFloor = w * 7 * 1440;
+    const weekCeil = (w * 7 + 5) * 1440;
     inputs.projects
       .filter((p) => p.weeklyMinMin)
       .forEach((p) => {
+        const floor = Math.max(weekFloor, p.activeFromAbs ?? weekFloor);
+        const ceilAbs = Math.min(weekCeil, p.activeUntilAbs ?? weekCeil);
+        // The window closes this commitment out of this week entirely, or
+        // leaves too little of it to be worth a block.
+        if (ceilAbs - floor < (p.minChunk ?? 30)) return;
         research.push({
           id: `research-${p.id}-w${w}`,
           title: p.title,
@@ -90,12 +102,17 @@ function taskDefs(inputs: ScheduleInputs): TaskDef[] {
           minChunk: p.minChunk,
           tag: "research",
           dependsOn: null,
-          floor: w * 7 * 1440,
-          ceilAbs: (w * 7 + 5) * 1440,
+          floor,
+          ceilAbs,
           deadline: 99999,
           projectId: p.id,
           categoryId: p.categoryId ?? null,
           ord: (p.researchOrd || 5) + w * 10,
+          // Where these hours belong is the commitment's own business. It used
+          // to be decided for it: the scheduler keyed a morning preference off
+          // the internal "research" tag, so every weekly-hours block wanted
+          // mornings whatever the commitment said.
+          timeOfDay: p.timeOfDay ?? null,
           preferMorning: !!p.preferMorning,
         });
       });
@@ -211,7 +228,7 @@ function runScheduler(
         : null;
       if (t.timeOfDay === "afternoon") return findSlot(inputs, floor, len, false, busy, dayOk, t.ceilAbs, true);
       if (t.timeOfDay === "morning" || t.tag === "deep-focus") return findSlot(inputs, floor, len, true, busy, dayOk, t.ceilAbs);
-      if (t.tag === "research" || t.preferMorning)
+      if (t.preferMorning)
         return (
           findSlot(inputs, floor, len, true, busy, dayOk, t.ceilAbs) ||
           findSlot(inputs, floor, len, false, busy, dayOk, t.ceilAbs)

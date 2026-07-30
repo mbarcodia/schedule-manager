@@ -12,12 +12,11 @@ import type {
   DayOverrides,
   PinnedEntry,
   Project,
-  Proposal,
-  Goal,
   RecurringRule,
   ResearchPin,
   ScheduleInputs,
   TagLabels,
+  Target,
   Task,
   WeeklyHours,
 } from "./types";
@@ -30,8 +29,7 @@ export interface RawScheduleRows {
   profile: Row<"profiles">;
   categories: Row<"categories">[];
   projects: Row<"projects">[];
-  proposals: Row<"proposals">[];
-  goals: Row<"goals">[];
+  targets: Row<"targets">[];
   tasks: Row<"tasks">[];
   recurringRules: Row<"recurring_rules">[];
   preferenceNotes: Row<"preference_notes">[];
@@ -65,8 +63,7 @@ export function buildScheduleInputs(
 ): {
   inputs: ScheduleInputs;
   projects: Project[];
-  proposals: Proposal[];
-  goals: Goal[];
+  targets: Target[];
   categories: Category[];
 } {
   const timezone = rows.profile.timezone || "UTC";
@@ -80,25 +77,37 @@ export function buildScheduleInputs(
   const minChunkFor = (categoryId: string | null | undefined): number | undefined =>
     categoryId ? (minChunkByCategory.get(categoryId) ?? undefined) : undefined;
 
+  // An active-window bound is a civil date, and the engine works in absolute
+  // minutes from the horizon start — so active_from becomes that date's
+  // midnight and active_until the END of its day, making both inclusive.
+  const dateToAbs = (iso: string, endOfDay: boolean): number => {
+    const gday = gdayForDate(timezone, dateParts(iso), now);
+    return gday * 1440 + (endOfDay ? 1440 : 0);
+  };
+
   const projects: Project[] = rows.projects.map((p) => ({
     id: p.id,
     title: p.title,
     deadlineDate: p.deadline_date ? new Date(p.deadline_date) : null,
     weeklyMinMin: p.weekly_min_min,
     preferMorning: p.prefer_morning,
+    timeOfDay: p.time_of_day,
+    activeFromAbs: p.active_from ? dateToAbs(p.active_from, false) : null,
+    activeUntilAbs: p.active_until ? dateToAbs(p.active_until, true) : null,
+    cadence: p.cadence,
     chunk: p.chunk_min,
     minChunk: minChunkFor(p.category_id),
     researchOrd: p.research_ord ?? undefined,
     categoryId: p.category_id,
   }));
 
-  const proposals: Proposal[] = rows.proposals.map((p) => ({
-    id: p.id,
-    title: p.title,
-    deadlineDate: p.deadline_date ? new Date(p.deadline_date) : null,
+  const targets: Target[] = rows.targets.map((t) => ({
+    id: t.id,
+    commitmentId: t.commitment_id,
+    title: t.title,
+    date: new Date(t.target_date),
+    completedAt: t.completed_at ? new Date(t.completed_at) : null,
   }));
-
-  const goals: Goal[] = rows.goals.map((g) => ({ id: g.id, title: g.title, cadence: g.cadence }));
 
   const tasks: Task[] = rows.tasks.map((t) => {
     const floorParts = timestampToParts(t.floor_at, timezone);
@@ -267,5 +276,5 @@ export function buildScheduleInputs(
     tagLabels,
   };
 
-  return { inputs, projects, proposals, goals, categories };
+  return { inputs, projects, targets, categories };
 }

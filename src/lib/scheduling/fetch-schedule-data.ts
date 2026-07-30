@@ -5,13 +5,12 @@
 import { createClient } from "@/lib/supabase/client";
 import { buildScheduleInputs, type RawScheduleRows } from "./from-db";
 import { queryScheduleRows } from "./query-rows";
-import type { Category, Goal, Project, Proposal, ScheduleInputs } from "./types";
+import type { Category, Project, ScheduleInputs, Target } from "./types";
 
 export interface ScheduleData {
   inputs: ScheduleInputs;
   projects: Project[];
-  proposals: Proposal[];
-  goals: Goal[];
+  targets: Target[];
   categories: Category[];
   preferredModel: string;
   /** Raw task rows as stored — the board needs fields the engine's
@@ -42,12 +41,11 @@ export async function fetchScheduleData(): Promise<ScheduleData> {
 
   const now = new Date();
   const rows = await queryScheduleRows(supabase, user.id, now);
-  const { inputs, projects, proposals, goals, categories } = buildScheduleInputs(rows, now);
+  const { inputs, projects, targets, categories } = buildScheduleInputs(rows, now);
   return {
     inputs,
     projects,
-    proposals,
-    goals,
+    targets,
     categories,
     preferredModel: rows.profile.preferred_model,
     rawTasks: rows.tasks,

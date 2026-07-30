@@ -5,10 +5,9 @@
 // every account starts empty.
 //
 // The snapshot speaks the user's vocabulary (commitments / work / routines /
-// labels) so the chat and the screen agree. The three commitment kinds still
-// carry their tool-level names (project / proposal / goal) in a `kind` field,
-// because that is what add_trackable's `type` parameter accepts — the tables
-// behind them have not been folded together yet.
+// labels / targets) so the chat and the screen agree. A commitment is one thing
+// with optional facets — weekly hours, a deadline, a cadence, an active window —
+// and targets are the dated checkpoints inside it that carry no hours.
 
 import { minToLabel, WEEKDAY_LABELS } from "@/lib/scheduling/time";
 import { deriveBoardStatuses, boardStatusFor } from "@/lib/planner/board-status";
@@ -59,20 +58,23 @@ export function buildPromptContext(rows: RawScheduleRows, inputs: ScheduleInputs
       linkedCommitment: t.project_id ?? t.proposal_id ?? null,
       label: t.category_id ? (labelById.get(t.category_id) ?? null) : null,
     })),
-    // One list, three kinds — see the note at the top of this file for why the
-    // kind names are still the tool-level ones.
-    commitments: [
-      ...rows.projects.map((p) => ({
-        title: p.title,
-        kind: "project",
-        weeklyHrs: p.weekly_min_min ? p.weekly_min_min / 60 : null,
-        scheduledThisWeekHrs: +((schedByCommitment[p.id] || 0) / 60).toFixed(1),
-        label: p.category_id ? (labelById.get(p.category_id) ?? null) : null,
-        due: p.deadline_date ?? null,
-      })),
-      ...rows.proposals.map((p) => ({ title: p.title, kind: "proposal", due: p.deadline_date ?? null })),
-      ...rows.goals.map((g) => ({ title: g.title, kind: "goal", cadence: g.cadence })),
-    ],
+    // One thing with optional facets — only the ones actually set are reported,
+    // so the model sees a commitment the way the user described it rather than a
+    // row full of nulls.
+    commitments: rows.projects.map((p) => ({
+      title: p.title,
+      weeklyHrs: p.weekly_min_min ? p.weekly_min_min / 60 : null,
+      scheduledThisWeekHrs: +((schedByCommitment[p.id] || 0) / 60).toFixed(1),
+      label: p.category_id ? (labelById.get(p.category_id) ?? null) : null,
+      due: p.deadline_date ?? null,
+      cadence: p.cadence ?? null,
+      hoursPlacedIn: p.time_of_day ?? (p.prefer_morning ? "mornings preferred" : null),
+      weeklyHoursActiveFrom: p.active_from ?? null,
+      weeklyHoursActiveUntil: p.active_until ?? null,
+      targets: rows.targets
+        .filter((t) => t.commitment_id === p.id)
+        .map((t) => ({ title: t.title, date: t.target_date, done: t.completed_at != null })),
+    })),
     events: inputs.events.map((e) => ({
       title: e.title,
       day: WEEKDAY_LABELS[e.gday % 7],

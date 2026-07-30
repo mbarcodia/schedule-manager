@@ -115,6 +115,9 @@ export interface Database {
         { id?: string; user_id: string; name: string; color: string; sort_order?: number; min_chunk_min?: number | null },
         Partial<{ name: string; color: string; sort_order: number; min_chunk_min: number | null }>
       >;
+      /** Commitments. Still named `projects` in the database so that every
+       * existing foreign key kept working when proposals and goals folded in
+       * — see supabase/migrations/0023_commitments_and_targets.sql. */
       projects: Table<
         {
           id: string;
@@ -126,6 +129,10 @@ export interface Database {
           chunk_min: number;
           research_ord: number | null;
           category_id: string | null;
+          cadence: string | null;
+          active_from: string | null;
+          active_until: string | null;
+          time_of_day: TaskTimeOfDay | null;
           created_at: string;
         },
         {
@@ -138,6 +145,10 @@ export interface Database {
           chunk_min?: number;
           research_ord?: number | null;
           category_id?: string | null;
+          cadence?: string | null;
+          active_from?: string | null;
+          active_until?: string | null;
+          time_of_day?: TaskTimeOfDay | null;
         },
         Partial<{
           title: string;
@@ -147,23 +158,32 @@ export interface Database {
           chunk_min: number;
           research_ord: number | null;
           category_id: string | null;
+          cadence: string | null;
+          active_from: string | null;
+          active_until: string | null;
+          time_of_day: TaskTimeOfDay | null;
         }>
       >;
-      proposals: Table<
+      /** A dated checkpoint inside a commitment that consumes no hours. */
+      targets: Table<
         {
           id: string;
           user_id: string;
+          commitment_id: string;
           title: string;
-          deadline_date: string | null;
+          target_date: string;
+          completed_at: string | null;
           created_at: string;
         },
-        { id?: string; user_id: string; title: string; deadline_date?: string | null },
-        Partial<{ title: string; deadline_date: string | null }>
-      >;
-      goals: Table<
-        { id: string; user_id: string; title: string; cadence: string; created_at: string },
-        { id?: string; user_id: string; title: string; cadence?: string },
-        Partial<{ title: string; cadence: string }>
+        {
+          id?: string;
+          user_id: string;
+          commitment_id: string;
+          title: string;
+          target_date: string;
+          completed_at?: string | null;
+        },
+        Partial<{ title: string; target_date: string; completed_at: string | null }>
       >;
       tasks: Table<
         {

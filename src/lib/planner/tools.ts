@@ -22,7 +22,7 @@ type NoteLookup = { match: NoteRow | null; ambiguous: NoteRow[] };
 async function findNote(ctx: ToolContext, needle: string): Promise<NoteLookup> {
   const { data: notes } = await ctx.supabase
     .from("notes")
-    .select("id,title,content,kind,project_id,proposal_id,task_id,goal_id,created_at,updated_at,user_id")
+    .select("id,title,content,kind,project_id,task_id,created_at,updated_at,user_id")
     .eq("user_id", ctx.userId);
   const result = findByTitle((notes ?? []) as NoteRow[], needle);
   if (result.match) {
@@ -36,31 +36,20 @@ function ambiguousNoteMsg(needle: string, candidates: NoteRow[]): string {
 }
 
 type LinkResolution =
-  | { status: "found"; project_id?: string; proposal_id?: string; goal_id?: string; task_id?: string; title: string }
+  | { status: "found"; project_id?: string; task_id?: string; title: string }
   | { status: "ambiguous"; candidates: string[] }
   | { status: "none" };
 
-/** Resolves a link phrase to a trackable a note can attach to: project or
- * proposal first (via the assistant's shared helper), then goal, then
- * task. Each tier reports its own ambiguity rather than falling through to
- * the next (a tie within "projects/proposals" must not silently become a
- * task match). */
+/** Resolves a link phrase to something a note can attach to: a commitment
+ * first, then a piece of work. Each tier reports its own ambiguity rather than
+ * falling through to the next, so a tie between two commitments can't silently
+ * become a match on some unrelated piece of work. */
 async function resolveLink(ctx: ToolContext, needle: string): Promise<LinkResolution> {
-  const trackable = await findTrackableId(ctx, needle);
-  if (trackable.status === "ambiguous") return { status: "ambiguous", candidates: trackable.candidates };
-  if (trackable.status === "found") {
-    console.log(`[planner] link resolved: needle=${JSON.stringify(needle)} -> title=${JSON.stringify(trackable.title)} (project/proposal)`);
-    return trackable.projectId
-      ? { status: "found", project_id: trackable.projectId, title: trackable.title }
-      : { status: "found", proposal_id: trackable.proposalId!, title: trackable.title };
-  }
-
-  const { data: goals } = await ctx.supabase.from("goals").select("id,title").eq("user_id", ctx.userId);
-  const goalResult = findByTitle(goals ?? [], needle);
-  if (goalResult.ambiguous.length) return { status: "ambiguous", candidates: goalResult.ambiguous.map((g) => g.title) };
-  if (goalResult.match) {
-    console.log(`[planner] link resolved: needle=${JSON.stringify(needle)} -> id=${goalResult.match.id} title=${JSON.stringify(goalResult.match.title)} (goal)`);
-    return { status: "found", goal_id: goalResult.match.id, title: goalResult.match.title };
+  const commitment = await findTrackableId(ctx, needle);
+  if (commitment.status === "ambiguous") return { status: "ambiguous", candidates: commitment.candidates };
+  if (commitment.status === "found") {
+    console.log(`[planner] link resolved: needle=${JSON.stringify(needle)} -> title=${JSON.stringify(commitment.title)} (commitment)`);
+    return { status: "found", project_id: commitment.commitmentId, title: commitment.title };
   }
 
   const { data: tasks } = await ctx.supabase.from("tasks").select("id,title").eq("user_id", ctx.userId);
@@ -132,8 +121,6 @@ function notesTools(ctx: ToolContext) {
             content,
             kind: kind && (KINDS as readonly string[]).includes(kind) ? (kind as (typeof KINDS)[number]) : "other",
             project_id: link?.status === "found" ? (link.project_id ?? null) : null,
-            proposal_id: link?.status === "found" ? (link.proposal_id ?? null) : null,
-            goal_id: link?.status === "found" ? (link.goal_id ?? null) : null,
             task_id: link?.status === "found" ? (link.task_id ?? null) : null,
           })
           .select("id")
@@ -177,8 +164,6 @@ function notesTools(ctx: ToolContext) {
           }
           if (link.status === "none") return `Nothing matching "${link_to}" to link to — note unchanged.`;
           patch.project_id = link.project_id ?? null;
-          patch.proposal_id = link.proposal_id ?? null;
-          patch.goal_id = link.goal_id ?? null;
           patch.task_id = link.task_id ?? null;
         }
         // .select().single() confirms the write actually landed (and
@@ -238,7 +223,7 @@ function notesTools(ctx: ToolContext) {
       serialize(async () => {
         let query = supabase
           .from("notes")
-          .select("title,kind,updated_at,project_id,proposal_id,goal_id,task_id")
+          .select("title,kind,updated_at,project_id,task_id")
           .eq("user_id", userId)
           .order("updated_at", { ascending: false });
         if (linked_to) {
@@ -248,8 +233,6 @@ function notesTools(ctx: ToolContext) {
           }
           if (link.status === "none") return `Nothing matching "${linked_to}".`;
           if (link.project_id) query = query.eq("project_id", link.project_id);
-          else if (link.proposal_id) query = query.eq("proposal_id", link.proposal_id);
-          else if (link.goal_id) query = query.eq("goal_id", link.goal_id);
           else if (link.task_id) query = query.eq("task_id", link.task_id);
         }
         const { data: notes } = await query;

@@ -22,7 +22,7 @@ const INTROS: Record<BoardViewId, { title: string; body: string }> = {
   timeline: {
     title: "Timeline — the next six months",
     body:
-      "One bar per commitment that has a deadline, running from today to that date, coloured by whether the hours you've booked can realistically cover what's left. Overdue bars turn red. Commitments with a cadence rather than a deadline sit in their own lane on top. This is the view for spotting two deadlines landing in the same fortnight while there's still time to move something.",
+      "One bar per commitment that has any date to work toward — its own deadline, or a target inside it — running from today to the furthest of them, coloured by whether the hours you've booked can realistically cover what's left. Overdue bars turn red. Targets are the dots along each bar: hollow while pending, red once their date passes, filled once you click them. Commitments with no dates at all sit in their own lane on top. This is the view for spotting two deadlines landing in the same fortnight while there's still time to move something.",
   },
   todos: {
     title: "To-dos — things to do, not hours to schedule",

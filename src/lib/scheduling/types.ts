@@ -69,35 +69,50 @@ export interface Task {
   pin?: { gday: GDay; start: MinuteOfDay; length: number } | null;
 }
 
+/** A commitment: anything ongoing the user has signed up for. Its behaviour
+ * comes from which facets are filled in, not from a type — weekly hours make
+ * the engine generate and defend time, a deadline makes it tracked toward a
+ * date, a cadence makes it ongoing. Any combination is legal. (Stored in the
+ * `projects` table; see migration 0023.) */
 export interface Project {
   id: string;
   title: string;
   deadlineDate?: Date | null;
-  /** Weekly research minimum, in minutes. Null/undefined = not a research
-   * project (no auto-generated weekly chunks). */
+  /** Weekly minimum, in minutes. Null/undefined = carries no weekly hours, so
+   * no chunks are generated for it. */
   weeklyMinMin?: number | null;
   preferMorning?: boolean;
-  /** Default chunk size for auto-generated research blocks. */
+  /** Hard half-of-day constraint for this commitment's weekly hours. Undefined
+   * = unconstrained beyond preferMorning's softer nudge. */
+  timeOfDay?: "morning" | "afternoon" | null;
+  /** Weekly hours only apply inside this window — absolute minutes from the
+   * horizon start. Undefined = unbounded on that side. Lets a commitment that
+   * begins next semester exist now without booking hours today. */
+  activeFromAbs?: number | null;
+  activeUntilAbs?: number | null;
+  /** An ongoing rhythm ("Weekly", "Ongoing") for a commitment with no
+   * deadline. Descriptive only — nothing is scheduled from it. */
+  cadence?: string | null;
+  /** Default chunk size for its auto-generated weekly blocks. */
   chunk?: number;
-  /** Hard floor for a shrunk research chunk, in minutes — sourced from the
-   * project's category. */
+  /** Hard floor for a shrunk weekly chunk, in minutes — sourced from the
+   * commitment's label. */
   minChunk?: number;
-  /** Priority among research projects when claiming mornings; lower first. */
+  /** Order among commitments competing for mornings; lower first. */
   researchOrd?: number;
-  /** Colors this project's auto-generated weekly research chunks. */
+  /** Colors this commitment's auto-generated weekly blocks. */
   categoryId?: string | null;
 }
 
-export interface Proposal {
+/** A date inside a commitment that consumes no calendar time. Deliberately
+ * absent from ScheduleInputs: the engine must never see these, because giving
+ * them hours is exactly the mistake they exist to avoid. */
+export interface Target {
   id: string;
+  commitmentId: string;
   title: string;
-  deadlineDate?: Date | null;
-}
-
-export interface Goal {
-  id: string;
-  title: string;
-  cadence: string;
+  date: Date;
+  completedAt: Date | null;
 }
 
 /** A fixed calendar event (meeting) — immovable; tasks flow around it. */

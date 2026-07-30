@@ -121,7 +121,11 @@ const GRACE_HOUR_OPTIONS = [1, 2, 4, 8, 24];
 const VOCABULARY: [string, string][] = [
   [
     "Commitment",
-    "anything ongoing you've signed up for — a research project, a proposal, a course, a standing aim. It can carry a weekly-hours target, a deadline, or both.",
+    "anything ongoing you've signed up for — a research project, a proposal, a course, a standing aim. One kind of thing with optional parts, mixed however you like: weekly hours the scheduler defends (optionally only between two dates, and optionally fixed to mornings or afternoons), a hard deadline, an ongoing cadence.",
+  ],
+  [
+    "Target",
+    "a date inside a commitment that takes no time of its own — \u201cfirst round of analysis done by the end of August\u201d. It shows as a marker on the timeline and you click it when you hit it. If getting there needs hours, that's Work, added separately.",
   ],
   [
     "Work",
@@ -570,7 +574,7 @@ export default function SettingsPage() {
         <div id="vocabulary" className="mb-8 pb-5 border-b border-border scroll-mt-4">
           <h2 className="text-base font-medium mb-1">What things are called</h2>
           <p className="text-xs text-muted mb-3 leading-relaxed">
-            Five words do all the work here. The calendar, the chat and this page use them the same way, so you can
+            These words do all the work here. The calendar, the chat and this page use them the same way, so you can
             say what you mean and be understood.
           </p>
           <dl className="rounded-lg border border-border bg-panel p-3.5 text-xs text-muted leading-relaxed flex flex-col gap-2.5">

@@ -89,7 +89,37 @@ async function handleTurn(userId: string, secret: string, model: string, mode: C
   return runAgentSdkTurn(await prepareTurnInput(userId, secret, model, mode));
 }
 
+/** Proves this build can still read the schema it depends on.
+ *
+ * The relay bundles its own copy of src/lib, so a migration that drops or
+ * renames a table breaks it the moment it's applied — while Vercel, freshly
+ * deployed, looks perfectly healthy. That happened: dropping `proposals` left
+ * the relay running a build that still queried it, and every chat turn died for
+ * hours with a generic "couldn't reach the planner". Nothing surfaced it.
+ *
+ * This runs the same row fetch a real turn does, so a stale build fails here
+ * too — and the hourly digest workflow calls it, which turns a silent outage
+ * into a notification. GET so it can be curled without a body; unauthenticated
+ * because it reveals nothing but whether the query shape still works. */
+async function handleHealth(res: http.ServerResponse) {
+  try {
+    const admin = createRelayAdminClient();
+    const { data: user } = await admin.from("profiles").select("id").limit(1).maybeSingle();
+    if (user) await queryScheduleRows(admin, user.id);
+    res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ ok: true }));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("relay health check failed", err);
+    res.writeHead(500, { "Content-Type": "application/json" }).end(JSON.stringify({ ok: false, error: message }));
+  }
+}
+
 const server = http.createServer(async (req, res) => {
+  if (req.method === "GET" && req.url === "/health") {
+    await handleHealth(res);
+    return;
+  }
+
   // /turn returns the full reply as JSON once done; /turn-stream writes
   // plain-text chunks as the model produces them (chunked transfer). Both
   // stay available so relay and Vercel deploys never have to be atomic.

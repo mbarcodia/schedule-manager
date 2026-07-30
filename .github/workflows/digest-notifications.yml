@@ -17,6 +17,7 @@ jobs:
         env:
           BASE_URL: ${{ secrets.PROD_BASE_URL }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          PLANNER_RELAY_URL: ${{ secrets.PLANNER_RELAY_URL }}
         run: |
           H=$(date -u +%-H)
           fail=0
@@ -33,6 +34,21 @@ jobs:
               fail=1
             fi
           done
+
+          # The Fly relay bundles its own copy of the app's data layer, so any
+          # migration that changes tables breaks it the moment it's applied —
+          # while the Vercel deployment looks fine. /health runs the same row
+          # fetch a chat turn does, so a relay that wasn't redeployed fails here
+          # instead of silently killing every chat turn. Skipped when the URL
+          # isn't configured (deployments using an API key have no relay).
+          if [ -n "$PLANNER_RELAY_URL" ]; then
+            status=$(curl -s -o /tmp/relay.json -w "%{http_code}" --max-time 120 "$PLANNER_RELAY_URL/health")
+            if [ "$status" != "200" ]; then
+              echo "::error::planner relay health check returned HTTP $status — it may need redeploying (flyctl deploy)"
+              cat /tmp/relay.json
+              fail=1
+            fi
+          fi
           exit $fail
 
       # Fires only when the step above failed. Uses ALERT_SECRET (not

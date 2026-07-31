@@ -417,8 +417,22 @@ export function computeSchedule(
   anchorDefs(inputs).forEach((a) => {
     const dayWindow = resolveDayWindow(a.gday, inputs.weeklyHours, inputs.dayOverrides, inputs.allDayBlocks);
     if (dayWindow == null) return; // day off entirely
-    const ws = Math.max(a.winStart, dayWindow.start);
-    const we = Math.min(a.winEnd, dayWindow.end);
+    let ws = Math.max(a.winStart, dayWindow.start);
+    let we = Math.min(a.winEnd, dayWindow.end);
+
+    // A routine whose whole window sits before the day opens slides to the
+    // day's first moment instead of vanishing. A 9:00-9:15 email block used to
+    // disappear entirely on a day starting at 11:00 — and "start work after
+    // emails" is a rule about order, not about nine o'clock. It keeps its
+    // original duration of window, so a fixed slot stays a fixed slot, just
+    // later. Deliberately NOT applied to a window that falls after the day
+    // closes: an evening routine on a day that already ended should be skipped,
+    // not dragged to the morning.
+    if (we - ws < a.length && a.winEnd <= dayWindow.start) {
+      ws = dayWindow.start;
+      we = Math.min(dayWindow.end, dayWindow.start + Math.max(a.length, a.winEnd - a.winStart));
+    }
+
     if (we - ws < a.length) return; // day shortened past this window
     let placed: number | null = null;
     for (let m = ws; m + a.length <= we; m += 15) {

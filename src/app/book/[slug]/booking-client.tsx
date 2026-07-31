@@ -67,16 +67,25 @@ export function BookingClient({ slug, title, durations, locationModes, officeLoc
     void loadSlots();
   }, [loadSlots]);
 
-  // Group slots into visitor-local days.
+  // Group slots into visitor-local days. Split into weekday and date so each
+  // column can head itself on two lines, and keyed on the calendar date so two
+  // days that format alike can't merge.
   const days = useMemo(() => {
     if (!slots) return [];
-    const byDay = new Map<string, Slot[]>();
+    const byDay = new Map<string, { weekday: string; date: string; slots: Slot[] }>();
     for (const s of slots) {
       const d = new Date(s.startIso);
-      const key = d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
-      (byDay.get(key) ?? byDay.set(key, []).get(key)!).push(s);
+      const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+      const existing = byDay.get(key);
+      if (existing) existing.slots.push(s);
+      else
+        byDay.set(key, {
+          weekday: d.toLocaleDateString(undefined, { weekday: "short" }),
+          date: d.toLocaleDateString(undefined, { month: "short", day: "numeric" }),
+          slots: [s],
+        });
     }
-    return Array.from(byDay.entries());
+    return Array.from(byDay.entries()).map(([key, v]) => ({ key, ...v }));
   }, [slots]);
 
   async function submit() {
@@ -173,7 +182,7 @@ export function BookingClient({ slug, title, durations, locationModes, officeLoc
 
   return (
     <div className="flex-1 overflow-y-auto flex justify-center px-6 py-10">
-      <div className="w-full max-w-2xl">
+      <div className="w-full max-w-3xl">
         <h1 className="text-lg font-medium mb-1">
           {ownerName ? `Book a Meeting with ${ownerName}` : title}
         </h1>
@@ -254,27 +263,36 @@ export function BookingClient({ slug, title, durations, locationModes, officeLoc
         ) : days.length === 0 ? (
           <p className="text-sm text-muted py-8">No times available this week — try a later week.</p>
         ) : (
-          <div className="flex flex-col gap-4 mb-6">
-            {days.map(([day, daySlots]) => (
-              <div key={day}>
-                <div className="text-xs font-medium text-muted mb-1.5">{day}</div>
-                <div className="flex gap-1.5 flex-wrap">
-                  {daySlots.map((s) => (
-                    <button
-                      key={s.startIso}
-                      onClick={() => setSelected(s)}
-                      className="rounded-md px-2.5 py-1.5 text-sm border"
-                      style={{
-                        borderColor: selected?.startIso === s.startIso ? "var(--color-accent)" : "var(--color-border)",
-                        background: selected?.startIso === s.startIso ? "rgba(145,132,217,0.12)" : "transparent",
-                      }}
-                    >
-                      {fmtTime(s.startIso)}
-                    </button>
-                  ))}
+          // One column per day, times stacked beneath — the shape people expect
+          // from a booking page, and it makes "which day has most left" obvious
+          // at a glance. Columns keep a readable width and the row scrolls
+          // sideways on a narrow screen rather than collapsing to one per line.
+          <div className="mb-6 -mx-1 overflow-x-auto">
+            <div className="flex gap-2 px-1 pb-1">
+              {days.map((d) => (
+                <div key={d.key} className="flex-none w-[104px]">
+                  <div className="text-center pb-1.5 mb-1.5 border-b border-border">
+                    <div className="text-[11px] tracking-wide uppercase text-muted-2">{d.weekday}</div>
+                    <div className="text-[13px] font-medium text-text">{d.date}</div>
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    {d.slots.map((s) => (
+                      <button
+                        key={s.startIso}
+                        onClick={() => setSelected(s)}
+                        className="rounded-md px-2 py-1.5 text-[13px] border w-full"
+                        style={{
+                          borderColor: selected?.startIso === s.startIso ? "var(--color-accent)" : "var(--color-border)",
+                          background: selected?.startIso === s.startIso ? "rgba(145,132,217,0.12)" : "transparent",
+                        }}
+                      >
+                        {fmtTime(s.startIso)}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         )}
 

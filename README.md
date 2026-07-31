@@ -76,7 +76,7 @@ Everything below is built and working — this is the whole feature set, not a r
 - A live weekly-review strip (done/total, work-in-progress limit, missed blocks, at-risk deadlines) and a guided "Time to plan" interview
 
 **Public booking page** (Calendly-style, optional)
-- Share a link; visitors see only free slots computed from your working hours, calendars, and protected labels
+- Share a link; visitors see a column per day with the available times listed under each, computed from your working hours, calendars, and protected labels
 - Per-link rules, all in **Settings → Booking page** (each link summarises its own underneath it): meeting lengths, bookable days with an earliest/latest time per day, minimum notice before someone can book, a buffer around meetings, and a maximum number of bookings per day. These are intentionally UI-only rather than chat-editable — they control what strangers can do to your calendar.
 - Visitors choose video or in person when you offer both; bookings land on your calendar (and optionally your real Google Calendar, which emails them an invite)
 - Either side can cancel or reschedule from a private link
@@ -479,6 +479,63 @@ Allow**). That's expected for a self-hosted tool used by its own author;
 verification is only required past 100 users. The only scope requested is
 calendar events — the app can create and update the meetings it books, and
 nothing else.
+
+## Keeping up to date
+
+**Your copy does not update itself.** A clone is a snapshot: you get the code as
+it was the day you cloned it, and later changes upstream never reach you
+automatically. That isolation is deliberate — it's the same reason nobody else
+can see your calendar or spend your API credit — but it does mean pulling
+changes is a thing you choose to do.
+
+To pull newer code, once:
+
+```bash
+git remote add upstream https://github.com/mbarcodia/schedule-manager.git
+```
+
+then whenever you want the latest:
+
+```bash
+git pull upstream main
+```
+
+Pushing that to your own repo triggers your Vercel deploy as usual. On GitHub's
+website the equivalent is the **Sync fork** button on your fork's main page.
+
+### After pulling, two things may be needed
+
+**1. Run any new migrations.** This is the one that bites. If the update added a
+database column, your database doesn't have it yet, and the new code will fail on
+every request that touches it:
+
+```bash
+supabase db push --db-url "postgresql://postgres:[YOUR-PASSWORD]@[YOUR-HOST]:5432/postgres"
+```
+
+Already-applied migrations are skipped, so it's safe to run every time — and
+running it *before* the new code goes live avoids the gap entirely.
+
+**2. Redeploy the relay, if you use one.** Only relevant if you connected Claude
+through a Pro/Max subscription (see "Connecting Claude" above). The relay bundles its own copy
+of the app's data layer, so a schema change breaks it until it's rebuilt — while
+your Vercel deployment looks perfectly healthy and the chat fails with a generic
+error:
+
+```bash
+flyctl deploy --now
+```
+
+`npm run deploy` does the push and the relay deploy together, which is the safer
+habit. The hourly notification workflow also calls the relay's `/health`
+endpoint, so a relay left behind after a migration surfaces as a workflow
+failure rather than silently breaking every chat turn.
+
+### What pulling never touches
+
+Your data. Projects, work, calendars, notes and settings live in **your**
+Supabase project, which upstream code has no access to. Updating the code changes
+the app, never its contents.
 
 ## Running this efficiently
 

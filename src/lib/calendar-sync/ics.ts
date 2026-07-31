@@ -22,6 +22,9 @@ export interface SyncedEvent {
   description: string | null;
   location: string | null;
   meetingUrl: string | null;
+  /** From an all-day (date-valued) entry rather than a timed one. Rendered as a
+   * banner, and what it blocks depends on the connection's all_day_mode. */
+  allDay: boolean;
 }
 
 const URL_PATTERN = /https?:\/\/[^\s<>"']+/gi;
@@ -51,6 +54,48 @@ function extractMeetingUrl(...texts: (string | undefined)[]): string | null {
   return null;
 }
 
+/** Splits an all-day span into one entry per calendar day it covers.
+ *
+ * ICS gives all-day events a date-valued DTSTART and an EXCLUSIVE DTEND, so
+ * Mon-Fri arrives as 3 Aug -> 8 Aug. Everything downstream — the grid, the busy
+ * set, the day window — works a day at a time, so a single row spanning five
+ * days would be mapped onto its start day and the other four would vanish.
+ *
+ * Each day becomes local midnight to local midnight. Using local time matters:
+ * a UTC-midnight span lands on the previous evening in a western timezone and
+ * marks the wrong day. */
+function expandAllDay(
+  uid: string,
+  title: string,
+  startsAt: Date,
+  endsAt: Date,
+  description?: string,
+  location?: string,
+  url?: string,
+): SyncedEvent[] {
+  const out: SyncedEvent[] = [];
+  const day = new Date(startsAt.getFullYear(), startsAt.getMonth(), startsAt.getDate());
+  // Guard against a malformed feed giving end <= start: still emit one day.
+  const last = endsAt > startsAt ? endsAt : new Date(day.getTime() + 86400000);
+  let guard = 0;
+  while (day < last && guard++ < 400) {
+    const dayStart = new Date(day.getFullYear(), day.getMonth(), day.getDate());
+    const dayEnd = new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1);
+    out.push({
+      uid: `${uid}-allday-${dayStart.getFullYear()}-${dayStart.getMonth() + 1}-${dayStart.getDate()}`,
+      title,
+      startsAt: dayStart,
+      endsAt: dayEnd,
+      description: description || null,
+      location: location || null,
+      meetingUrl: extractMeetingUrl(url, description, location),
+      allDay: true,
+    });
+    day.setDate(day.getDate() + 1);
+  }
+  return out;
+}
+
 function buildEvent(
   uid: string,
   title: string,
@@ -68,6 +113,7 @@ function buildEvent(
     description: description || null,
     location: location || null,
     meetingUrl: extractMeetingUrl(url, description, location),
+    allDay: false,
   };
 }
 
@@ -75,6 +121,10 @@ export async function fetchIcsEvents(
   url: string,
   horizonStart: Date,
   horizonEnd: Date,
+  /** Whether to keep all-day entries. False (the default) drops them, which is
+   * right for a calendar full of birthday and holiday banners; the caller passes
+   * true only for a connection that has opted in. */
+  includeAllDay = false,
 ): Promise<SyncedEvent[]> {
   const data = await ical.async.fromURL(url);
   const out: SyncedEvent[] = [];
@@ -83,11 +133,21 @@ export async function fetchIcsEvents(
     if (!item || item.type !== "VEVENT") continue;
     const ev = item as VEvent;
     if (ev.status === "CANCELLED") continue;
-    // All-day/banner events (holidays, "out of office" markers) would block
-    // an entire day if treated as busy time — skip rather than let one
-    // banner event wipe out a day's scheduling.
-    if (ev.datetype === "date") continue;
     if (!ev.start || !ev.end) continue;
+
+    // All-day entries are mostly banners (birthdays, holidays) that must not
+    // consume time, so they're only kept for a calendar that has opted in —
+    // see calendar_connections.all_day_mode.
+    if (ev.datetype === "date") {
+      if (!includeAllDay) continue;
+      if (ev.end < horizonStart || ev.start > horizonEnd) continue;
+      out.push(
+        ...expandAllDay(ev.uid, ev.summary || "Busy", ev.start, ev.end, ev.description, ev.location, ev.url).filter(
+          (e) => e.endsAt >= horizonStart && e.startsAt <= horizonEnd,
+        ),
+      );
+      continue;
+    }
 
     const title = ev.summary || "Busy";
     const durationMs = ev.end.getTime() - ev.start.getTime();

@@ -131,6 +131,10 @@ export interface CalendarEvent {
    * distinguishable at a glance. Null for manually-added events. */
   connectionColor?: string | null;
   connectionLabel?: string | null;
+  /** From an all-day entry. These never occupy hours: what they block is
+   * decided by the connection's all_day_mode and reaches the engine as
+   * ScheduleInputs.allDayBlocks, not as busy time. */
+  allDay?: boolean;
 }
 
 export interface RecurringRule {
@@ -210,6 +214,7 @@ export interface ScheduleBlock {
   partMin?: number | null;
   pinned?: boolean;
   /** Present on synced meeting blocks only. */
+  allDay?: boolean;
   description?: string | null;
   location?: string | null;
   meetingUrl?: string | null;
@@ -248,6 +253,13 @@ export interface ScheduleInputs {
   /** Hours an un-ticked past block stays completable in place before it counts
    * as definitively missed (profiles.grace_hours). */
   graceHours: number;
+  /** Days covered by an all-day event, and what it blocks.
+   *
+   * "no_meetings" leaves scheduling untouched — it only makes the day
+   * unavailable on the public booking page, which is the common case: away at a
+   * conference, still working. "away" makes the day non-working entirely, as
+   * though its hours were switched off. */
+  allDayBlocks: Record<GDay, "no_meetings" | "away">;
   /** Research time the user fixed to an exact slot (see research_pins).
    * Reduces that week's auto-placed chunk for the same project. */
   researchPins: ResearchPin[];

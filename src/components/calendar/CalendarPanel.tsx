@@ -273,6 +273,7 @@ export function CalendarPanel({ scheduleData }: CalendarPanelProps) {
         timezone={timezone}
         weeklyHours={data.inputs.weeklyHours}
         dayOverrides={data.inputs.dayOverrides}
+        allDayBlocks={data.inputs.allDayBlocks}
         schedule={{ ...schedule, blocks: weekBlocks }}
         categories={data.categories}
         onSetProgress={setProgress}

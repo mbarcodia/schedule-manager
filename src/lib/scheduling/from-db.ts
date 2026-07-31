@@ -176,6 +176,11 @@ export function buildScheduleInputs(
 
   const connectionById = new Map(rows.calendarConnections.map((c) => [c.id, c]));
 
+  // Which days an all-day entry covers, and what that calendar says it blocks.
+  // "away" wins over "no_meetings" if two calendars disagree about the same day:
+  // the stricter reading is the safer default when someone has said they're out.
+  const allDayBlocks: Record<number, "no_meetings" | "away"> = {};
+
   const events: CalendarEvent[] = rows.events.map((e) => {
     const s = timestampToParts(e.starts_at, timezone);
     const en = timestampToParts(e.ends_at, timezone);
@@ -193,8 +198,19 @@ export function buildScheduleInputs(
       meetingUrl: e.meeting_url,
       connectionColor: connection?.color ?? null,
       connectionLabel: connection?.label ?? null,
+      allDay: e.all_day,
     };
   });
+
+  for (const row of rows.events) {
+    if (!row.all_day || !row.connection_id) continue;
+    const mode = connectionById.get(row.connection_id)?.all_day_mode;
+    if (mode !== "no_meetings" && mode !== "away") continue;
+    const gday = gdayForDate(timezone, timestampToParts(row.starts_at, timezone), now);
+    if (gday < 0 || gday >= horizonWeeks * 7) continue;
+    if (allDayBlocks[gday] === "away") continue;
+    allDayBlocks[gday] = mode;
+  }
 
   // Only entries within the current week matter to the engine — anything
   // computed in prior weeks was already reconciled when that week was
@@ -269,6 +285,7 @@ export function buildScheduleInputs(
     recurringRules,
     dayOverrides,
     graceHours: rows.profile.grace_hours ?? 4,
+    allDayBlocks,
     researchPins,
     completed,
     partial,

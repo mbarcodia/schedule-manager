@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { CalendarProvider, Database, EventSource } from "@/lib/supabase/database.types";
+import type { AllDayMode, CalendarProvider, Database, EventSource } from "@/lib/supabase/database.types";
 import { fetchIcsEvents } from "./ics";
 
 const HORIZON_WEEKS = 12;
@@ -15,6 +15,7 @@ export interface ConnectionRow {
   user_id: string;
   provider: CalendarProvider;
   ics_url: string;
+  all_day_mode: AllDayMode;
 }
 
 /** Fetches one connection's feed and replaces exactly that connection's
@@ -31,7 +32,14 @@ export async function syncConnection(
   horizonEnd.setDate(horizonEnd.getDate() + HORIZON_WEEKS * 7);
 
   try {
-    const events = await fetchIcsEvents(connection.ics_url, horizonStart, horizonEnd);
+    // All-day entries are only fetched when this calendar has opted in; most
+    // calendars are full of banners that must not consume time.
+    const events = await fetchIcsEvents(
+      connection.ics_url,
+      horizonStart,
+      horizonEnd,
+      connection.all_day_mode !== "ignore",
+    );
     const source = SOURCE_BY_PROVIDER[connection.provider];
 
     const { error: deleteError } = await supabase.from("events").delete().eq("connection_id", connection.id);
@@ -45,6 +53,7 @@ export async function syncConnection(
           starts_at: e.startsAt.toISOString(),
           ends_at: e.endsAt.toISOString(),
           source,
+          all_day: e.allDay,
           external_id: e.uid,
           connection_id: connection.id,
           description: e.description,

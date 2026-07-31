@@ -35,6 +35,11 @@ interface AvailabilityContext {
   minNoticeAbs: number;
   bookingsPerGday: Map<number, number>;
   horizonWeeks: number;
+  /** Days an all-day calendar entry has claimed. BOTH modes make a day
+   * unbookable — the difference between them is only whether the owner's own
+   * work still gets scheduled, which is none of a visitor's business. Without
+   * this, a week away at a conference was offered to strangers as free. */
+  allDayBlocks: Record<number, "no_meetings" | "away">;
 }
 
 /** One fetch+compute shared by the slots GET (whole week) and the booking
@@ -93,11 +98,14 @@ export async function buildAvailability(
     minNoticeAbs: nowAbsMinute(inputs.timezone, now) + link.min_notice_hours * 60,
     bookingsPerGday,
     horizonWeeks: inputs.horizonWeeks,
+    allDayBlocks: inputs.allDayBlocks,
   };
 }
 
 function windowFor(ctx: AvailabilityContext, link: BookingLink, gday: number): { start: number; end: number } | null {
-  const work = resolveDayWindow(gday, ctx.weeklyHours, ctx.dayOverrides);
+  // An all-day entry closes the day to bookings whichever mode it is.
+  if (ctx.allDayBlocks[gday]) return null;
+  const work = resolveDayWindow(gday, ctx.weeklyHours, ctx.dayOverrides, ctx.allDayBlocks);
   const linkWin = link.day_windows[String(gday % 7)] ?? null;
   if (!work || !linkWin) return null;
   const start = Math.max(work.start, linkWin.start);

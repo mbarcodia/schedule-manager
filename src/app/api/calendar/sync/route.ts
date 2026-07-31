@@ -14,7 +14,7 @@ export async function POST() {
 
   const { data: connections, error } = await supabase
     .from("calendar_connections")
-    .select("id,user_id,provider,ics_url")
+    .select("id,user_id,provider,ics_url,all_day_mode")
     .eq("user_id", user.id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 

@@ -15,12 +15,21 @@ const FALLBACK_WINDOW: DayWindow = { start: 9 * 60, end: 17 * 60 };
 
 /** Resolves the effective working window for a given grid day, or null if
  * the day is off (no window at all — nothing gets scheduled, nothing
- * renders as "hours"). */
+ * renders as "hours").
+ *
+ * allDayBlocks closes a day marked "away" by an all-day calendar entry. Days
+ * marked "no_meetings" keep their hours: the point of that mode is that you're
+ * unavailable to others but still working, so only the booking page excludes
+ * them. Passing it is optional so a caller that genuinely only cares about
+ * configured hours (the STARTS EARLY/LATE comparison) can leave it out. */
 export function resolveDayWindow(
   gday: GDay,
   weeklyHours: WeeklyHours,
   dayOverrides: DayOverrides,
+  allDayBlocks?: Record<GDay, "no_meetings" | "away">,
 ): DayWindow | null {
+  if (allDayBlocks?.[gday] === "away") return null;
+
   const dow = gday % 7;
   const defaultWindow = weeklyHours[dow] ?? null;
   const override = dayOverrides[gday];

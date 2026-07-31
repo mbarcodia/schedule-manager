@@ -13,6 +13,8 @@ export type EventSource = "manual" | "google" | "icloud" | "outlook";
 export type SubjectType = "task" | "research" | "anchor";
 export type ChatRole = "user" | "assistant";
 export type CalendarProvider = "outlook_ics" | "icloud_ics" | "google_ics";
+/** What a connected calendar's all-day events are allowed to block. */
+export type AllDayMode = "ignore" | "no_meetings" | "away";
 /** How often a to-do list chases whatever is still unfinished in it. */
 export type ChaseCadence = "week" | "month" | "year";
 
@@ -360,6 +362,7 @@ export interface Database {
           starts_at: string;
           ends_at: string;
           source: EventSource;
+          all_day: boolean;
           external_id: string | null;
           connection_id: string | null;
           description: string | null;
@@ -374,6 +377,7 @@ export interface Database {
           starts_at: string;
           ends_at: string;
           source?: EventSource;
+          all_day?: boolean;
           external_id?: string | null;
           connection_id?: string | null;
           description?: string | null;
@@ -390,6 +394,7 @@ export interface Database {
           label: string;
           ics_url: string;
           color: string;
+          all_day_mode: AllDayMode;
           last_synced_at: string | null;
           last_sync_error: string | null;
           last_sync_event_count: number | null;
@@ -402,6 +407,7 @@ export interface Database {
           label: string;
           ics_url: string;
           color?: string;
+          all_day_mode?: AllDayMode;
           last_synced_at?: string | null;
           last_sync_error?: string | null;
           last_sync_event_count?: number | null;
@@ -410,6 +416,7 @@ export interface Database {
           label: string;
           ics_url: string;
           color: string;
+          all_day_mode: AllDayMode;
           last_synced_at: string | null;
           last_sync_error: string | null;
           last_sync_event_count: number | null;

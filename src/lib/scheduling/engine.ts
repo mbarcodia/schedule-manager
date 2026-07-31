@@ -142,7 +142,7 @@ function findSlot(
 ): Slot | null {
   for (let g = 0; g < inputs.horizonWeeks * 7; g++) {
     if (ceilAbs != null && g * 1440 >= ceilAbs) break;
-    const win = resolveDayWindow(g, inputs.weeklyHours, inputs.dayOverrides);
+    const win = resolveDayWindow(g, inputs.weeklyHours, inputs.dayOverrides, inputs.allDayBlocks);
     if (win == null) continue; // day off, no override turning it on
     if (dayOk && !dayOk(g)) continue;
     const base = g * 1440;
@@ -338,10 +338,15 @@ export function computeSchedule(
   const NOW = nowAbsMinute(inputs.timezone, now);
 
   inputs.events.forEach((e) => {
-    markBusy(e.gday * 1440 + e.start, e.end - e.start, baseBusy);
+    // An all-day entry covers 00:00-24:00, so marking it busy would erase the
+    // day. It's a banner: what it actually blocks is decided per calendar and
+    // applied through allDayBlocks (an "away" day turns its hours off in
+    // resolveDayWindow; "no_meetings" only affects the booking page).
+    if (!e.allDay) markBusy(e.gday * 1440 + e.start, e.end - e.start, baseBusy);
     blocks.push({
       type: "synced",
-      tagLabel: "Meeting",
+      tagLabel: e.allDay ? "All day" : "Meeting",
+      allDay: e.allDay,
       title: e.title,
       gday: e.gday,
       start: e.start,
@@ -410,7 +415,7 @@ export function computeSchedule(
   });
 
   anchorDefs(inputs).forEach((a) => {
-    const dayWindow = resolveDayWindow(a.gday, inputs.weeklyHours, inputs.dayOverrides);
+    const dayWindow = resolveDayWindow(a.gday, inputs.weeklyHours, inputs.dayOverrides, inputs.allDayBlocks);
     if (dayWindow == null) return; // day off entirely
     const ws = Math.max(a.winStart, dayWindow.start);
     const we = Math.min(a.winEnd, dayWindow.end);

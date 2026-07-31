@@ -16,7 +16,7 @@ export async function GET(request: Request) {
   const supabase = createAdminClient();
   const { data: connections, error } = await supabase
     .from("calendar_connections")
-    .select("id,user_id,provider,ics_url");
+    .select("id,user_id,provider,ics_url,all_day_mode");
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   const results = await Promise.all((connections ?? []).map((c) => syncConnection(supabase, c)));

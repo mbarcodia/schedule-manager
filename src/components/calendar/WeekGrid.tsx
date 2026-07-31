@@ -21,6 +21,8 @@ interface WeekGridProps {
   timezone: string;
   weeklyHours: WeeklyHours;
   dayOverrides: DayOverrides;
+  /** Days claimed by an all-day calendar entry, and what it blocks. */
+  allDayBlocks: Record<number, "no_meetings" | "away">;
   schedule: ComputeScheduleResult;
   categories: Category[];
   onSetProgress: (block: ScheduleBlock, mode: "done" | "partial" | "none", minutes?: number) => void;
@@ -111,6 +113,7 @@ export function WeekGrid({
   timezone,
   weeklyHours,
   dayOverrides,
+  allDayBlocks,
   schedule,
   categories,
   onSetProgress,
@@ -146,12 +149,31 @@ export function WeekGrid({
           const gday = startGday + i;
           const isToday = gday === todayGday;
           const date = dateForGday(timezone, gday, now);
+          // All-day entries are banners, not blocks: they'd otherwise cover
+          // every hour and hide the work still scheduled underneath.
+          const banners = schedule.blocks.filter((b) => b.gday === gday && b.allDay);
+          const away = allDayBlocks?.[gday] === "away";
           return (
             <div key={i} className="py-2.5 pl-2.5 border-l border-border-grid">
               <div className="text-[10px] tracking-wider text-muted uppercase">{WEEKDAY_LABELS[((gday % 7) + 7) % 7]}</div>
               <div className="mt-0.5 text-[15px] font-medium" style={{ color: isToday ? "var(--color-accent)" : "var(--color-text)" }}>
                 {date.day}
               </div>
+              {banners.map((b) => (
+                <div
+                  key={b.key ?? b.title}
+                  title={`${b.title} — ${away ? "nothing is scheduled and nobody can book you" : "nobody can book you, but your own work is still scheduled"}`}
+                  className="mt-1 mr-2 rounded px-1.5 py-0.5 text-[9.5px] leading-tight truncate"
+                  style={{
+                    background: away ? "rgba(229,72,77,0.18)" : "rgba(224,169,78,0.16)",
+                    border: `1px solid ${away ? "rgba(229,72,77,0.5)" : "rgba(224,169,78,0.5)"}`,
+                    color: away ? "#ffb4b6" : "#e0a94e",
+                  }}
+                >
+                  {b.title}
+                  <span className="opacity-70">{away ? " · away" : " · no meetings"}</span>
+                </div>
+              ))}
             </div>
           );
         })}
@@ -175,9 +197,9 @@ export function WeekGrid({
           const gday = startGday + i;
           const isToday = gday === todayGday;
           const defaultWindow = defaultDayWindow(gday, weeklyHours);
-          const effWindow = resolveDayWindow(gday, weeklyHours, dayOverrides);
-          const allDayBlocks = mergeAdjacentTaskBlocks(schedule.blocks.filter((b) => b.gday === gday));
-          const dayBlocks = allDayBlocks.filter((b) => b.end > DAY_START_MIN && b.start < DAY_END_MIN);
+          const effWindow = resolveDayWindow(gday, weeklyHours, dayOverrides, allDayBlocks);
+          const merged = mergeAdjacentTaskBlocks(schedule.blocks.filter((b) => b.gday === gday && !b.allDay));
+          const dayBlocks = merged.filter((b) => b.end > DAY_START_MIN && b.start < DAY_END_MIN);
           const blockLanes = computeBlockLanes(dayBlocks);
           const showNow = isToday && NOW - todayGday * 1440 >= DAY_START_MIN && NOW - todayGday * 1440 <= DAY_END_MIN;
           const nowTop = (NOW - todayGday * 1440 - DAY_START_MIN) * PX_PER_MIN;

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { CaretLeftIcon, CheckIcon } from "@phosphor-icons/react";
 import { createClient } from "@/lib/supabase/client";
 import type {
+  AllDayMode,
   CalendarProvider,
   Database,
   PlannerCredentialProvider,
@@ -320,6 +321,16 @@ export default function SettingsPage() {
       setNewConnLabel("");
       setNewConnUrl("");
     }
+  }
+
+  async function setAllDayMode(id: string, mode: AllDayMode) {
+    setConnections((prev) => prev.map((c) => (c.id === id ? { ...c, all_day_mode: mode } : c)));
+    const supabase = createClient();
+    await supabase.from("calendar_connections").update({ all_day_mode: mode }).eq("id", id);
+    // All-day entries are only fetched for calendars that want them, so the
+    // choice only takes effect on the next sync — run one now rather than
+    // leaving the setting looking broken for an hour.
+    await syncNow();
   }
 
   async function recolorConnection(id: string, color: string) {
@@ -1147,9 +1158,23 @@ export default function SettingsPage() {
             </button>
           </div>
           <p className="text-xs text-muted mb-4">
-            Read-only — meetings show up as fixed time on your calendar and your tasks reschedule around them, but
+            Read-only — meetings show up as fixed time on your calendar and your work reschedules around them, but
             nothing is ever written back. Syncs automatically every hour, or click &quot;Sync now&quot; anytime.
           </p>
+          <div className="rounded-lg border border-border bg-panel p-3.5 mb-4 text-xs text-muted leading-relaxed">
+            <span className="text-text font-medium">All-day events</span> are ignored by default, because most
+            calendars use them for birthdays and holidays that shouldn&apos;t consume time. Per calendar you can
+            instead choose:
+            <div className="mt-1.5 flex flex-col gap-1">
+              <div>
+                <span className="text-text">no meetings</span> — nobody can book that day through your booking page,
+                but your own work is still scheduled in your normal hours. For a conference or travel day.
+              </div>
+              <div>
+                <span className="text-text">away</span> — nothing is scheduled at all. For actual leave.
+              </div>
+            </div>
+          </div>
 
           <div className="flex flex-col gap-2">
             {connections.map((c) => (
@@ -1182,6 +1207,16 @@ export default function SettingsPage() {
                         : "Not synced yet"}
                   </div>
                 </div>
+                <select
+                  value={c.all_day_mode}
+                  onChange={(e) => setAllDayMode(c.id, e.target.value as AllDayMode)}
+                  className="flex-none rounded border border-border bg-surface px-1.5 py-1 text-[10.5px] text-muted outline-none"
+                  title="What this calendar's all-day events should block"
+                >
+                  <option value="ignore">all-day: ignore</option>
+                  <option value="no_meetings">all-day: no meetings</option>
+                  <option value="away">all-day: away</option>
+                </select>
                 <button
                   onClick={() => deleteConnection(c.id)}
                   title="Disconnect"

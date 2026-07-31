@@ -9,11 +9,6 @@
 import { slotIsOffered } from "../src/lib/scheduling/free-slots.ts";
 
 let failures = 0;
-function check(label, actual, expected) {
-  const ok = JSON.stringify(actual) === JSON.stringify(expected);
-  if (!ok) failures++;
-  console.log(`  ${ok ? "OK  " : "FAIL"} ${label}${ok ? "" : `  got ${JSON.stringify(actual)}, want ${JSON.stringify(expected)}`}`);
-}
 function checkThat(label, cond, detail = "") {
   if (!cond) failures++;
   console.log(`  ${cond ? "OK  " : "FAIL"} ${label}${cond ? "" : `  ${detail}`}`);

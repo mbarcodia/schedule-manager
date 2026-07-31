@@ -10,6 +10,7 @@
 // and targets are the dated checkpoints inside it that carry no hours.
 
 import { minToLabel, WEEKDAY_LABELS } from "@/lib/scheduling/time";
+import { resolveDayWindow } from "@/lib/scheduling/day-window";
 import { deriveBoardStatuses, boardStatusFor } from "@/lib/planner/board-status";
 import { DEFAULT_WIP_LIMIT } from "@/lib/planner/board-constants";
 import type { ComputeScheduleResult, DayOverrides } from "@/lib/scheduling/types";
@@ -80,12 +81,40 @@ export function buildPromptContext(rows: RawScheduleRows, inputs: ScheduleInputs
         .filter((t) => t.commitment_id === p.id)
         .map((t) => ({ title: t.title, date: t.target_date, done: t.completed_at != null })),
     })),
+    // An all-day entry is reported as such rather than as a 00:00-00:00 block,
+    // and says what it actually blocks. Without this the model saw a
+    // midnight-to-midnight event and reasonably concluded the day was gone —
+    // then described a conference day as having no working time, when
+    // "no_meetings" days are still working days by design.
     events: inputs.events.map((e) => ({
       title: e.title,
       day: WEEKDAY_LABELS[e.gday % 7],
       weeksOut: Math.floor(e.gday / 7),
-      time: `${minToLabel(e.start)}–${minToLabel(e.end)}`,
+      ...(e.allDay
+        ? {
+            allDay: true,
+            blocks:
+              inputs.allDayBlocks[e.gday] === "away"
+                ? "nothing is scheduled this day"
+                : "others cannot book this day, but it IS still a working day and work is scheduled on it",
+          }
+        : { time: `${minToLabel(e.start)}–${minToLabel(e.end)}` }),
     })),
+    /** Working time genuinely left on each of the next 14 days, after meetings,
+     * routines and already-placed work. The model was previously inferring this
+     * from the event list and getting conference weeks wrong. */
+    freeHoursByDay: Array.from({ length: 14 }, (_, i) => {
+      const win = resolveDayWindow(i, inputs.weeklyHours, inputs.dayOverrides, inputs.allDayBlocks);
+      if (!win) return { day: WEEKDAY_LABELS[i % 7], weeksOut: Math.floor(i / 7), free: "day off" };
+      const taken = new Set<number>();
+      for (const b of schedule.blocks) {
+        if (b.gday !== i || b.allDay) continue;
+        for (let m = Math.max(b.start, win.start); m < Math.min(b.end, win.end); m++) taken.add(m);
+      }
+      let free = 0;
+      for (let m = win.start; m < win.end; m++) if (!taken.has(m)) free++;
+      return { day: WEEKDAY_LABELS[i % 7], weeksOut: Math.floor(i / 7), free: `${(free / 60).toFixed(1)}h` };
+    }),
     missedTimeBlocks: schedule.missed,
     willMissDeadline: schedule.risk,
     cuttingItClose: schedule.nearDeadline,

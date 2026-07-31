@@ -11,6 +11,7 @@
 // package instead, which bundles cleanly.
 
 import ical from "node-ical";
+import { zonedTimeToUtc } from "@/lib/scheduling/time";
 import type { VEvent } from "node-ical";
 
 export interface SyncedEvent {
@@ -61,37 +62,58 @@ function extractMeetingUrl(...texts: (string | undefined)[]): string | null {
  * set, the day window — works a day at a time, so a single row spanning five
  * days would be mapped onto its start day and the other four would vanish.
  *
- * Each day becomes local midnight to local midnight. Using local time matters:
- * a UTC-midnight span lands on the previous evening in a western timezone and
- * marks the wrong day. */
+ * The day boundaries must be midnight in the ACCOUNT'S timezone, which is why
+ * this takes one. An earlier version used the process's local midnight; sync
+ * runs on Vercel where that is UTC, so a five-day conference was stored as five
+ * 8pm-to-8pm spans and every day landed on the evening before. The last day fell
+ * off the end, leaving it bookable while the owner was away.
+ *
+ * A date-valued DTSTART carries no time or zone, so its parts are read in UTC —
+ * that is where node-ical puts them — and then re-anchored to the account's
+ * midnight. */
+/** Exported for scripts/sanity-check-all-day-days.mjs: which local days a span
+ * covers is worth asserting directly, since getting it wrong is invisible until
+ * someone in a non-UTC timezone travels. */
+export const expandAllDayForTest = (
+  uid: string,
+  title: string,
+  startsAt: Date,
+  endsAt: Date,
+  timeZone: string,
+): SyncedEvent[] => expandAllDay(uid, title, startsAt, endsAt, timeZone);
+
 function expandAllDay(
   uid: string,
   title: string,
   startsAt: Date,
   endsAt: Date,
+  timeZone: string,
   description?: string,
   location?: string,
   url?: string,
 ): SyncedEvent[] {
   const out: SyncedEvent[] = [];
-  const day = new Date(startsAt.getFullYear(), startsAt.getMonth(), startsAt.getDate());
-  // Guard against a malformed feed giving end <= start: still emit one day.
-  const last = endsAt > startsAt ? endsAt : new Date(day.getTime() + 86400000);
+  // Plain calendar arithmetic on the date parts, no zone involved yet.
+  const cursor = new Date(Date.UTC(startsAt.getUTCFullYear(), startsAt.getUTCMonth(), startsAt.getUTCDate()));
+  // A malformed feed can give end <= start: still emit the one day.
+  const last = endsAt > cursor ? endsAt : new Date(cursor.getTime() + 86400000);
   let guard = 0;
-  while (day < last && guard++ < 400) {
-    const dayStart = new Date(day.getFullYear(), day.getMonth(), day.getDate());
-    const dayEnd = new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1);
+  while (cursor < last && guard++ < 400) {
+    const y = cursor.getUTCFullYear();
+    const m = cursor.getUTCMonth() + 1;
+    const d = cursor.getUTCDate();
+    const next = new Date(cursor.getTime() + 86400000);
     out.push({
-      uid: `${uid}-allday-${dayStart.getFullYear()}-${dayStart.getMonth() + 1}-${dayStart.getDate()}`,
+      uid: `${uid}-allday-${y}-${m}-${d}`,
       title,
-      startsAt: dayStart,
-      endsAt: dayEnd,
+      startsAt: zonedTimeToUtc(y, m, d, 0, 0, timeZone),
+      endsAt: zonedTimeToUtc(next.getUTCFullYear(), next.getUTCMonth() + 1, next.getUTCDate(), 0, 0, timeZone),
       description: description || null,
       location: location || null,
       meetingUrl: extractMeetingUrl(url, description, location),
       allDay: true,
     });
-    day.setDate(day.getDate() + 1);
+    cursor.setTime(next.getTime());
   }
   return out;
 }
@@ -125,6 +147,9 @@ export async function fetchIcsEvents(
    * right for a calendar full of birthday and holiday banners; the caller passes
    * true only for a connection that has opted in. */
   includeAllDay = false,
+  /** The account's timezone, used to anchor all-day day boundaries. Defaults to
+   * UTC only so a caller that never sees an all-day entry needn't pass it. */
+  timeZone = "UTC",
 ): Promise<SyncedEvent[]> {
   const data = await ical.async.fromURL(url);
   const out: SyncedEvent[] = [];
@@ -142,9 +167,16 @@ export async function fetchIcsEvents(
       if (!includeAllDay) continue;
       if (ev.end < horizonStart || ev.start > horizonEnd) continue;
       out.push(
-        ...expandAllDay(ev.uid, ev.summary || "Busy", ev.start, ev.end, ev.description, ev.location, ev.url).filter(
-          (e) => e.endsAt >= horizonStart && e.startsAt <= horizonEnd,
-        ),
+        ...expandAllDay(
+          ev.uid,
+          ev.summary || "Busy",
+          ev.start,
+          ev.end,
+          timeZone,
+          ev.description,
+          ev.location,
+          ev.url,
+        ).filter((e) => e.endsAt >= horizonStart && e.startsAt <= horizonEnd),
       );
       continue;
     }

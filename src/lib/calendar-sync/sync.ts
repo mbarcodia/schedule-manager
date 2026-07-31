@@ -33,13 +33,21 @@ export async function syncConnection(
 
   try {
     // All-day entries are only fetched when this calendar has opted in; most
-    // calendars are full of banners that must not consume time.
-    const events = await fetchIcsEvents(
-      connection.ics_url,
-      horizonStart,
-      horizonEnd,
-      connection.all_day_mode !== "ignore",
-    );
+    // calendars are full of banners that must not consume time. Their day
+    // boundaries are the ACCOUNT'S midnight, not the server's — this runs on
+    // Vercel in UTC, so using the process timezone shifted every all-day event
+    // onto the evening before.
+    const includeAllDay = connection.all_day_mode !== "ignore";
+    let timeZone = "UTC";
+    if (includeAllDay) {
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("timezone")
+        .eq("id", connection.user_id)
+        .maybeSingle();
+      timeZone = profile?.timezone || "UTC";
+    }
+    const events = await fetchIcsEvents(connection.ics_url, horizonStart, horizonEnd, includeAllDay, timeZone);
     const source = SOURCE_BY_PROVIDER[connection.provider];
 
     const { error: deleteError } = await supabase.from("events").delete().eq("connection_id", connection.id);

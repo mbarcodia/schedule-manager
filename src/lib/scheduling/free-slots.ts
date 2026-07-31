@@ -27,7 +27,7 @@ export interface FreeSlot {
  * correctly). */
 const START_GRID_MIN = 30;
 
-interface AvailabilityContext {
+export interface AvailabilityContext {
   busy: Set<AbsMinute>;
   timezone: string;
   weeklyHours: ReturnType<typeof buildScheduleInputs>["inputs"]["weeklyHours"];
@@ -113,6 +113,27 @@ function windowFor(ctx: AvailabilityContext, link: BookingLink, gday: number): {
   return end > start ? { start, end } : null;
 }
 
+/** Whether one exact slot is offerable. Shared by the week listing and the
+ * booking POST's re-validation: these two disagreeing is how a slot gets shown
+ * and then rejected, so they run the same checks rather than parallel copies. */
+export function slotIsOffered(
+  ctx: AvailabilityContext,
+  link: BookingLink,
+  gday: number,
+  startMin: number,
+  durationMin: number,
+): boolean {
+  const win = windowFor(ctx, link, gday);
+  if (!win || startMin < win.start || startMin + durationMin > win.end) return false;
+  // null = no maximum, which is not the same as a big number: a number is a
+  // guess that silently becomes wrong when a day has more room than expected.
+  // It must not be read as zero, which would close every day.
+  if (link.max_per_day != null && (ctx.bookingsPerGday.get(gday) ?? 0) >= link.max_per_day) return false;
+  const abs = gday * 1440 + startMin;
+  if (abs < ctx.minNoticeAbs) return false;
+  return rangeFree(ctx.busy, abs, durationMin);
+}
+
 function rangeFree(busy: Set<AbsMinute>, abs: number, len: number): boolean {
   for (let k = 0; k < len; k += 1) if (busy.has(abs + k)) return false;
   return true;
@@ -133,13 +154,10 @@ export async function computeFreeSlots(
   for (let gday = weekIndex * 7; gday < weekIndex * 7 + 7; gday += 1) {
     const win = windowFor(ctx, link, gday);
     if (!win || win.end - win.start < durationMin) continue;
-    if ((ctx.bookingsPerGday.get(gday) ?? 0) >= link.max_per_day) continue;
 
     const firstStart = Math.ceil(win.start / START_GRID_MIN) * START_GRID_MIN;
     for (let m = firstStart; m + durationMin <= win.end; m += START_GRID_MIN) {
-      const abs = gday * 1440 + m;
-      if (abs < ctx.minNoticeAbs) continue;
-      if (!rangeFree(ctx.busy, abs, durationMin)) continue;
+      if (!slotIsOffered(ctx, link, gday, m, durationMin)) continue;
       const d = dateForGday(ctx.timezone, gday, now);
       const startUtc = zonedTimeToUtc(d.year, d.month, d.day, Math.floor(m / 60), m % 60, ctx.timezone);
       slots.push({ startIso: startUtc.toISOString(), durationMin });
@@ -177,11 +195,5 @@ export async function isSlotFree(
 
   if (gday < 0 || gday >= ctx.horizonWeeks * 7) return false;
   if (minute % START_GRID_MIN !== 0) return false;
-  const win = windowFor(ctx, link, gday);
-  if (!win || minute < win.start || minute + durationMin > win.end) return false;
-  if ((ctx.bookingsPerGday.get(gday) ?? 0) >= link.max_per_day) return false;
-
-  const abs = gday * 1440 + minute;
-  if (abs < ctx.minNoticeAbs) return false;
-  return rangeFree(ctx.busy, abs, durationMin);
+  return slotIsOffered(ctx, link, gday, minute, durationMin);
 }

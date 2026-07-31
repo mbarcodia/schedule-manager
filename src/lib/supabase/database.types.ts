@@ -659,7 +659,7 @@ export interface Database {
           blocking_category_ids: string[];
           buffer_min: number;
           min_notice_hours: number;
-          max_per_day: number;
+          max_per_day: number | null;
           active: boolean;
           location_modes: BookingLocationMode[];
           created_at: string;
@@ -674,7 +674,7 @@ export interface Database {
           blocking_category_ids?: string[];
           buffer_min?: number;
           min_notice_hours?: number;
-          max_per_day?: number;
+          max_per_day?: number | null;
           active?: boolean;
           location_modes?: BookingLocationMode[];
         },
@@ -686,7 +686,7 @@ export interface Database {
           blocking_category_ids: string[];
           buffer_min: number;
           min_notice_hours: number;
-          max_per_day: number;
+          max_per_day: number | null;
           active: boolean;
           location_modes: BookingLocationMode[];
         }>

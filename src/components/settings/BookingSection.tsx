@@ -341,7 +341,7 @@ export function BookingSection({ categories }: { categories: CategoryRow[] }) {
                   onClick={() => setExpanded(expanded === link.id ? null : link.id)}
                   className="text-muted hover:text-text"
                 >
-                  {expanded === link.id ? "close" : "edit"}
+                  {expanded === link.id ? "close" : "preferences"}
                 </button>
                 <button onClick={() => void deleteLink(link.id)} className="text-muted-2 hover:text-text">
                   delete
@@ -360,7 +360,8 @@ export function BookingSection({ categories }: { categories: CategoryRow[] }) {
                 const latest = Math.max(...open.map((x) => x.w!.end));
                 return `${open.map((x) => x.d).join(", ")}, no earlier than ${minToLabel(earliest)} and no later than ${minToLabel(latest)}`;
               })()}{" "}
-              · at least {link.min_notice_hours}h notice · max {link.max_per_day}/day
+              {link.min_notice_hours > 0 ? ` · ${link.min_notice_hours}h notice` : " · same-day ok"}
+              {link.max_per_day != null ? ` · max ${link.max_per_day}/day` : " · no daily max"}
               {link.buffer_min > 0 ? ` · ${link.buffer_min}m gap around meetings` : " · no gap enforced"}
               {link.blocking_category_ids.length > 0
                 ? ` · ${link.blocking_category_ids.length} protected label${link.blocking_category_ids.length > 1 ? "s" : ""}`
@@ -368,10 +369,13 @@ export function BookingSection({ categories }: { categories: CategoryRow[] }) {
             </p>
 
             {expanded === link.id && (
-              <div className="mt-3 pt-3 border-t border-border flex flex-col gap-3 text-xs">
-                {/* Durations */}
+              <div className="mt-3 pt-3 border-t border-border flex flex-col gap-4 text-xs">
+                <div className="text-[11px] text-muted-2">
+                  These decide what visitors can do. They apply to this link only, and take effect immediately.
+                </div>
+
                 <div>
-                  <div className="text-[11px] text-muted mb-1">Meeting lengths visitors can pick</div>
+                  <div className="text-[10px] tracking-wide uppercase text-muted-2 font-medium mb-1.5">Meeting lengths</div>
                   <div className="flex gap-1.5 flex-wrap">
                     {DURATION_CHOICES.map((d) => {
                       const on = link.durations.includes(d);
@@ -396,10 +400,10 @@ export function BookingSection({ categories }: { categories: CategoryRow[] }) {
                   </div>
                 </div>
 
-                {/* Day windows */}
                 <div>
-                  <div className="text-[11px] text-muted mb-1">
-                    Bookable days & times (also limited by your standard hours)
+                  <div className="text-[10px] tracking-wide uppercase text-muted-2 font-medium mb-1.5">Days and times open for meetings</div>
+                  <div className="text-[10px] text-muted-2 mb-1.5">
+                    Narrowed further by your standard hours, so a day off here stays closed either way.
                   </div>
                   <div className="flex flex-col gap-1">
                     {DOW_LABELS.map((label, dow) => {
@@ -458,11 +462,11 @@ export function BookingSection({ categories }: { categories: CategoryRow[] }) {
                   </div>
                 </div>
 
-                {/* Protected labels */}
                 <div>
-                  <div className="text-[11px] text-muted mb-1">
-                    Protected labels (time booked for work with these labels can&apos;t be booked over; other
-                    work reschedules automatically)
+                  <div className="text-[10px] tracking-wide uppercase text-muted-2 font-medium mb-1.5">Protected labels</div>
+                  <div className="text-[10px] text-muted-2 mb-1.5">
+                    Time booked for work with these labels can&apos;t be booked over. Other work simply reschedules
+                    around a new meeting.
                   </div>
                   <div className="flex gap-1.5 flex-wrap">
                     {categories.map((c) => {
@@ -490,10 +494,10 @@ export function BookingSection({ categories }: { categories: CategoryRow[] }) {
                   </div>
                 </div>
 
-                {/* Locations offered */}
                 <div>
-                  <div className="text-[11px] text-muted mb-1">
-                    Where can this meeting happen? (guests pick when both are offered)
+                  <div className="text-[10px] tracking-wide uppercase text-muted-2 font-medium mb-1.5">Where it happens</div>
+                  <div className="text-[10px] text-muted-2 mb-1.5">
+                    Guests choose when both are offered.
                   </div>
                   <div className="flex gap-1.5 flex-wrap">
                     {(["zoom", "office"] as BookingLocationMode[]).map((m) => {
@@ -525,50 +529,63 @@ export function BookingSection({ categories }: { categories: CategoryRow[] }) {
                   </div>
                 </div>
 
-                {/* Numbers */}
-                <div className="flex gap-4 flex-wrap items-center">
-                  <label className="flex items-center gap-1.5 text-muted">
-                    Buffer
-                    <select
-                      value={link.buffer_min}
-                      onChange={(e) => void updateLink(link.id, { buffer_min: Number(e.target.value) })}
-                      className="rounded-md border border-border bg-surface px-1.5 py-1 text-[11px] text-text"
-                    >
-                      {[0, 10, 15, 30].map((m) => (
-                        <option key={m} value={m}>
-                          {m}m
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="flex items-center gap-1.5 text-muted">
-                    Min notice
-                    <select
-                      value={link.min_notice_hours}
-                      onChange={(e) => void updateLink(link.id, { min_notice_hours: Number(e.target.value) })}
-                      className="rounded-md border border-border bg-surface px-1.5 py-1 text-[11px] text-text"
-                    >
-                      {[2, 4, 12, 24, 48].map((h) => (
-                        <option key={h} value={h}>
-                          {h}h
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="flex items-center gap-1.5 text-muted">
-                    Max/day
-                    <select
-                      value={link.max_per_day}
-                      onChange={(e) => void updateLink(link.id, { max_per_day: Number(e.target.value) })}
-                      className="rounded-md border border-border bg-surface px-1.5 py-1 text-[11px] text-text"
-                    >
-                      {[1, 2, 3, 5, 8].map((n) => (
-                        <option key={n} value={n}>
-                          {n}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                {/* Timing rules — each says plainly what it does to a visitor,
+                    since these are the ones people get wrong by guessing. */}
+                <div>
+                  <div className="text-[10px] tracking-wide uppercase text-muted-2 font-medium mb-1.5">
+                    Timing rules
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <label className="flex items-center gap-2 text-muted">
+                      <span className="w-[150px] flex-none">Gap around meetings</span>
+                      <select
+                        value={link.buffer_min}
+                        onChange={(e) => void updateLink(link.id, { buffer_min: Number(e.target.value) })}
+                        className="rounded-md border border-border bg-surface px-1.5 py-1 text-[11px] text-text"
+                      >
+                        <option value={0}>no gap</option>
+                        {[5, 10, 15, 30, 60].map((m) => (
+                          <option key={m} value={m}>
+                            {m} min either side
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="flex items-center gap-2 text-muted">
+                      <span className="w-[150px] flex-none">Notice required</span>
+                      <select
+                        value={link.min_notice_hours}
+                        onChange={(e) => void updateLink(link.id, { min_notice_hours: Number(e.target.value) })}
+                        className="rounded-md border border-border bg-surface px-1.5 py-1 text-[11px] text-text"
+                      >
+                        <option value={0}>none — same-day is fine</option>
+                        {[2, 4, 12, 24, 48, 72, 168].map((h) => (
+                          <option key={h} value={h}>
+                            {h < 24 ? `${h} hours` : h === 168 ? "1 week" : `${h / 24} day${h > 24 ? "s" : ""}`} ahead
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="flex items-center gap-2 text-muted">
+                      <span className="w-[150px] flex-none">Meetings per day</span>
+                      <select
+                        value={link.max_per_day ?? "none"}
+                        onChange={(e) =>
+                          void updateLink(link.id, {
+                            max_per_day: e.target.value === "none" ? null : Number(e.target.value),
+                          })
+                        }
+                        className="rounded-md border border-border bg-surface px-1.5 py-1 text-[11px] text-text"
+                      >
+                        <option value="none">no maximum</option>
+                        {[1, 2, 3, 4, 5, 6, 8].map((n) => (
+                          <option key={n} value={n}>
+                            at most {n}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
                 </div>
               </div>
             )}

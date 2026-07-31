@@ -154,7 +154,7 @@ export function WeekGrid({
           const banners = schedule.blocks.filter((b) => b.gday === gday && b.allDay);
           const away = allDayBlocks?.[gday] === "away";
           return (
-            <div key={i} className="py-2.5 pl-2.5 border-l border-border-grid">
+            <div key={i} className="py-2.5 pl-2.5 border-l border-border-grid min-w-0">
               <div className="text-[10px] tracking-wider text-muted uppercase">{WEEKDAY_LABELS[((gday % 7) + 7) % 7]}</div>
               <div className="mt-0.5 text-[15px] font-medium" style={{ color: isToday ? "var(--color-accent)" : "var(--color-text)" }}>
                 {date.day}

@@ -55,7 +55,6 @@ export function BookingSection({ categories }: { categories: CategoryRow[] }) {
   const [profileLoaded, setProfileLoaded] = useState(false);
   const [bookings, setBookings] = useState<UpcomingBooking[]>([]);
   const [links, setLinks] = useState<BookingLinkRow[]>([]);
-  const [expanded, setExpanded] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
 
@@ -323,7 +322,7 @@ export function BookingSection({ categories }: { categories: CategoryRow[] }) {
                   ? "guest picks video or in person"
                   : link.location_modes[0] === "office"
                     ? "in person only"
-                    : "video only — enable “In person” in edit to let guests choose"}
+                    : "video only — add an in-person location below to offer both"}
               </span>
               <div className="ml-auto flex items-center gap-2.5 text-[11px]">
                 <button onClick={() => copyUrl(link.slug)} className="text-accent-text hover:underline">
@@ -337,42 +336,19 @@ export function BookingSection({ categories }: { categories: CategoryRow[] }) {
                   />
                   active
                 </label>
-                <button
-                  onClick={() => setExpanded(expanded === link.id ? null : link.id)}
-                  className="text-muted hover:text-text"
-                >
-                  {expanded === link.id ? "close" : "preferences"}
-                </button>
                 <button onClick={() => void deleteLink(link.id)} className="text-muted-2 hover:text-text">
                   delete
                 </button>
               </div>
             </div>
 
-            {/* Every rule this link enforces, in words — so you don't have to
-                open the editor to know what guests can and can't do. */}
-            <p className="mt-1.5 text-[10.5px] text-muted leading-relaxed">
-              {link.durations.join(" / ")} min ·{" "}
-              {(() => {
-                const open = DOW_LABELS.map((d, i) => ({ d, w: link.day_windows[String(i)] ?? null })).filter((x) => x.w);
-                if (!open.length) return "no bookable days set";
-                const earliest = Math.min(...open.map((x) => x.w!.start));
-                const latest = Math.max(...open.map((x) => x.w!.end));
-                return `${open.map((x) => x.d).join(", ")}, no earlier than ${minToLabel(earliest)} and no later than ${minToLabel(latest)}`;
-              })()}{" "}
-              {link.min_notice_hours > 0 ? ` · ${link.min_notice_hours}h notice` : " · same-day ok"}
-              {link.max_per_day != null ? ` · max ${link.max_per_day}/day` : " · no daily max"}
-              {link.buffer_min > 0 ? ` · ${link.buffer_min}m gap around meetings` : " · no gap enforced"}
-              {link.blocking_category_ids.length > 0
-                ? ` · ${link.blocking_category_ids.length} protected label${link.blocking_category_ids.length > 1 ? "s" : ""}`
-                : ""}
-            </p>
-
-            {expanded === link.id && (
-              <div className="mt-3 pt-3 border-t border-border flex flex-col gap-4 text-xs">
-                <div className="text-[11px] text-muted-2">
-                  These decide what visitors can do. They apply to this link only, and take effect immediately.
+            <div className="mt-3 pt-3 border-t border-border flex flex-col gap-4 text-xs">
+              <div>
+                <div className="text-[12px] font-medium text-text">Preferences</div>
+                <div className="text-[10.5px] text-muted-2">
+                  What visitors can do with this link. Saved as you change them.
                 </div>
+              </div>
 
                 <div>
                   <div className="text-[10px] tracking-wide uppercase text-muted-2 font-medium mb-1.5">Meeting lengths</div>
@@ -587,8 +563,7 @@ export function BookingSection({ categories }: { categories: CategoryRow[] }) {
                     </label>
                   </div>
                 </div>
-              </div>
-            )}
+            </div>
           </div>
         ))}
 

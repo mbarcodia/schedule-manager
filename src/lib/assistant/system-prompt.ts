@@ -1,10 +1,10 @@
 // Builds the live state snapshot the chat sees every turn: current datetime,
 // working hours, routines, standing preference notes, and the account's own
-// projects and work. Nothing is hardcoded to particular projects —
+// projects and tasks. Nothing is hardcoded to particular projects —
 // morning priority is described from whatever the account actually has, since
 // every account starts empty.
 //
-// The snapshot speaks the user's vocabulary (projects / work / routines /
+// The snapshot speaks the user's vocabulary (projects / tasks / routines /
 // labels / targets) so the chat and the screen agree. A project is one thing
 // with optional facets — weekly hours, a deadline, a cadence, an active window —
 // and targets are the dated checkpoints inside it that carry no hours.
@@ -45,7 +45,7 @@ export function buildPromptContext(rows: RawScheduleRows, inputs: ScheduleInputs
   const labelById = new Map(rows.categories.map((c) => [c.id, c.name]));
 
   // Soft WIP accounting for the kanban board's In Progress column — surfaced
-  // in the snapshot so the planner can push back on starting new work while
+  // in the snapshot so the planner can push back on starting new tasks while
   // over the limit (same spirit as flagging overcommitted deadlines).
   const boardIndex = deriveBoardStatuses(schedule);
   const wipInProgressCount = rows.tasks.filter((t) => boardStatusFor(boardIndex, t.id) === "in_progress").length;
@@ -56,8 +56,16 @@ export function buildPromptContext(rows: RawScheduleRows, inputs: ScheduleInputs
       limit: DEFAULT_WIP_LIMIT,
       overLimit: wipInProgressCount > DEFAULT_WIP_LIMIT,
     },
-    labels: rows.categories.map((c) => c.name),
-    work: rows.tasks.map((t) => ({
+    // Names alone were enough while a label was only a colour. It now carries
+    // scheduling settings, and the model needs them to explain why a block
+    // landed where it did — or to say that labelling work Deep focus will move
+    // it to a morning.
+    labels: rows.categories.map((c) => ({
+      name: c.name,
+      minChunkMin: c.min_chunk_min ?? null,
+      timeOfDay: c.time_pref ?? null,
+    })),
+    tasks: rows.tasks.map((t) => ({
       title: t.title,
       priority: t.priority,
       durationMin: t.duration_min,
@@ -96,12 +104,12 @@ export function buildPromptContext(rows: RawScheduleRows, inputs: ScheduleInputs
             blocks:
               inputs.allDayBlocks[e.gday] === "away"
                 ? "nothing is scheduled this day"
-                : "others cannot book this day, but it IS still a working day and work is scheduled on it",
+                : "others cannot book this day, but it IS still a working day and tasks are scheduled on it",
           }
         : { time: `${minToLabel(e.start)}–${minToLabel(e.end)}` }),
     })),
     /** Working time genuinely left on each of the next 14 days, after meetings,
-     * routines and already-placed work. The model was previously inferring this
+     * routines and already-placed tasks. The model was previously inferring this
      * from the event list and getting conference weeks wrong. */
     freeHoursByDay: Array.from({ length: 14 }, (_, i) => {
       const win = resolveDayWindow(i, inputs.weeklyHours, inputs.dayOverrides, inputs.allDayBlocks);
@@ -122,11 +130,15 @@ export function buildPromptContext(rows: RawScheduleRows, inputs: ScheduleInputs
     dayOverrides: formatDayOverrides(inputs.dayOverrides),
   };
 
+  // Order only — NOT "first claim on mornings", which was true when the engine
+  // forced a morning preference on every weekly-hours block off an internal
+  // tag. Where those hours go is now the commitment's own setting (or its
+  // label's), so claiming mornings here would contradict the schedule.
   const researchPriorityNote =
     hourlyProjects.length > 0
       ? ` ${hourlyProjects
           .map((p) => `${p.title} (${(p.weekly_min_min! / 60).toFixed(0)}h/wk minimum)`)
-          .join(", then ")} ${hourlyProjects.length > 1 ? "have" : "has"} first claim on mornings, in that order;`
+          .join(", then ")} compete for time in that order;`
       : "";
 
   const recurringDescription = inputs.recurringRules.map((r) => ({

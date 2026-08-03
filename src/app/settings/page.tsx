@@ -9,6 +9,7 @@ import type {
   AllDayMode,
   CalendarProvider,
   Database,
+  LabelTimePref,
   PlannerCredentialProvider,
   PlannerModel,
   WeeklyHoursJson,
@@ -130,17 +131,17 @@ const VOCABULARY: [string, string][] = [
   ],
   [
     "Target",
-    "a date inside a project that takes no time of its own — “first round of analysis done by the end of August”. It shows as a marker on the timeline and you click it when you hit it. If getting there needs hours, that's Work, added separately.",
+    "a date inside a project that takes no time of its own — “first round of analysis done by the end of August”. It shows as a marker on the timeline and you click it when you hit it. If getting there needs hours, that's a Task, added separately.",
   ],
   [
-    "Work",
-    "hours that get scheduled onto the calendar, usually belonging to a project. This is the only one of these that consumes time.",
+    "Task",
+    "a one-off piece of work with hours that get scheduled onto the calendar, usually belonging to a project. Placed by priority and deadline. This is the only one of these that consumes time.",
   ],
   ["Routine", "a standing weekly slot — email, lunch, gym, a lab meeting. It repeats on its own."],
   ["Time block", "what any of the above looks like once it's sitting on the calendar."],
   [
     "Label",
-    "a colour-coded grouping you name yourself, like Research, Writing or Teaching. Work wears its label's colour on the left edge of its time block.",
+    "a grouping you name yourself — Deep focus, Teaching, Admin. It colours the left edge of its time block, puts its name in the corner, and can set a minimum chunk length and which half of the day that kind of work belongs in.",
   ],
 ];
 
@@ -151,11 +152,26 @@ const VOCABULARY: [string, string][] = [
 /** Offered as one-click adds in Settings → Labels. Signup no longer creates any
  * labels (migration 0027) because the old three only suited academic research;
  * these are a starting point rather than a decision. */
-const SUGGESTED_LABELS: { name: string; color: string }[] = [
+const SUGGESTED_LABELS: { name: string; color: string; timePref?: LabelTimePref; minChunkMin?: number }[] = [
   { name: "Research", color: "#d9748f" },
   { name: "Teaching", color: "#6fae7c" },
   { name: "Service", color: "#9184d9" },
   { name: "Admin", color: "#7cb0d9" },
+  // Carries settings, unlike the others: it exists to replace the old built-in
+  // "Deep focus" block kind (migration 0030), whose entire meaning was
+  // mornings-only — so suggesting it bare would suggest the wrong thing.
+  { name: "Deep focus", color: "#d99a5e", timePref: "morning_only", minChunkMin: 90 },
+];
+
+/** null (empty value) = any time. Wording says "only" for the hard constraints
+ * and "Prefer" for the soft ones, because that distinction is the whole reason
+ * there are four rather than two. */
+const TIME_PREF_OPTIONS: [string, string][] = [
+  ["", "Any time"],
+  ["prefer_morning", "Prefer mornings"],
+  ["morning_only", "Mornings only"],
+  ["prefer_afternoon", "Prefer afternoons"],
+  ["afternoon_only", "Afternoons only"],
 ];
 
 const SECTION_GROUPS: { group: string; items: { id: string; label: string }[] }[] = [
@@ -170,9 +186,8 @@ const SECTION_GROUPS: { group: string; items: { id: string; label: string }[] }[
     group: "Your time",
     items: [
       { id: "standard-hours", label: "Standard hours" },
-      { id: "grace-window", label: "Un-ticked work" },
+      { id: "grace-window", label: "Un-ticked blocks" },
       { id: "categories", label: "Labels" },
-      { id: "block-labels", label: "Time block names" },
       { id: "calendar-view", label: "Calendar view" },
     ],
   },
@@ -224,7 +239,6 @@ export default function SettingsPage() {
   const [credMode, setCredMode] = useState<PlannerCredentialProvider>("api_key");
   const [plannerCredBusy, setPlannerCredBusy] = useState(false);
   const [plannerCredError, setPlannerCredError] = useState<string | null>(null);
-  const [tagLabels, setTagLabels] = useState({ task: "", research: "", deepFocus: "", block: "" });
 
   useEffect(() => {
     let ignore = false;
@@ -238,7 +252,7 @@ export default function SettingsPage() {
         supabase
           .from("profiles")
           .select(
-            "planner_model,grace_hours,weekly_hours,eod_checkin_enabled,eod_checkin_time,weekly_summary_enabled,weekly_summary_dow,weekly_summary_time,label_task,label_research,label_deep_focus,label_block",
+            "planner_model,grace_hours,weekly_hours,eod_checkin_enabled,eod_checkin_time,weekly_summary_enabled,weekly_summary_dow,weekly_summary_time",
           )
           .eq("id", user.id)
           .single(),
@@ -257,12 +271,6 @@ export default function SettingsPage() {
           weeklyEnabled: data.weekly_summary_enabled,
           weeklyDow: data.weekly_summary_dow,
           weeklyTime: data.weekly_summary_time,
-        });
-        setTagLabels({
-          task: data.label_task ?? "",
-          research: data.label_research ?? "",
-          deepFocus: data.label_deep_focus ?? "",
-          block: data.label_block ?? "",
         });
       }
       setCategories(cats ?? []);
@@ -363,7 +371,7 @@ export default function SettingsPage() {
     }
   }
 
-  async function addSuggestedLabel(suggestion: { name: string; color: string }) {
+  async function addSuggestedLabel(suggestion: (typeof SUGGESTED_LABELS)[number]) {
     const supabase = createClient();
     const {
       data: { user },
@@ -376,6 +384,8 @@ export default function SettingsPage() {
         name: suggestion.name,
         color: suggestion.color,
         sort_order: categories.length,
+        time_pref: suggestion.timePref ?? null,
+        min_chunk_min: suggestion.minChunkMin ?? null,
       })
       .select()
       .single();
@@ -420,30 +430,10 @@ export default function SettingsPage() {
     await supabase.from("categories").update({ min_chunk_min: minChunkMin }).eq("id", id);
   }
 
-  const TAG_LABEL_COLUMN = {
-    task: "label_task",
-    research: "label_research",
-    deepFocus: "label_deep_focus",
-    block: "label_block",
-  } as const;
-
-  async function saveTagLabel(field: keyof typeof TAG_LABEL_COLUMN, value: string) {
-    setTagLabels((prev) => ({ ...prev, [field]: value }));
+  async function setCategoryTimePref(id: string, timePref: LabelTimePref | null) {
+    setCategories((prev) => prev.map((c) => (c.id === id ? { ...c, time_pref: timePref } : c)));
     const supabase = createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) return;
-    const val = value.trim() || null;
-    const patch =
-      field === "task"
-        ? { label_task: val }
-        : field === "research"
-          ? { label_research: val }
-          : field === "deepFocus"
-            ? { label_deep_focus: val }
-            : { label_block: val };
-    await supabase.from("profiles").update(patch).eq("id", user.id);
+    await supabase.from("categories").update({ time_pref: timePref }).eq("id", id);
   }
 
   async function deleteCategory(id: string) {
@@ -864,7 +854,7 @@ export default function SettingsPage() {
         </div>
 
         <div id="grace-window" className="mt-8 pt-5 border-t border-border scroll-mt-4">
-          <h2 className="text-base font-medium mb-1">Un-ticked work</h2>
+          <h2 className="text-base font-medium mb-1">Un-ticked blocks</h2>
           <p className="text-xs text-muted mb-3 leading-relaxed">
             When a block&apos;s time passes un-ticked it stays put, greyed and labelled{" "}
             <span className="text-text">DID YOU?</span>, for this long. Its hours are re-planned immediately either
@@ -900,7 +890,7 @@ export default function SettingsPage() {
 
           <div className="rounded-lg border border-border bg-panel p-3.5 mb-3 text-xs text-muted leading-relaxed flex flex-col gap-2.5">
             <div>
-              <span className="text-text font-medium">Progress</span> — work grouped by what the schedule says about it
+              <span className="text-text font-medium">Progress</span> — tasks grouped by what the schedule says about it
               this week: <span className="text-text">Backlog</span> (no time booked),{" "}
               <span className="text-text">This Week</span> (booked, not started),{" "}
               <span className="text-text">In Progress</span> (running or partly logged),{" "}
@@ -909,9 +899,9 @@ export default function SettingsPage() {
               tick blocks off on the calendar instead. Done clears each Monday, so archive anything truly finished.
             </div>
             <div>
-              <span className="text-text font-medium">Priorities</span> — the same work by importance (the ★, yours to
-              set) against urgency (deadline within three days). Watch for urgent-but-unimportant work eating the week,
-              and important-but-not-urgent work that never gets booked.
+              <span className="text-text font-medium">Priorities</span> — the same tasks by importance (the ★, yours to
+              set) against urgency (deadline within three days). Watch for urgent-but-unimportant tasks eating the week,
+              and important-but-not-urgent ones that never get booked.
             </div>
             <div>
               <span className="text-text font-medium">Timeline</span> — six months of projects with dates, coloured by
@@ -927,11 +917,11 @@ export default function SettingsPage() {
               reading list, what to pack. Never scheduled or notified.
             </div>
             <div>
-              <span className="text-text font-medium">Archive</span> — finished work, kept so its logged hours survive.
+              <span className="text-text font-medium">Archive</span> — finished tasks, kept so their logged hours survive.
               Lets the chat answer &ldquo;what did I get done this semester?&rdquo; from real hours.
             </div>
             <div>
-              <span className="text-text font-medium">The top strip</span> — this week live: done/total, work in
+              <span className="text-text font-medium">The top strip</span> — this week live: done/total, tasks in
               progress against a limit of three, missed blocks, at-risk deadlines. Its two links open the chat with a
               prompt filled in, never sent.
             </div>
@@ -949,55 +939,6 @@ export default function SettingsPage() {
               (term dates, teaching, deadlines) to what can. Always uses your chosen model. It will tell you when what
               you&apos;ve described doesn&apos;t fit the hours you have.
             </p>
-          </div>
-        </div>
-
-        <div className="mt-8 pt-5 border-t border-border">
-          <h2 id="block-labels" className="text-base font-medium mb-1 scroll-mt-4">Time block names</h2>
-          <p className="text-xs text-muted mb-4 leading-relaxed">
-            Every time block carries a tag naming its kind:
-          </p>
-          <div className="rounded-lg border border-border bg-panel p-3.5 mb-4 text-xs text-muted leading-relaxed flex flex-col gap-2.5">
-            <div>
-              <span className="text-text font-medium">Work</span> — a one-off piece of work. Placed by priority and
-              deadline.
-            </div>
-            <div>
-              <span className="text-text font-medium">Research</span> — hours generated each week for a project with a
-              weekly-hours minimum. Prefers mornings unless the project says otherwise.
-            </div>
-            <div>
-              <span className="text-text font-medium">Deep focus</span> — one-off work restricted to mornings. Unlike
-              Research, it has no weekly minimum behind it.
-            </div>
-            <div>
-              <span className="text-text font-medium">Routine</span> — a standing weekly slot, like Emails or Lunch.
-            </div>
-          </div>
-          <p className="text-xs text-muted mb-3 leading-relaxed">
-            Rename any of these — only the label changes, not the behavior. Leave blank to use the default.
-          </p>
-          <div className="flex flex-col gap-2">
-            {(
-              [
-                ["task", "Work"],
-                ["research", "Research"],
-                ["deepFocus", "Deep focus"],
-                ["block", "Routine"],
-              ] as const
-            ).map(([field, defaultLabel]) => (
-              <div key={field} className="flex items-center gap-2.5">
-                <span className="w-20 flex-none text-xs text-muted">{defaultLabel}</span>
-                <input
-                  defaultValue={tagLabels[field]}
-                  placeholder={defaultLabel}
-                  onBlur={(e) => {
-                    if (e.target.value !== tagLabels[field]) saveTagLabel(field, e.target.value);
-                  }}
-                  className="flex-1 rounded-md border border-border bg-surface px-2.5 py-1.5 text-xs text-text outline-none focus-visible:border-accent"
-                />
-              </div>
-            ))}
           </div>
         </div>
 
@@ -1059,21 +1000,46 @@ export default function SettingsPage() {
 
         <div className="mt-8 pt-5 border-t border-border">
           <h2 id="categories" className="text-base font-medium mb-1 scroll-mt-4">Labels</h2>
-          <p className="text-xs text-muted mb-4">
-            Colour-coded groupings, named for whatever your work is — Research, Writing, Teaching. Work wears its
-            label&apos;s colour on the left edge of its block; weekly-hours blocks take their project&apos;s label.
-            &quot;Min chunk&quot; is a floor in minutes: the scheduler won&apos;t shrink a block with this label below
-            it (default 30).
+          <p className="text-xs text-muted mb-3">
+            Groupings you name yourself — Deep focus, Teaching, Admin, whatever your work actually is. Add as many as
+            you like. A label colours the left edge of its time block and puts its name in the corner, and it decides
+            two things about how that time is scheduled.
           </p>
+          <div className="rounded-lg border border-border bg-panel p-3.5 mb-4 text-xs text-muted leading-relaxed flex flex-col gap-2">
+            <div>
+              <span className="text-text font-medium">Min chunk</span> — a floor in minutes. The scheduler shrinks
+              blocks to fit gaps, but never takes one with this label below this (default 30). Set 90 on Deep focus and
+              you&apos;ll never get a 30-minute scrap of it.
+            </div>
+            <div>
+              <span className="text-text font-medium">Time of day</span> — where this kind of work belongs.{" "}
+              <span className="text-text">only</span> is a hard rule: it won&apos;t be placed in the other half of the
+              day even if that means not fitting this week. <span className="text-text">Prefer</span> tries that half
+              first and takes the other rather than leaving the work unbooked.
+            </div>
+            <div className="text-muted-2">
+              Anything you set on one piece of work or one commitment wins over its label — a label says where this
+              kind of thing usually goes, not where this particular thing must.
+            </div>
+          </div>
 
           <div className="flex flex-col gap-2">
+            {categories.length > 0 && (
+              <div className="flex items-center gap-2.5 px-3 text-[11px] text-muted-2">
+                <span className="w-7 flex-none" />
+                <span className="flex-1">Name</span>
+                <span className="w-16 flex-none">Min chunk</span>
+                <span className="w-36 flex-none">Time of day</span>
+                <span className="w-12 flex-none" />
+              </div>
+            )}
             {categories.map((cat) => (
               <div key={cat.id} className="flex items-center gap-2.5 rounded-md border border-border bg-panel px-3 py-2">
                 <input
                   type="color"
                   value={cat.color}
                   onChange={(e) => recolorCategory(cat.id, e.target.value)}
-                  className="w-7 h-7 rounded border border-border bg-transparent p-0 cursor-pointer"
+                  className="w-7 h-7 flex-none rounded border border-border bg-transparent p-0 cursor-pointer"
                   title="Label colour"
                 />
                 <input
@@ -1081,7 +1047,7 @@ export default function SettingsPage() {
                   onBlur={(e) => {
                     if (e.target.value.trim() && e.target.value !== cat.name) renameCategory(cat.id, e.target.value.trim());
                   }}
-                  className="flex-1 bg-transparent text-sm text-text outline-none border-b border-transparent focus-visible:border-accent"
+                  className="flex-1 min-w-0 bg-transparent text-sm text-text outline-none border-b border-transparent focus-visible:border-accent"
                 />
                 <input
                   type="number"
@@ -1095,12 +1061,24 @@ export default function SettingsPage() {
                     const parsed = raw === "" ? null : Math.max(0, parseInt(raw, 10) || 0);
                     if (parsed !== (cat.min_chunk_min ?? null)) setCategoryMinChunk(cat.id, parsed);
                   }}
-                  className="w-16 rounded-md border border-border bg-surface px-2 py-1 text-xs text-text outline-none focus-visible:border-accent"
+                  className="w-16 flex-none rounded-md border border-border bg-surface px-2 py-1 text-xs text-text outline-none focus-visible:border-accent"
                 />
+                <select
+                  value={cat.time_pref ?? ""}
+                  onChange={(e) => setCategoryTimePref(cat.id, (e.target.value || null) as LabelTimePref | null)}
+                  title="Where in the day this label's work belongs"
+                  className="w-36 flex-none rounded-md border border-border bg-surface px-2 py-1 text-xs text-text outline-none focus-visible:border-accent"
+                >
+                  {TIME_PREF_OPTIONS.map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
                 <button
                   onClick={() => deleteCategory(cat.id)}
                   title="Remove label"
-                  className="text-xs text-muted hover:text-accent-text"
+                  className="w-12 flex-none text-left text-xs text-muted hover:text-accent-text"
                 >
                   Remove
                 </button>
@@ -1158,7 +1136,7 @@ export default function SettingsPage() {
             </button>
           </div>
           <p className="text-xs text-muted mb-4">
-            Read-only — meetings show up as fixed time on your calendar and your work reschedules around them, but
+            Read-only — meetings show up as fixed time on your calendar and your tasks reschedule around them, but
             nothing is ever written back. Syncs automatically every hour, or click &quot;Sync now&quot; anytime.
           </p>
           <div className="rounded-lg border border-border bg-panel p-3.5 mb-4 text-xs text-muted leading-relaxed">
@@ -1168,7 +1146,7 @@ export default function SettingsPage() {
             <div className="mt-1.5 flex flex-col gap-1">
               <div>
                 <span className="text-text">no meetings</span> — nobody can book that day through your booking page,
-                but your own work is still scheduled in your normal hours. For a conference or travel day.
+                but your own tasks are still scheduled in your normal hours. For a conference or travel day.
               </div>
               <div>
                 <span className="text-text">away</span> — nothing is scheduled at all. For actual leave.

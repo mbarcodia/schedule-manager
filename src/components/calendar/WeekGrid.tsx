@@ -150,7 +150,7 @@ export function WeekGrid({
           const isToday = gday === todayGday;
           const date = dateForGday(timezone, gday, now);
           // All-day entries are banners, not blocks: they'd otherwise cover
-          // every hour and hide the work still scheduled underneath.
+          // every hour and hide the tasks still scheduled underneath.
           const banners = schedule.blocks.filter((b) => b.gday === gday && b.allDay);
           const away = allDayBlocks?.[gday] === "away";
           return (
@@ -162,7 +162,7 @@ export function WeekGrid({
               {banners.map((b) => (
                 <div
                   key={b.key ?? b.title}
-                  title={`${b.title} — ${away ? "nothing is scheduled and nobody can book you" : "nobody can book you, but your own work is still scheduled"}`}
+                  title={`${b.title} — ${away ? "nothing is scheduled and nobody can book you" : "nobody can book you, but your own tasks are still scheduled"}`}
                   className="mt-1 mr-2 rounded px-1.5 py-0.5 text-[9.5px] leading-tight truncate"
                   style={{
                     background: away ? "rgba(229,72,77,0.18)" : "rgba(224,169,78,0.16)",

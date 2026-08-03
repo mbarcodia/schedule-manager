@@ -17,7 +17,7 @@ interface KanbanCardProps {
   category: Category | null;
   /** Present when the card sits in a drag-enabled view. */
   draggable?: boolean;
-  /** Set when this work came from a to-do, so the card can link back to it. */
+  /** Set when this task came from a to-do, so the card can link back to it. */
   todoLink?: TodoLink | null;
   onToggleImportant?: (task: TaskRow) => void;
   onArchive?: (task: TaskRow) => void;

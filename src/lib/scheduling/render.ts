@@ -29,7 +29,8 @@ export interface BlockVisual {
   textColor: string;
   opacity: number;
   density: ContentDensity;
-  tagLabel: string;
+  /** Null when the block has no label — nothing is drawn in the corner. */
+  tagLabel: string | null;
   title: string;
   timeLabel: string;
   statusLabel: string | null;

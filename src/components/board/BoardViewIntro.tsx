@@ -12,12 +12,12 @@ const INTROS: Record<BoardViewId, { title: string; body: string }> = {
   kanban: {
     title: "Progress — what's moving this week",
     body:
-      "Your work sorted by what the schedule actually says about it, not by a status you maintain by hand. Backlog is anything with no time booked this week; This Week has time booked but hasn't started; In Progress is underway right now or partly logged; Done means every time block for it this week is checked off. Drag a card to change reality: In Progress pins it to today, This Week pushes it up the queue, Backlog unpins it. Done can't be dragged into — check work off on the calendar so your logged hours stay true. The ★ marks something important, and In Progress shows a soft limit of 3 to discourage juggling.",
+      "Your tasks sorted by what the schedule actually says about it, not by a status you maintain by hand. Backlog is anything with no time booked this week; This Week has time booked but hasn't started; In Progress is underway right now or partly logged; Done means every time block for it this week is checked off. Drag a card to change reality: In Progress pins it to today, This Week pushes it up the queue, Backlog unpins it. Done can't be dragged into — check blocks off on the calendar so your logged hours stay true. The ★ marks something important, and In Progress shows a soft limit of 3 to discourage juggling.",
   },
   eisenhower: {
     title: "Priorities — what deserves the attention",
     body:
-      "The same work split by importance against urgency. Importance is yours to set (the ★ on any card); urgency is read from the deadline — anything due within three days counts, and work with no deadline never does. Use it to notice the trap quadrants: urgent-but-unimportant work that eats a week, and important-but-not-urgent work (usually what matters most) that quietly never gets scheduled.",
+      "The same tasks split by importance against urgency. Importance is yours to set (the ★ on any card); urgency is read from the deadline — anything due within three days counts, and a task with no deadline never does. Use it to notice the trap quadrants: urgent-but-unimportant tasks that eat a week, and important-but-not-urgent ones (usually what matters most) that quietly never get scheduled.",
   },
   timeline: {
     title: "Timeline — the next six months",
@@ -37,7 +37,7 @@ const INTROS: Record<BoardViewId, { title: string; body: string }> = {
   archive: {
     title: "Archive — everything you've finished",
     body:
-      "Finished work is archived rather than deleted, so its logged hours survive for the long view. Nothing here affects your schedule, and Restore puts something back if you archived it early. Because the record is intact, you can ask the chat things like \"what did I get done this semester?\" and get an answer from real hours rather than memory.",
+      "Finished tasks are archived rather than deleted, so its logged hours survive for the long view. Nothing here affects your schedule, and Restore puts something back if you archived it early. Because the record is intact, you can ask the chat things like \"what did I get done this semester?\" and get an answer from real hours rather than memory.",
   },
 };
 

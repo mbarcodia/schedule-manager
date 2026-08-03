@@ -6,5 +6,5 @@
 export const DEFAULT_WIP_LIMIT = 3;
 
 /** Eisenhower "urgent" = deadline within this many calendar days (today
- * inclusive). Work with no deadline is never urgent. */
+ * inclusive). A task with no deadline is never urgent. */
 export const URGENT_THRESHOLD_DAYS = 3;

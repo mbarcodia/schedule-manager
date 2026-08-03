@@ -19,6 +19,7 @@
 
 import { fmtMin, nowAbsMinute } from "./time";
 import { defaultDayWindow, resolveDayWindow } from "./day-window";
+import { ROUTINE_TAG_LABEL } from "./types";
 import type {
   AbsMinute,
   ComputeScheduleResult,
@@ -34,6 +35,14 @@ function priorityRank(p: Priority): number {
   return p === "high" ? 3 : p === "medium" ? 2 : 1;
 }
 
+/** The word in a block's corner: the name of its label, or nothing at all when
+ * it has none. Deliberately no fallback — the built-in kind names this replaced
+ * are what made "time block names" confusing enough to remove (migration
+ * 0030), so an unlabelled block says nothing rather than something invented. */
+function labelTag(inputs: ScheduleInputs, categoryId: string | null | undefined): string | null {
+  return categoryId ? (inputs.labelNames[categoryId] ?? null) : null;
+}
+
 const FALLBACK_WINDOW = { start: 9 * 60, end: 17 * 60 };
 
 interface AnchorDef {
@@ -42,7 +51,6 @@ interface AnchorDef {
   winEnd: MinuteOfDay;
   length: number;
   title: string;
-  tag: string;
   ruleId: string;
 }
 
@@ -60,7 +68,6 @@ function anchorDefs(inputs: ScheduleInputs): AnchorDef[] {
           winEnd: r.winEnd != null ? r.winEnd : dayDefault.end,
           length: r.length,
           title: r.title,
-          tag: r.tag || "anchor",
           ruleId: r.id,
         });
       });
@@ -100,7 +107,6 @@ function taskDefs(inputs: ScheduleInputs): TaskDef[] {
           duration: p.weeklyMinMin!,
           chunk: p.chunk || 120,
           minChunk: p.minChunk,
-          tag: "research",
           dependsOn: null,
           floor,
           ceilAbs,
@@ -108,12 +114,13 @@ function taskDefs(inputs: ScheduleInputs): TaskDef[] {
           projectId: p.id,
           categoryId: p.categoryId ?? null,
           ord: (p.researchOrd || 5) + w * 10,
-          // Where these hours belong is the project's own business. It used
-          // to be decided for it: the scheduler keyed a morning preference off
-          // the internal "research" tag, so every weekly-hours block wanted
-          // mornings whatever the project said.
+          // Where these hours belong is the commitment's own business (or its
+          // label's). It used to be decided for it: the scheduler keyed a
+          // morning preference off an internal "research" tag, so every
+          // weekly-hours block wanted mornings whatever the project said.
           timeOfDay: p.timeOfDay ?? null,
           preferMorning: !!p.preferMorning,
+          preferAfternoon: !!p.preferAfternoon,
         });
       });
   }
@@ -230,10 +237,17 @@ function runScheduler(
         ? (d: GDay) => ((perDay[t.id] || {})[d] || 0) + len <= t.maxPerDayMin!
         : null;
       if (t.timeOfDay === "afternoon") return findSlot(inputs, floor, len, false, busy, dayOk, ceil, true);
-      if (t.timeOfDay === "morning" || t.tag === "deep-focus") return findSlot(inputs, floor, len, true, busy, dayOk, ceil);
+      if (t.timeOfDay === "morning") return findSlot(inputs, floor, len, true, busy, dayOk, ceil);
+      // A soft nudge takes the wrong half of the day over leaving the work
+      // unscheduled — that's the whole difference from the constraints above.
       if (t.preferMorning)
         return (
           findSlot(inputs, floor, len, true, busy, dayOk, ceil) ||
+          findSlot(inputs, floor, len, false, busy, dayOk, ceil)
+        );
+      if (t.preferAfternoon)
+        return (
+          findSlot(inputs, floor, len, false, busy, dayOk, ceil, true) ||
           findSlot(inputs, floor, len, false, busy, dayOk, ceil)
         );
       return findSlot(inputs, floor, len, false, busy, dayOk, ceil);
@@ -279,12 +293,7 @@ function runScheduler(
       taskId: t.id,
       projectId: t.projectId || null,
       categoryId: t.categoryId ?? null,
-      tagLabel:
-        t.tag === "research"
-          ? inputs.tagLabels.research
-          : t.tag === "deep-focus"
-            ? inputs.tagLabels.deepFocus
-            : inputs.tagLabels.task,
+      tagLabel: labelTag(inputs, t.categoryId),
       title: t.title,
       gday: slot.gday,
       start: slot.start,
@@ -377,7 +386,7 @@ export function computeSchedule(
       taskId: t.id,
       projectId: t.projectId || null,
       categoryId: t.categoryId ?? null,
-      tagLabel: t.tag === "research" ? inputs.tagLabels.research : t.tag === "deep-focus" ? inputs.tagLabels.deepFocus : inputs.tagLabels.task,
+      tagLabel: labelTag(inputs, t.categoryId),
       title: t.title,
       gday: t.pin.gday,
       start: t.pin.start,
@@ -405,7 +414,7 @@ export function computeSchedule(
       taskId: defId,
       projectId: rp.projectId,
       categoryId: project.categoryId ?? null,
-      tagLabel: inputs.tagLabels.research,
+      tagLabel: labelTag(inputs, project.categoryId),
       title: project.title,
       gday: rp.gday,
       start: rp.start,
@@ -475,7 +484,7 @@ export function computeSchedule(
       key,
       abs,
       status,
-      tagLabel: inputs.tagLabels.block,
+      tagLabel: ROUTINE_TAG_LABEL,
       title: a.title,
       gday: a.gday,
       start: placed,

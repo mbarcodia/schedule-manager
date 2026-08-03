@@ -49,7 +49,9 @@ export function Block({
   // squeezed for anything beyond title + checkmark. No time, no category
   // tag, no status text; cramming those in just makes it illegible.
   const ultraCompact = block.end - block.start < 30;
-  const showTag = !ultraCompact;
+  // Unlabelled work has nothing to put in the corner — there are no built-in
+  // kind names to fall back on since labels absorbed them (migration 0030).
+  const showTag = !ultraCompact && !!visual.tagLabel;
   const clickable = visual.isTask || block.type === "synced";
   // Anchors (recurring blocks) have no "pin done early" concept — a fixed
   // daily slot doesn't free up remaining duration the way a task's does —
@@ -237,8 +239,8 @@ export function Block({
         </div>
       )}
 
-      {/* Category tag — always horizontal, bottom-right corner, regardless
-         of block size — except under 30 minutes, where there's no room. */}
+      {/* Label name — always horizontal, bottom-right corner, regardless of
+         block size — except under 30 minutes, where there's no room. */}
       {showTag && (
         <div
           style={{

@@ -7,8 +7,12 @@ export type PlannerModel = "claude-sonnet-5" | "claude-opus-4-8" | "claude-fable
 export type PlannerCredentialProvider = "api_key" | "oauth_token";
 export type NoteKind = "idea" | "todo" | "paper" | "update" | "other";
 export type Priority = "high" | "medium" | "low";
-export type TaskTag = "deep-focus" | "research";
 export type TaskTimeOfDay = "morning" | "afternoon";
+/** Where in the day a label's work belongs (categories.time_pref). The pair of
+ * directions times the pair of strictnesses the engine can enforce: "*_only"
+ * refuses the other half of the day outright, "prefer_*" tries it first and
+ * falls back rather than leaving the work unscheduled. Null = any time. */
+export type LabelTimePref = "prefer_morning" | "morning_only" | "prefer_afternoon" | "afternoon_only";
 export type EventSource = "manual" | "google" | "icloud" | "outlook";
 export type SubjectType = "task" | "research" | "anchor";
 export type ChatRole = "user" | "assistant";
@@ -58,10 +62,6 @@ export interface Database {
           weekly_summary_dow: number;
           weekly_summary_time: number;
           created_at: string;
-          label_task: string | null;
-          label_research: string | null;
-          label_deep_focus: string | null;
-          label_block: string | null;
           booking_meeting_url: string | null;
           display_name: string | null;
           office_location: string | null;
@@ -77,10 +77,6 @@ export interface Database {
           weekly_summary_enabled: boolean;
           weekly_summary_dow: number;
           weekly_summary_time: number;
-          label_task: string | null;
-          label_research: string | null;
-          label_deep_focus: string | null;
-          label_block: string | null;
           booking_meeting_url: string | null;
           display_name: string | null;
           office_location: string | null;
@@ -96,10 +92,6 @@ export interface Database {
           weekly_summary_enabled: boolean;
           weekly_summary_dow: number;
           weekly_summary_time: number;
-          label_task: string | null;
-          label_research: string | null;
-          label_deep_focus: string | null;
-          label_block: string | null;
           booking_meeting_url: string | null;
           display_name: string | null;
           office_location: string | null;
@@ -115,9 +107,24 @@ export interface Database {
           sort_order: number;
           created_at: string;
           min_chunk_min: number | null;
+          time_pref: LabelTimePref | null;
         },
-        { id?: string; user_id: string; name: string; color: string; sort_order?: number; min_chunk_min?: number | null },
-        Partial<{ name: string; color: string; sort_order: number; min_chunk_min: number | null }>
+        {
+          id?: string;
+          user_id: string;
+          name: string;
+          color: string;
+          sort_order?: number;
+          min_chunk_min?: number | null;
+          time_pref?: LabelTimePref | null;
+        },
+        Partial<{
+          name: string;
+          color: string;
+          sort_order: number;
+          min_chunk_min: number | null;
+          time_pref: LabelTimePref | null;
+        }>
       >;
       /** Projects. Still named `projects` in the database so that every
        * existing foreign key kept working when proposals and goals folded in
@@ -197,9 +204,9 @@ export interface Database {
           priority: Priority;
           duration_min: number;
           chunk_min: number;
-          tag: TaskTag | null;
           depends_on: string | null;
           deadline_at: string | null;
+          deadline_all_day: boolean;
           floor_at: string;
           max_per_day_min: number | null;
           project_id: string | null;
@@ -220,9 +227,9 @@ export interface Database {
           priority?: Priority;
           duration_min: number;
           chunk_min: number;
-          tag?: TaskTag | null;
           depends_on?: string | null;
           deadline_at?: string | null;
+          deadline_all_day?: boolean;
           floor_at?: string;
           max_per_day_min?: number | null;
           project_id?: string | null;
@@ -240,9 +247,9 @@ export interface Database {
           priority: Priority;
           duration_min: number;
           chunk_min: number;
-          tag: TaskTag | null;
           depends_on: string | null;
           deadline_at: string | null;
+          deadline_all_day: boolean;
           floor_at: string;
           max_per_day_min: number | null;
           project_id: string | null;
@@ -457,7 +464,7 @@ export interface Database {
           user_id: string;
           subject_type: SubjectType;
           subject_id: string;
-          tag_label: string;
+          tag_label: string | null;
           title: string;
           project_id: string | null;
           priority: Priority | null;
@@ -471,7 +478,7 @@ export interface Database {
           user_id: string;
           subject_type: SubjectType;
           subject_id: string;
-          tag_label: string;
+          tag_label: string | null;
           title: string;
           project_id?: string | null;
           priority?: Priority | null;
@@ -528,6 +535,7 @@ export interface Database {
           done: boolean;
           completed_at: string | null;
           due_at: string | null;
+          due_all_day: boolean;
           lead_minutes: number[];
           sent_leads: number[];
           notes: string | null;
@@ -544,6 +552,7 @@ export interface Database {
           text: string;
           done?: boolean;
           due_at?: string | null;
+          due_all_day?: boolean;
           lead_minutes?: number[];
           sent_leads?: number[];
           notes?: string | null;
@@ -554,6 +563,7 @@ export interface Database {
           done: boolean;
           completed_at: string | null;
           due_at: string | null;
+          due_all_day: boolean;
           lead_minutes: number[];
           sent_leads: number[];
           notes: string | null;

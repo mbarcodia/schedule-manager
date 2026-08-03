@@ -63,7 +63,7 @@ export function EisenhowerBoard({ scheduleData, onMutated }: EisenhowerBoardProp
   return (
     <div className="flex-1 min-h-0 overflow-y-auto p-3">
       <div className="text-[10.5px] text-muted-2 px-1 pb-2">
-        ★ marks work important. Urgent = deadline within {URGENT_THRESHOLD_DAYS} days.
+        ★ marks a task important. Urgent = deadline within {URGENT_THRESHOLD_DAYS} days.
       </div>
       <div className="grid grid-cols-2 gap-3" style={{ minHeight: "70%" }}>
         {QUADRANTS.map((q) => (

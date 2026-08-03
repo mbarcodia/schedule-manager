@@ -32,15 +32,21 @@ const CHASE_LABEL: Record<ChaseCadence, string> = {
   year: "notify me at the end of each year",
 };
 
-const fmtDue = (iso: string) =>
-  new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+/** No hour on a date-only item — the 23:59 stored for it marks which day it is,
+ * it isn't a time the user chose. */
+const fmtDue = (iso: string, allDay: boolean) =>
+  new Date(iso).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    ...(allDay ? {} : { hour: "numeric", minute: "2-digit" }),
+  });
 
 /** What's already attached to an item, or null when it's still a plain line.
  * Doubles as the label on the control that opens the panel, so the row always
  * says both what it has and where to change it. */
 function settingsSummary(item: ItemRow): string | null {
   const parts = [
-    item.due_at ? fmtDue(item.due_at) : null,
+    item.due_at ? fmtDue(item.due_at, item.due_all_day) : null,
     item.lead_minutes.length ? `${item.lead_minutes.length} reminder${item.lead_minutes.length > 1 ? "s" : ""}` : null,
     item.event_id ? "on the calendar" : null,
     item.task_id ? "time booked" : null,
@@ -131,7 +137,7 @@ export function TodoView({ onMutated, focusItem }: { onMutated?: () => void; foc
   }
 
   /** Ticking a to-do finishes whatever it had booked: the hours leave the
-   * calendar rather than sitting there for work that's already done. Archiving
+   * calendar rather than sitting there for something already done. Archiving
    * rather than deleting keeps the logged history for retrospectives. */
   async function toggle(item: ItemRow) {
     const supabase = createClient();

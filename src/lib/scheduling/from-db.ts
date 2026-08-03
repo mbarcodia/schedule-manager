@@ -5,7 +5,7 @@
 // why persistence uses real dates while the engine works in relative minutes.
 
 import { gdayForDate, zonedNow } from "./time";
-import { DEFAULT_TAG_LABELS } from "./types";
+import { defaultDayWindow } from "./day-window";
 import type {
   CalendarEvent,
   Category,
@@ -15,7 +15,6 @@ import type {
   RecurringRule,
   ResearchPin,
   ScheduleInputs,
-  TagLabels,
   Target,
   Task,
   WeeklyHours,
@@ -70,12 +69,48 @@ export function buildScheduleInputs(
   const horizonWeeks = HORIZON_WEEKS;
 
   const categories: Category[] = rows.categories
-    .map((c) => ({ id: c.id, name: c.name, color: c.color, sortOrder: c.sort_order, minChunkMin: c.min_chunk_min }))
+    .map((c) => ({
+      id: c.id,
+      name: c.name,
+      color: c.color,
+      sortOrder: c.sort_order,
+      minChunkMin: c.min_chunk_min,
+      timePref: c.time_pref,
+    }))
     .sort((a, b) => a.sortOrder - b.sortOrder);
 
-  const minChunkByCategory = new Map(categories.map((c) => [c.id, c.minChunkMin]));
+  const categoryById = new Map(categories.map((c) => [c.id, c]));
   const minChunkFor = (categoryId: string | null | undefined): number | undefined =>
-    categoryId ? (minChunkByCategory.get(categoryId) ?? undefined) : undefined;
+    (categoryId ? categoryById.get(categoryId)?.minChunkMin : undefined) ?? undefined;
+
+  const labelNames: Record<string, string> = {};
+  categories.forEach((c) => {
+    labelNames[c.id] = c.name;
+  });
+
+  /** A label's time preference, split into the two things the engine reads:
+   * a hard half-of-day constraint and a soft nudge. The work's OWN setting
+   * always wins — a label expresses where this kind of thing usually belongs,
+   * and saying so about one piece of work is more specific than saying it
+   * about a whole category. */
+  const timePrefFor = (
+    categoryId: string | null | undefined,
+    ownTimeOfDay: "morning" | "afternoon" | null | undefined,
+    ownPreferMorning?: boolean,
+  ): { timeOfDay: "morning" | "afternoon" | null; preferMorning: boolean; preferAfternoon: boolean } => {
+    const pref = categoryId ? categoryById.get(categoryId)?.timePref : null;
+    // A hard constraint has nothing to fall back to, so the soft nudges are
+    // meaningless alongside one and are dropped rather than left to confuse
+    // whoever reads the placement logic next.
+    if (ownTimeOfDay) return { timeOfDay: ownTimeOfDay, preferMorning: false, preferAfternoon: false };
+    if (pref === "morning_only") return { timeOfDay: "morning", preferMorning: false, preferAfternoon: false };
+    if (pref === "afternoon_only") return { timeOfDay: "afternoon", preferMorning: false, preferAfternoon: false };
+    return {
+      timeOfDay: null,
+      preferMorning: !!ownPreferMorning || pref === "prefer_morning",
+      preferAfternoon: pref === "prefer_afternoon" && !ownPreferMorning,
+    };
+  };
 
   // An active-window bound is a civil date, and the engine works in absolute
   // minutes from the horizon start — so active_from becomes that date's
@@ -90,8 +125,7 @@ export function buildScheduleInputs(
     title: p.title,
     deadlineDate: p.deadline_date ? new Date(p.deadline_date) : null,
     weeklyMinMin: p.weekly_min_min,
-    preferMorning: p.prefer_morning,
-    timeOfDay: p.time_of_day,
+    ...timePrefFor(p.category_id, p.time_of_day, p.prefer_morning),
     activeFromAbs: p.active_from ? dateToAbs(p.active_from, false) : null,
     activeUntilAbs: p.active_until ? dateToAbs(p.active_until, true) : null,
     cadence: p.cadence,
@@ -109,6 +143,13 @@ export function buildScheduleInputs(
     completedAt: t.completed_at ? new Date(t.completed_at) : null,
   }));
 
+  // Needed before the tasks below, not just by the engine: a date-only
+  // deadline's ceiling is the end of that day's working window.
+  const weeklyHours: WeeklyHours = {};
+  for (let dow = 0; dow < 7; dow++) {
+    weeklyHours[dow] = rows.profile.weekly_hours[String(dow)] ?? null;
+  }
+
   const tasks: Task[] = rows.tasks.map((t) => {
     const floorParts = timestampToParts(t.floor_at, timezone);
     const floorGday = gdayForDate(timezone, floorParts, now);
@@ -118,7 +159,14 @@ export function buildScheduleInputs(
     if (t.deadline_at) {
       const dParts = timestampToParts(t.deadline_at, timezone);
       const dGday = gdayForDate(timezone, dParts, now);
-      deadline = dGday * 1440 + dParts.minuteOfDay;
+      // A date-only deadline ("due August 11") means the end of that working
+      // day, not the 23:59 the column stores to mark which day it is. Using
+      // the stored minute would be harmless most days and wrong on any day
+      // whose hours run late; using the working day's end is what the user
+      // means, and it keeps the same-day "no buffer left" warning honest.
+      deadline = t.deadline_all_day
+        ? dGday * 1440 + (defaultDayWindow(dGday, weeklyHours)?.end ?? 1440)
+        : dGday * 1440 + dParts.minuteOfDay;
     }
 
     // A pin older than the current week is stale — don't forward it, so
@@ -140,8 +188,7 @@ export function buildScheduleInputs(
       duration: t.duration_min,
       chunk: t.chunk_min,
       minChunk: minChunkFor(t.category_id),
-      tag: t.tag,
-      timeOfDay: t.time_of_day,
+      ...timePrefFor(t.category_id, t.time_of_day),
       dependsOn: t.depends_on,
       deadline,
       floor,
@@ -156,7 +203,6 @@ export function buildScheduleInputs(
   const recurringRules: RecurringRule[] = rows.recurringRules.map((r) => ({
     id: r.id,
     title: r.title,
-    tag: r.tag ?? undefined,
     days: r.days,
     length: r.length_min,
     winStart: r.win_start_min,
@@ -263,18 +309,6 @@ export function buildScheduleInputs(
     researchPins.push({ projectId: rp.project_id, gday, start: rp.start_min, length: rp.length_min });
   }
 
-  const weeklyHours: WeeklyHours = {};
-  for (let dow = 0; dow < 7; dow++) {
-    weeklyHours[dow] = rows.profile.weekly_hours[String(dow)] ?? null;
-  }
-
-  const tagLabels: TagLabels = {
-    task: rows.profile.label_task || DEFAULT_TAG_LABELS.task,
-    research: rows.profile.label_research || DEFAULT_TAG_LABELS.research,
-    deepFocus: rows.profile.label_deep_focus || DEFAULT_TAG_LABELS.deepFocus,
-    block: rows.profile.label_block || DEFAULT_TAG_LABELS.block,
-  };
-
   const inputs: ScheduleInputs = {
     timezone,
     horizonWeeks,
@@ -290,7 +324,7 @@ export function buildScheduleInputs(
     completed,
     partial,
     pinned,
-    tagLabels,
+    labelNames,
   };
 
   return { inputs, projects, targets, categories };

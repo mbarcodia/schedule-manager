@@ -22,6 +22,7 @@ import {
 } from "./nlp-dates";
 import { statusReply } from "./status";
 import { gdayForDate, minToLabel, zonedTimeToUtc, zonedNow } from "@/lib/scheduling/time";
+import { allDayDueAt } from "@/lib/scheduling/all-day-due";
 import { computeSchedule } from "@/lib/scheduling/engine";
 import { buildScheduleInputs } from "@/lib/scheduling/from-db";
 import { queryScheduleRows } from "@/lib/scheduling/query-rows";
@@ -60,15 +61,33 @@ export function markMutated(ctx: ToolContext): void {
   ctx.mutationTracker.mutated = true;
 }
 
-function titleToDeadlineAt(ctx: ToolContext, dueLower: string): string | null {
+/** A deadline as the user stated it: an exact instant when they named a clock
+ * time, otherwise a date-only deadline.
+ *
+ * This used to plant 5pm on any deadline given without a time, which invented a
+ * fact — "due August 11" became "due 5:00 PM August 11", and that hour then
+ * drove reminders, display and the engine's ceiling. Date-only is now a real
+ * thing the schema can hold (migration 0032), so nothing has to be guessed. */
+function titleToDeadlineAt(
+  ctx: ToolContext,
+  dueLower: string,
+): { at: string; allDay: boolean } | null {
   const d = parseDeadlineDate(dueLower, ctx.today);
   if (!d) return null;
-  // Honour an explicit clock time ("due by 2pm November 10"); 5pm otherwise,
-  // which is the sane default for "due Friday" with no time given.
+  const date = { year: d.getFullYear(), month: d.getMonth() + 1, day: d.getDate() };
   const minute = parseTimeInText(dueLower);
-  const hour = minute != null ? Math.floor(minute / 60) : 17;
-  const min = minute != null ? minute % 60 : 0;
-  return zonedTimeToUtc(d.getFullYear(), d.getMonth() + 1, d.getDate(), hour, min, ctx.timezone).toISOString();
+  if (minute == null) return { at: allDayDueAt(date, ctx.timezone), allDay: true };
+  return {
+    at: zonedTimeToUtc(
+      date.year,
+      date.month,
+      date.day,
+      Math.floor(minute / 60),
+      minute % 60,
+      ctx.timezone,
+    ).toISOString(),
+    allDay: false,
+  };
 }
 
 /** Earliest date the engine may place a task — the missing counterpart to a
@@ -173,7 +192,7 @@ export function buildTools(ctx: ToolContext) {
 
   const add_task = betaTool({
     name: "add_task",
-    description: "Add work to the schedule (the tool is named add_task for compatibility; the user calls these work). It is auto-placed by priority, deadline, and the morning rules.",
+    description: "Add a task: a one-off piece of work with hours the engine schedules. Auto-placed by priority and deadline, inside whatever time-of-day rule the task or its label carries.",
     inputSchema: {
       type: "object",
       properties: {
@@ -181,8 +200,7 @@ export function buildTools(ctx: ToolContext) {
         duration_min: { type: "number", description: "total minutes, default 30" },
         priority: { type: "string", enum: ["high", "medium", "low"] },
         chunk_min: { type: "number", description: "split into chunks of this many minutes" },
-        max_per_day_min: { type: "number", description: "spread the work: schedule at most this many minutes of it per day" },
-        deep_focus: { type: "boolean", description: "restrict to mornings before noon" },
+        max_per_day_min: { type: "number", description: "spread it out: schedule at most this many minutes of it per day" },
         time_of_day: {
           type: "string",
           enum: ["morning", "afternoon"],
@@ -192,15 +210,15 @@ export function buildTools(ctx: ToolContext) {
         due: {
           type: "string",
           description:
-            'Deadline in natural language, e.g. "july 24", "friday", "in 2 weeks". A clock time is honoured when given ("2pm november 10", "friday at noon"); with no time it lands at 5pm that day.',
+            'Deadline in natural language, e.g. "july 24", "friday", "in 2 weeks". With no clock time this is a DATE-ONLY deadline — due that day, no particular hour — which is what most deadlines are; the work may be scheduled any time up to the end of that working day. Name a time ("2pm november 10", "friday at noon") only when the user actually gave one.',
         },
         not_before: {
           type: "string",
           description:
-            'EARLIEST date this may be scheduled ("tomorrow", "monday", "november 9"). Use whenever the user says when work should START, not when it is due — "tomorrow morning" means not_before="tomorrow" WITH time_of_day="morning". Omitting it lets the engine place the work today.',
+            'EARLIEST date this may be scheduled ("tomorrow", "monday", "november 9"). Use whenever the user says when the task should START, not when it is due — "tomorrow morning" means not_before="tomorrow" WITH time_of_day="morning". Omitting it lets the engine place it today.',
         },
-        project: { type: "string", description: "title of the project to link this work to" },
-        category: { type: "string", description: "name of the label to mark this work with (e.g. Research, Teaching, Writing) — omit to leave unlabelled" },
+        project: { type: "string", description: "title of the project to link this task to" },
+        category: { type: "string", description: "name of the label to mark this task with — omit to leave unlabelled. A label can carry its own minimum chunk length and time-of-day rule, so labelling something Deep focus may be all that is needed to keep it in the mornings." },
         pin_date: { type: "string", description: 'force part of this work onto an exact date, natural language, e.g. "monday", "july 24" — pairs with pin_time. Anything else scheduled there moves automatically; the rest of it (if any) is still auto-placed.' },
         pin_time: {
           type: "string",
@@ -218,17 +236,17 @@ export function buildTools(ctx: ToolContext) {
       if (inp.project) {
         const lookup = await findTrackableId(ctx, inp.project);
         if (lookup.status === "ambiguous") {
-          return `"${inp.project}" matches more than one project: ${lookup.candidates.join(", ")}. Say which one (use its exact title), or add the work without a link.`;
+          return `"${inp.project}" matches more than one project: ${lookup.candidates.join(", ")}. Say which one (use its exact title), or add the task without a link.`;
         }
         if (lookup.status === "none") {
-          return `No project matching "${inp.project}" — add it first, or add the work without a link.`;
+          return `No project matching "${inp.project}" — add it first, or add the task without a link.`;
         }
         link = { projectId: lookup.projectId, title: lookup.title };
       }
 
       const categoryId = inp.category ? await findCategoryId(ctx, inp.category) : null;
-      const deadline_at = inp.due ? titleToDeadlineAt(ctx, inp.due.toLowerCase()) : null;
-      const deadlineNotUnderstood = !!inp.due && !deadline_at;
+      const deadline = inp.due ? titleToDeadlineAt(ctx, inp.due.toLowerCase()) : null;
+      const deadlineNotUnderstood = !!inp.due && !deadline;
       const notBeforeAt = inp.not_before ? titleToFloorAt(ctx, inp.not_before.toLowerCase()) : null;
       const notBeforeNotUnderstood = !!inp.not_before && !notBeforeAt;
       const priority = inp.priority || "medium";
@@ -247,9 +265,9 @@ export function buildTools(ctx: ToolContext) {
         priority,
         duration_min: duration,
         chunk_min,
-        tag: inp.deep_focus ? "deep-focus" : null,
         time_of_day: inp.time_of_day ?? null,
-        deadline_at,
+        deadline_at: deadline?.at ?? null,
+        deadline_all_day: deadline?.allDay ?? false,
         floor_at: notBeforeAt ?? new Date().toISOString(),
         max_per_day_min: inp.max_per_day_min || null,
         project_id: link?.projectId ?? null,
@@ -283,7 +301,7 @@ export function buildTools(ctx: ToolContext) {
   const update_task = betaTool({
     name: "update_task",
     description:
-      "Modify an existing piece of work and re-flow the whole schedule: change priority, duration, chunking, pacing, due date, or set work_on_next to bump it into the next available slot ahead of everything flexible.",
+      "Modify an existing task and re-flow the whole schedule: change priority, duration, chunking, pacing, due date, or set work_on_next to bump it into the next available slot ahead of everything flexible.",
     inputSchema: {
       type: "object",
       properties: {
@@ -295,21 +313,21 @@ export function buildTools(ctx: ToolContext) {
         due: {
           type: "string",
           description:
-            "new deadline, natural language; a clock time is honoured when given (else 5pm that day)",
+            "new deadline, natural language. With no clock time it becomes a date-only deadline (due that day, no particular hour); name a time only if the user did. Re-stating a deadline replaces whichever kind it was before.",
         },
         not_before: {
           type: "string",
           description:
             'earliest date this may be scheduled ("tomorrow", "monday", "november 9") — use for "start it tomorrow" style requests, which a deadline alone cannot express',
         },
-        category: { type: "string", description: "name of the label to move this work to" },
+        category: { type: "string", description: "name of the label to move this task to" },
         time_of_day: {
           type: "string",
           enum: ["morning", "afternoon", "none"],
           description:
             'Use whenever the user names a general part of the day without an exact clock time. "morning" = before noon, "afternoon" = noon or later, "none" clears any existing constraint.',
         },
-        work_on_next: { type: "boolean", description: "schedule this at the next available time, ahead of other flexible work" },
+        work_on_next: { type: "boolean", description: "schedule this at the next available time, ahead of other flexible tasks" },
         important: {
           type: "boolean",
           description:
@@ -332,7 +350,7 @@ export function buildTools(ctx: ToolContext) {
       if (ambiguous.length) {
         return `"${inp.title}" matches more than one thing: ${ambiguous.map((t) => t.title).join(", ")}. Say which one (use its exact title).`;
       }
-      if (!match) return `Nothing matching "${inp.title}". Current work: ${(tasks ?? []).map((t) => t.title).join(", ") || "none"}.`;
+      if (!match) return `Nothing matching "${inp.title}". Current tasks: ${(tasks ?? []).map((t) => t.title).join(", ") || "none"}.`;
       console.log(`[assistant] update_task resolved: needle=${JSON.stringify(inp.title)} -> id=${match.id} title=${JSON.stringify(match.title)}`);
 
       const patch: Database["public"]["Tables"]["tasks"]["Update"] = {};
@@ -355,13 +373,16 @@ export function buildTools(ctx: ToolContext) {
         patch.floor_at = floorAt;
       }
       if (inp.due) {
-        const deadline_at = titleToDeadlineAt(ctx, inp.due.toLowerCase());
+        const deadline = titleToDeadlineAt(ctx, inp.due.toLowerCase());
         // Fail loudly rather than silently no-op-ing: an unparseable date
         // must not look identical to a successful update to the caller.
-        if (!deadline_at) {
+        if (!deadline) {
           return `Couldn't understand the deadline "${inp.due}" — try a format like "july 24", "friday", or "in 2 weeks". Nothing was changed.`;
         }
-        patch.deadline_at = deadline_at;
+        patch.deadline_at = deadline.at;
+        // Re-stated deadlines re-decide this: "due friday at 2pm" after "due
+        // friday" must stop being date-only, and the reverse must clear the time.
+        patch.deadline_all_day = deadline.allDay;
       }
       if (inp.work_on_next) {
         patch.ord = 0;
@@ -401,7 +422,7 @@ export function buildTools(ctx: ToolContext) {
   const remove_item = betaTool({
     name: "remove_item",
     description:
-      "Remove a piece of work or a project by title. Removing work clears its time blocks; removing a project also removes its weekly-hours blocks, and work linked to it stays but unlinks.",
+      "Remove a task or a project by title. Removing a task clears its time blocks; removing a project also removes its weekly-hours blocks, and tasks linked to it stay but unlink.",
     inputSchema: { type: "object", properties: { title: { type: "string" } }, required: ["title"] },
     run: async ({ title }) => {
       const [{ data: tasks }, { data: projects }, { data: targets }, { data: events }] = await Promise.all([
@@ -412,7 +433,7 @@ export function buildTools(ctx: ToolContext) {
       ]);
 
       const tMatch = findByTitle(tasks ?? [], title);
-      if (tMatch.ambiguous.length) return ambiguousMsg("pieces of work", title, tMatch.ambiguous);
+      if (tMatch.ambiguous.length) return ambiguousMsg("tasks", title, tMatch.ambiguous);
       const t = tMatch.match;
       if (t) {
         console.log(`[assistant] remove_item resolved: needle=${JSON.stringify(title)} -> task id=${t.id} title=${JSON.stringify(t.title)}`);
@@ -457,7 +478,7 @@ export function buildTools(ctx: ToolContext) {
         markMutated(ctx);
         return `Removed the project "${c.title}", its weekly-hours blocks${
           targetCount ? ` and its ${targetCount} target${targetCount > 1 ? "s" : ""}` : ""
-        }. Work that was linked to it stays, now unlinked.`;
+        }. Tasks that were linked to it stay, now unlinked.`;
       }
       const evMatch = findByTitle(events ?? [], title);
       if (evMatch.ambiguous.length) return ambiguousMsg("events", title, evMatch.ambiguous);
@@ -593,7 +614,7 @@ export function buildTools(ctx: ToolContext) {
   const add_target = betaTool({
     name: "add_target",
     description:
-      'Add a TARGET: a dated checkpoint inside a project that consumes NO calendar hours ("first round of analysis done by the end of August"). Use this for the interim dates inside a long project instead of inventing work with a made-up duration — a target competes for nothing, which is why it exists. If hitting it needs hours, that is a separate add_task. Re-using an existing target title within the same project moves its date.',
+      'Add a TARGET: a dated checkpoint inside a project that consumes NO calendar hours ("first round of analysis done by the end of August"). Use this for the interim dates inside a long project instead of inventing a task with a made-up duration — a target competes for nothing, which is why it exists. If hitting it needs hours, that is a separate add_task. Re-using an existing target title within the same project moves its date.',
     inputSchema: {
       type: "object",
       properties: {
@@ -668,7 +689,7 @@ export function buildTools(ctx: ToolContext) {
   const add_event = betaTool({
     name: "add_event",
     description:
-      "Add a fixed calendar event (meeting, appointment). It blocks that time; any auto-scheduled work sitting there is automatically moved while keeping its deadline, total hours, and pacing rules.",
+      "Add a fixed calendar event (meeting, appointment). It blocks that time; any auto-scheduled task sitting there is automatically moved while keeping its deadline, total hours, and pacing rules.",
     inputSchema: {
       type: "object",
       properties: {
@@ -718,7 +739,7 @@ export function buildTools(ctx: ToolContext) {
 
   const adjust_day_hours = betaTool({
     name: "adjust_day_hours",
-    description: "Shorten a day: set a later start or earlier end. Displaced work reschedules automatically.",
+    description: "Shorten a day: set a later start or earlier end. Displaced tasks reschedule automatically.",
     inputSchema: {
       type: "object",
       properties: {
@@ -768,7 +789,7 @@ export function buildTools(ctx: ToolContext) {
     inputSchema: {
       type: "object",
       properties: {
-        title: { type: "string", description: "title of the work or weekly-hours block" },
+        title: { type: "string", description: "title of the task or weekly-hours block" },
         minutes_done: { type: "number" },
         fully_done: { type: "boolean" },
       },

@@ -155,7 +155,7 @@ export function PlannerSidebar({ refreshKey }: PlannerSidebarProps) {
         ))}
         {taskLinked.length > 0 && (
           <div>
-            <div className="px-1 pb-1 text-[9px] tracking-wide uppercase text-muted-2">Notes on work</div>
+            <div className="px-1 pb-1 text-[9px] tracking-wide uppercase text-muted-2">Notes on tasks</div>
             <div className="flex flex-col gap-1">{taskLinked.map(renderNote)}</div>
           </div>
         )}

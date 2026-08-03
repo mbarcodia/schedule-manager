@@ -1,7 +1,7 @@
-// Which scheduled work came from a to-do.
+// Which scheduled tasks came from a to-do.
 //
 // Booking hours for a to-do creates an ordinary task, so by the time it reaches
-// the calendar or the board it looks like any other piece of work — and its
+// the calendar or the board it looks like any other task — and its
 // date, reminders and notes are back on the to-do, with nothing on screen
 // saying so. This is the reverse lookup that lets those surfaces link home.
 
@@ -13,7 +13,7 @@ export interface TodoLink {
   listName: string;
 }
 
-/** Keyed by task id. Only work that came from a to-do appears. */
+/** Keyed by task id. Only tasks that came from a to-do appear. */
 export async function fetchTodoLinks(): Promise<Map<string, TodoLink>> {
   const supabase = createClient();
   const [{ data: items }, { data: lists }] = await Promise.all([

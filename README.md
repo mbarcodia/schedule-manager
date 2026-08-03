@@ -4,7 +4,7 @@
 > get rebuilt without notice, and there's no guarantee of stability between
 > commits. Expect rough edges if you deploy your own instance today.
 
-A personal scheduling app: a week calendar with your projects, work, and time
+A personal scheduling app: a week calendar with your projects, tasks, and time
 budgets, an AI chat for quick edits ("push my gym block to 6pm"), and a Planner
 — a longer-horizon AI chat for thinking a semester through and keeping notes
 tied to your schedule. Built with Next.js, Supabase (Postgres + Auth), and deployed on
@@ -21,12 +21,12 @@ way, so you can say what you mean and be understood.
 | Word | What it is |
 | --- | --- |
 | **Project** | Anything you're currently working on — a research project, a proposal, a literature review, a manuscript. One kind of thing with optional parts, mixed freely: weekly hours the scheduler defends, a hard deadline, a cadence. |
-| **Target** | A date inside a project that takes no time of its own ("first round of analysis done by the end of August"). Shows as a marker on the timeline; click it when you hit it. |
-| **Work** | Hours that get scheduled onto the calendar. Usually belongs to a project. This is the only one of these that consumes time. |
+| **Target** | A date inside a project that takes no time of its own ("first round of analysis done by the end of August"). Shows as a marker on the timeline; click it when you hit it. If getting there needs hours, that's a task, added separately. |
+| **Task** | A one-off piece of work whose hours get scheduled onto the calendar, placed by priority and deadline. Usually belongs to a project. This is the only one of these that consumes time. |
 | **Routine** | A standing weekly slot: email, lunch, gym, lab meeting. Repeats on its own. |
-| **Time block** | What any of the above looks like once it's on the calendar. |
+| **Time block** | What any of the above looks like once it's on the calendar. It wears its label's name in the corner; a routine says "Routine". |
 | **To-do** | Something to do, on a list you name. Occupies no time by itself; can gain a date, reminders and booked hours whenever you decide it needs them. |
-| **Label** | A colour-coded grouping you name yourself — Research, Writing, Teaching, Service. Work wears its label's colour on the left edge of its time block. |
+| **Label** | A grouping you name yourself — Deep focus, Teaching, Admin. Add as many as you like. It colours the left edge of its time block and names it, and carries two scheduling settings: a minimum chunk length, and which half of the day that kind of work belongs in (a preference, or a hard rule). |
 
 A project's weekly hours can be given an **active window** — a course that
 only needs five hours a week from December, a project that pauses over a
@@ -44,18 +44,21 @@ Everything below is built and working — this is the whole feature set, not a r
 
 **Calendar and scheduling engine**
 - Week view of work, routines, and meetings, with per-day working hours
-- You describe work (hours needed, deadline, pacing, chunk size) and the engine places it; change anything and the whole week re-solves around it
+- You describe a task (hours needed, deadline, pacing, chunk size) and the engine places it; change anything and the whole week re-solves around it
+- A deadline can be a **date** ("due August 11" — any time that day counts) or an
+  exact moment ("2pm on the 10th"). A bare date stays a bare date: no hour is
+  invented for it, so reminders and placement don't key off a time you never set
 - External calendars merged in read-only via ICS feed (Outlook, Google, iCloud) — nothing is ever written back to them
 - Check blocks off, log partial progress, or pin a block to an exact time; missed time reschedules itself later in the week
 - Forgot to tick something? It stays put, greyed and still tickable, for a grace
-  period you set (default 4 hours, Settings → Un-ticked work) and you get a
+  period you set (default 4 hours, Settings → Un-ticked blocks) and you get a
   notification before that runs out. Ticking a block early or late asks whether
   you did it in its original slot or just now, so the hours land in the right
   place
 - Projects can carry a weekly-hours target the scheduler defends, claiming
   mornings by priority — or afternoons, or only between two dates
 - Targets: dated checkpoints inside a project that consume no hours, so an
-  interim date doesn't have to be faked as work with an invented duration
+  interim date doesn't have to be faked as a task with an invented duration
 - Sliding view: show 1, 3, 5 or 7 days at a time and shift the window a day at
   a time, so a "week" can start on any weekday
 
@@ -72,7 +75,7 @@ Everything below is built and working — this is the whole feature set, not a r
 - **Timeline** — six months of project deadlines with their targets marked along the way, coloured by whether booked hours can still cover them
 - **To-Do** — lists you name, holding anything from a one-line errand to a talk you must prepare for; any item can gain a date, notification lead times, booked hours with both a start and a finish-by (which is how you book preparation — those blocks are labelled “Prep:”), and a fixed slot held on the calendar as an event, at any point after you write it down, and a list can notify you about whatever is still unticked when the week, month or year ends
 - **Lists** — reading lists, packing lists, standing agendas: a paragraph, a checklist, or both, with nothing scheduled or notified
-- **Archive** — finished work is archived, never deleted, so logged hours survive for "what did I get done this semester?"
+- **Archive** — finished tasks are archived, never deleted, so logged hours survive for "what did I get done this semester?"
 - A live weekly-review strip (done/total, work-in-progress limit, missed blocks, at-risk deadlines) and a guided "Time to plan" interview
 
 **Public booking page** (Calendly-style, optional)
@@ -256,11 +259,12 @@ in **Settings**, which has a jump-list down the left side.
    who uses your deployment.
 3. **Standard hours** — the working window for each weekday. Everything the
    scheduler does is bounded by this, so it's worth getting roughly right
-   before adding work.
-4. **Labels** — colour-coded buckets, named for whatever your work actually is
-   (Research, Writing, Teaching, Service…). Work carries its label's colour on
-   the left edge of its time block, and the booking page can protect specific
-   labels from being booked over.
+   before adding tasks.
+4. **Labels** — groupings you name yourself, for whatever your work actually is
+   (Deep focus, Teaching, Admin…). A label colours the left edge of its time
+   block and names it, and sets how that kind of work is scheduled: a minimum
+   chunk length, and which half of the day it belongs in. The booking page can
+   also protect specific labels from being booked over.
 5. **Connected calendars** — paste the ICS feed URL from Outlook / Google /
    iCloud so existing meetings block time. Read-only: nothing is written back.
 6. **Notifications** *(optional)* — turn on push and pick the end-of-day and
@@ -270,7 +274,7 @@ in **Settings**, which has a jump-list down the left side.
 
 Then just talk to the chat beside the calendar: *"I teach Tuesdays and
 Thursdays 9:30–10:45"*, *"add 6 hours of model analysis a week"*, *"3h grading
-due Friday, no more than 1h a day"*. It creates the projects, work, and
+due Friday, no more than 1h a day"*. It creates the projects, tasks, and
 routines for you — you don't have to fill anything in by hand.
 
 After this, day-to-day use is just opening the app and logging in; sessions
@@ -414,9 +418,9 @@ board views described above, plus your notes sidebar. Settings → "How the
 planner works" explains each view and how it maps onto the real schedule.
 
 - The chat can do everything: create/edit tasks and events, log progress, pin
-  research time, archive finished work, and keep notes.
+  research time, archive finished tasks, and keep notes.
 - Each note has a kind (idea, todo, paper, update, other) and can be linked
-  to a project or a piece of work, or left unlinked.
+  to a project or a task, or left unlinked.
 - Create and edit notes either by asking in chat ("add a note to the model study about
   the new element we need to design") or directly in the sidebar.
 - The sidebar groups notes under their linked project; **Export notes** in
@@ -533,7 +537,7 @@ failure rather than silently breaking every chat turn.
 
 ### What pulling never touches
 
-Your data. Projects, work, calendars, notes and settings live in **your**
+Your data. Projects, tasks, calendars, notes and settings live in **your**
 Supabase project, which upstream code has no access to. Updating the code changes
 the app, never its contents.
 

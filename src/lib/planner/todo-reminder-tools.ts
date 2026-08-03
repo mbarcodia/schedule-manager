@@ -15,6 +15,7 @@
 import { betaTool } from "@anthropic-ai/sdk/helpers/beta/json-schema";
 import { findCategoryId, markMutated, type ToolContext } from "@/lib/assistant/tools";
 import { parseDeadlineDate, parseTimeInText, findByTitle } from "@/lib/assistant/nlp-dates";
+import { allDayDueAt, formatDue } from "@/lib/scheduling/all-day-due";
 import { zonedTimeToUtc } from "@/lib/scheduling/time";
 import type { Database } from "@/lib/supabase/database.types";
 
@@ -66,15 +67,48 @@ function describeLead(minutes: number): string {
   return `${h} hour${h > 1 ? "s" : ""} before`;
 }
 
-/** Resolves "november 10", "friday 2pm" etc. into an instant. Reminders default
- * to 9am local when no time is given — a nudge at midnight is useless. */
-function resolveWhen(ctx: ToolContext, raw: string): string | null {
+/** Resolves "november 10", "friday 2pm" etc. into a due date — exact when a
+ * clock time was given, date-only when it wasn't.
+ *
+ * Date-only used to be impossible here, so a bare date became 9am: a talk "on
+ * the 10th" was recorded as happening at 9am on the 10th, and lead times
+ * counted back from that invented hour. A date-only item now stores the day and
+ * says so, and its reminders are anchored to the start of that working day
+ * instead (see all-day-due.ts). */
+function resolveWhen(ctx: ToolContext, raw: string): { at: string; allDay: boolean } | null {
   const d = parseDeadlineDate(raw.toLowerCase(), ctx.today);
   if (!d) return null;
+  const date = { year: d.getFullYear(), month: d.getMonth() + 1, day: d.getDate() };
   const minute = parseTimeInText(raw);
-  const hour = minute != null ? Math.floor(minute / 60) : 9;
-  const min = minute != null ? minute % 60 : 0;
-  return zonedTimeToUtc(d.getFullYear(), d.getMonth() + 1, d.getDate(), hour, min, ctx.timezone).toISOString();
+  if (minute == null) return { at: allDayDueAt(date, ctx.timezone), allDay: true };
+  return {
+    at: zonedTimeToUtc(
+      date.year,
+      date.month,
+      date.day,
+      Math.floor(minute / 60),
+      minute % 60,
+      ctx.timezone,
+    ).toISOString(),
+    allDay: false,
+  };
+}
+
+/** Earliest the hours may be scheduled. A bare date means the START of that
+ * day, which is the opposite end from a due date — sharing resolveWhen here
+ * would floor the work to 23:59 and push every hour of it into the next day. */
+function resolveStart(ctx: ToolContext, raw: string): string | null {
+  const d = parseDeadlineDate(raw.toLowerCase(), ctx.today);
+  if (!d) return null;
+  const minute = parseTimeInText(raw) ?? 0;
+  return zonedTimeToUtc(
+    d.getFullYear(),
+    d.getMonth() + 1,
+    d.getDate(),
+    Math.floor(minute / 60),
+    minute % 60,
+    ctx.timezone,
+  ).toISOString();
 }
 
 export function buildTodoReminderTools(ctx: ToolContext) {
@@ -127,16 +161,15 @@ export function buildTodoReminderTools(ctx: ToolContext) {
         user_id: userId,
         list_id: listId,
         text,
-        due_at: dueAt,
+        due_at: dueAt?.at ?? null,
+        due_all_day: dueAt?.allDay ?? false,
         lead_minutes: leadMinutes,
         notes: notes?.trim() || null,
       });
       if (error) return `Couldn't add that to "${listName}".`;
       markMutated(ctx);
       const onList = existing?.name ?? listName;
-      const dateNote = dueAt
-        ? ` for ${new Date(dueAt).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: ctx.timezone })}`
-        : "";
+      const dateNote = dueAt ? ` for ${formatDue(dueAt.at, dueAt.allDay, ctx.timezone)}` : "";
       const leadNote = leadMinutes.length ? `, notifying ${leadMinutes.map(describeLead).join(" and ")}` : "";
       return `Added "${text}" to the ${onList} list${created ? " (new list)" : ""}${dateNote}${leadNote}. No calendar time is booked for it — say so if you want hours.`;
     },
@@ -144,7 +177,7 @@ export function buildTodoReminderTools(ctx: ToolContext) {
 
   const complete_todo = betaTool({
     name: "complete_todo",
-    description: "Tick off a to-do item by its text (fuzzy match). Use for 'I sent that email', 'mark X done on my list'. Any hours booked for it are archived at the same time, so the calendar stops holding time for finished work.",
+    description: "Tick off a to-do item by its text (fuzzy match). Use for 'I sent that email', 'mark X done on my list'. Any hours booked for it are archived at the same time, so the calendar stops holding time for something already finished.",
     inputSchema: {
       type: "object",
       properties: {
@@ -244,20 +277,14 @@ export function buildTodoReminderTools(ctx: ToolContext) {
         user_id: userId,
         list_id: listId,
         text: title,
-        due_at: dueAt,
+        due_at: dueAt.at,
+        due_all_day: dueAt.allDay,
         lead_minutes: leadMinutes,
         notes: notes?.trim() || null,
       });
       if (error) return `Couldn't save that reminder.`;
       markMutated(ctx);
-      const whenLabel = new Date(dueAt).toLocaleString("en-US", {
-        weekday: "short",
-        month: "short",
-        day: "numeric",
-        hour: "numeric",
-        minute: "2-digit",
-        timeZone: ctx.timezone,
-      });
+      const whenLabel = formatDue(dueAt.at, dueAt.allDay, ctx.timezone);
       return `Reminder set: "${title}" on ${whenLabel}, on the ${existing?.name ?? listName} list, notifying ${leadMinutes.map(describeLead).join(" and ")}. No calendar time was booked — ask if you want hours, or preparation time.`;
     },
   });
@@ -325,14 +352,14 @@ export function buildTodoReminderTools(ctx: ToolContext) {
   const schedule_todo = betaTool({
     name: "schedule_todo",
     description:
-      'Book calendar hours for a to-do that already exists. This is how something jotted down earlier becomes real scheduled Work without being retyped ("book 3 hours for the report on my list"). The booking has both ends of a window: `start` is the earliest it may be scheduled and `due` is when it must be finished — which is also how preparation is expressed, by setting `due` earlier than the thing itself ("2 hours, finished by the morning of the talk").',
+      'Book calendar hours for a to-do that already exists. This is how something jotted down earlier becomes a real scheduled task without being retyped ("book 3 hours for the report on my list"). The booking has both ends of a window: `start` is the earliest it may be scheduled and `due` is when it must be finished — which is also how preparation is expressed, by setting `due` earlier than the thing itself ("2 hours, finished by the morning of the talk").',
     inputSchema: {
       type: "object",
       properties: {
         text: { type: "string", description: "which to-do (fuzzy match on its text)" },
         hours: { type: "number", description: "hours to book" },
-        start: { type: "string", description: "earliest the hours may be scheduled, natural language. Omit to allow any time from now." },
-        due: { type: "string", description: 'when the hours must be finished, natural language, e.g. "1pm on november 10". Omit for no deadline.' },
+        start: { type: "string", description: 'earliest the hours may be scheduled, natural language ("august 4", "monday"). A bare date means the start of that day. Omit to allow any time from now.' },
+        due: { type: "string", description: 'when the hours must be finished, natural language. A bare date ("august 11") means date-only — finished some time that day, which is the usual case. Name a time ("1pm on november 10") only if the user did. Omit for no deadline.' },
         priority: { type: "string", enum: ["high", "medium", "low"] },
         category: { type: "string", description: "label name for the booked time" },
       },
@@ -359,7 +386,7 @@ export function buildTodoReminderTools(ctx: ToolContext) {
       {
         const deadlineAt = due ? resolveWhen(ctx, due) : null;
         if (due && !deadlineAt) return `Couldn't understand the deadline "${due}".`;
-        const startAt = start ? resolveWhen(ctx, start) : null;
+        const startAt = start ? resolveStart(ctx, start) : null;
         if (start && !startAt) return `Couldn't understand the start "${start}".`;
         const fields = {
           title: item.text,
@@ -367,7 +394,8 @@ export function buildTodoReminderTools(ctx: ToolContext) {
           chunk_min: Math.min(120, Math.round(hours * 60)),
           priority: priority ?? "medium",
           floor_at: startAt ?? new Date().toISOString(),
-          deadline_at: deadlineAt,
+          deadline_at: deadlineAt?.at ?? null,
+          deadline_all_day: deadlineAt?.allDay ?? false,
           category_id: categoryId,
         };
         if (item.task_id) {

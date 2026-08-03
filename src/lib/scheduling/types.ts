@@ -4,9 +4,14 @@
 
 export type Priority = "high" | "medium" | "low";
 
-/** A user-defined grouping (e.g. Research/Teaching/Tasks) that now drives the
- * calendar block's fill color — priority still drives scheduling order, it
- * just isn't the color anymore. */
+/** A label: a user-defined grouping (e.g. Research/Teaching/Deep focus) that
+ * drives the calendar block's fill color and the word in its corner — priority
+ * still drives scheduling order, it just isn't the color anymore.
+ *
+ * This is the only user-named concept. It absorbed "time block names", four
+ * fixed rename slots that named block kinds two of which nobody could choose
+ * (see migration 0030), which is why a label now carries placement settings of
+ * its own rather than only a colour. */
 export interface Category {
   id: string;
   name: string;
@@ -15,7 +20,17 @@ export interface Category {
   /** Hard floor for any shrunk chunk in this category, in minutes. Null/
    * undefined = no category-specific floor (engine falls back to 30m). */
   minChunkMin?: number | null;
+  /** Where in the day this label's work belongs. Null/undefined = any time.
+   * Resolved onto each Task/Project's own timeOfDay/preferMorning/
+   * preferAfternoon by from-db before the engine sees it — the engine reads
+   * placement off the work, never off the label. */
+  timePref?: LabelTimePref | null;
 }
+
+/** See Database's LabelTimePref: "*_only" is a hard constraint the engine
+ * refuses to place outside, "prefer_*" is tried first and falls back rather
+ * than leaving the work unscheduled. */
+export type LabelTimePref = "prefer_morning" | "morning_only" | "prefer_afternoon" | "afternoon_only";
 
 /** A "global day" index: 0 = Monday of the current week, 1 = Tuesday, ...
  * 7 = Monday of next week, etc. Day-of-week is `gday % 7` (0=Mon..6=Sun). */
@@ -40,11 +55,10 @@ export interface Task {
    * project's category. Defaults to 30 (the engine's original universal
    * floor) when the category has none set. */
   minChunk?: number;
-  tag?: "deep-focus" | "research" | null;
-  /** Explicit half-of-day constraint the scheduler must honor — "morning"
-   * means before noon (same as tag "deep-focus"), "afternoon" means noon or
-   * later. Undefined = no constraint beyond whatever tag/preferMorning
-   * already implies. */
+  /** Half-of-day constraint the scheduler must honor — "morning" means before
+   * noon, "afternoon" means noon or later. Comes from the work's own
+   * time_of_day, or failing that from a "*_only" label. Undefined = no hard
+   * constraint beyond whatever preferMorning/preferAfternoon nudges. */
   timeOfDay?: "morning" | "afternoon" | null;
   dependsOn?: string | null;
   /** Deadline in absolute minutes from the horizon start; 99999 = none. */
@@ -60,7 +74,11 @@ export interface Task {
   /** Explicit ordering; lower sorts first among equal priority. work_on_next
    * sets this to 0. */
   ord?: number;
+  /** Soft nudges: try that half of the day first, but take the other rather
+   * than leave the work unscheduled. Mutually exclusive, and both are ignored
+   * when timeOfDay is set (a hard constraint has nothing to fall back to). */
   preferMorning?: boolean;
+  preferAfternoon?: boolean;
   /** One-shot forced placement: this many minutes of the task are pinned to
    * this exact gday/start, like a mini fixed event scoped to just this task.
    * The remaining duration (if any) is still auto-placed normally. Expires
@@ -81,9 +99,12 @@ export interface Project {
   /** Weekly minimum, in minutes. Null/undefined = carries no weekly hours, so
    * no chunks are generated for it. */
   weeklyMinMin?: number | null;
+  /** Soft nudges for where this commitment's weekly hours go — see Task. */
   preferMorning?: boolean;
-  /** Hard half-of-day constraint for this project's weekly hours. Undefined
-   * = unconstrained beyond preferMorning's softer nudge. */
+  preferAfternoon?: boolean;
+  /** Hard half-of-day constraint for this project's weekly hours. Comes from
+   * the commitment's own time_of_day, or failing that from a "*_only" label.
+   * Undefined = unconstrained beyond the soft nudges above. */
   timeOfDay?: "morning" | "afternoon" | null;
   /** Weekly hours only apply inside this window — absolute minutes from the
    * horizon start. Undefined = unbounded on that side. Lets a project that
@@ -140,7 +161,6 @@ export interface CalendarEvent {
 export interface RecurringRule {
   id: string;
   title: string;
-  tag?: string;
   /** Days of week this rule applies to, 0=Mon..4=Fri. Recurring rules are
    * weekday-only by design (per the handoff spec). */
   days: number[];
@@ -186,7 +206,7 @@ export interface ProgressEntry {
 export interface PinnedEntry {
   taskId: string;
   projectId?: string | null;
-  tagLabel: string;
+  tagLabel: string | null;
   title: string;
   gday: GDay;
   start: MinuteOfDay;
@@ -201,7 +221,10 @@ export interface ScheduleBlock {
   taskId?: string;
   projectId?: string | null;
   categoryId?: string | null;
-  tagLabel: string;
+  /** The word in the block's corner: its label's name, "Routine" for a
+   * routine, "Meeting"/"All day" for a synced event. Null when the block has
+   * no label, in which case no tag is drawn. */
+  tagLabel: string | null;
   title: string;
   gday: GDay;
   start: MinuteOfDay;
@@ -267,10 +290,13 @@ export interface ScheduleInputs {
   completed: Record<string, boolean>;
   partial: Record<string, number>;
   pinned: Record<string, PinnedEntry>;
-  /** User-customizable display names for the four block-tag kinds — see
-   * Settings. Always fully resolved (defaults already applied) by the time
-   * they reach the engine. */
-  tagLabels: TagLabels;
+  /** Label id -> label name, for the word in a block's corner. A block with no
+   * label simply has no tag (there is no default word to fall back to — the
+   * four built-in kind names this replaced were the problem, not the fix).
+   * Routines are the one exception: they carry no label and always show
+   * "Routine", because "this repeats on its own" is worth seeing at a glance
+   * and there is nothing else to say about them. */
+  labelNames: Record<string, string>;
 }
 
 export interface ResearchPin {
@@ -280,16 +306,7 @@ export interface ResearchPin {
   length: number;
 }
 
-export interface TagLabels {
-  task: string;
-  research: string;
-  deepFocus: string;
-  block: string;
-}
-
-export const DEFAULT_TAG_LABELS: TagLabels = {
-  task: "Work",
-  research: "Research",
-  deepFocus: "Deep focus",
-  block: "Routine",
-};
+/** The corner tag on a routine's block. Not user-renameable, unlike a label —
+ * it names a structural fact about the block rather than a grouping the user
+ * chose. */
+export const ROUTINE_TAG_LABEL = "Routine";

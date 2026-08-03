@@ -62,7 +62,7 @@ export function KanbanBoard({ scheduleData, onMutated }: KanbanBoardProps) {
     const task = data?.rawTasks.find((t) => t.id === event.active.id);
     if (!targetCol || !task) return;
     if (targetCol === "done") {
-      setNotice("Done can't be dragged into — check work off from the calendar, so your logged hours stay real.");
+      setNotice("Done can't be dragged into — check blocks off from the calendar, so your logged hours stay real.");
       return;
     }
     if (!DROPPABLE.has(targetCol)) return;

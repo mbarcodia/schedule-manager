@@ -42,6 +42,89 @@ function toLocalInput(iso: string | null): string {
 
 const fromLocalInput = (value: string): string | null => (value ? new Date(value).toISOString() : null);
 
+// A date without a time, for the plenty of dates that genuinely have none —
+// "due August 11". Every input below can be either kind, and which one it is
+// travels with the row (todo_items.due_all_day, tasks.deadline_all_day) so
+// nothing downstream has to guess whether an hour was chosen or invented.
+//
+// These mirror all-day-due.ts's convention using the BROWSER's timezone, as
+// every other date in this panel already does — the datetime-local inputs are
+// local by definition, and mixing the two would make the same field mean
+// different instants depending on which control wrote it.
+
+/** The last minute of the day: a date-only due date still has to sort and
+ * compare as that day. Matches ALL_DAY_DUE_MIN in all-day-due.ts. */
+const DAY_END = { hour: 23, minute: 59 };
+
+/** <input type="date"> wants "YYYY-MM-DD". */
+function toDateInput(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/** A date-only value as an instant: the end of that day for a due date or
+ * finish-by, the start of it for an earliest-start (where a bare date means
+ * "any time from this day on", not "from 23:59 on"). */
+function fromDateInput(value: string, edge: "start" | "end"): string | null {
+  if (!value) return null;
+  const [y, m, d] = value.split("-").map(Number);
+  const at = edge === "end" ? DAY_END : { hour: 0, minute: 0 };
+  return new Date(y, m - 1, d, at.hour, at.minute).toISOString();
+}
+
+/** Carries the date part across a switch between the two modes, so choosing
+ * "at a set time" after typing a date doesn't blank what you just entered. */
+function dateInputToLocal(value: string): string {
+  return value ? `${value}T09:00` : "";
+}
+const localInputToDate = (value: string): string => value.slice(0, 10);
+
+/** One date field, either a plain date or a date and time. `edge` decides what
+ * a date-only value means as an instant — see fromDateInput. */
+function DateField({
+  value,
+  allDay,
+  onChange,
+  edge,
+  fieldClass,
+}: {
+  value: string;
+  allDay: boolean;
+  onChange: (value: string, allDay: boolean) => void;
+  edge: "start" | "end";
+  fieldClass: string;
+}) {
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex items-center gap-1.5">
+        <input
+          type={allDay ? "date" : "datetime-local"}
+          value={value}
+          onChange={(e) => onChange(e.target.value, allDay)}
+          className={fieldClass}
+        />
+        <label className="flex items-center gap-1 text-[10px] text-muted-2 whitespace-nowrap">
+          <input
+            type="checkbox"
+            checked={!allDay}
+            onChange={(e) =>
+              e.target.checked
+                ? onChange(dateInputToLocal(value), false)
+                : onChange(localInputToDate(value), true)
+            }
+          />
+          at a set time
+        </label>
+      </div>
+      {allDay && edge === "end" && !!value && (
+        <div className="text-[10px] text-muted-2">Any time that day counts as on time.</div>
+      )}
+    </div>
+  );
+}
+
 export function TodoItemPanel({
   item,
   categories,
@@ -61,15 +144,36 @@ export function TodoItemPanel({
 }) {
   const linked = tasks.find((t) => t.id === item.task_id) ?? null;
 
-  const [dueAt, setDueAt] = useState(toLocalInput(item.due_at));
+  // Each date starts in whichever mode it was saved in. A new item defaults to
+  // date-only, since that's what most dates are and it's the one you couldn't
+  // express before.
+  const [dueAllDay, setDueAllDay] = useState(item.due_at ? item.due_all_day : true);
+  const [dueAt, setDueAt] = useState(
+    item.due_at && item.due_all_day ? toDateInput(item.due_at) : toLocalInput(item.due_at),
+  );
   const [leads, setLeads] = useState<number[]>(item.lead_minutes);
   const [notes, setNotes] = useState(item.notes ?? "");
 
   const [wantsTime, setWantsTime] = useState(linked != null);
   const [hours, setHours] = useState(linked ? String(linked.duration_min / 60) : "1");
-  const [start, setStart] = useState(toLocalInput(linked?.floor_at ?? null));
+  // A start has no stored flag: a date-only start just means that day's
+  // midnight, which is a real instant with nothing invented about it. Midnight
+  // is therefore also how we recognise one on the way back in.
+  const [startAllDay, setStartAllDay] = useState(
+    linked?.floor_at ? new Date(linked.floor_at).getHours() === 0 && new Date(linked.floor_at).getMinutes() === 0 : true,
+  );
+  const [start, setStart] = useState(
+    linked?.floor_at && new Date(linked.floor_at).getHours() === 0 && new Date(linked.floor_at).getMinutes() === 0
+      ? toDateInput(linked.floor_at)
+      : toLocalInput(linked?.floor_at ?? null),
+  );
   const [noDeadline, setNoDeadline] = useState(linked ? linked.deadline_at == null : false);
-  const [deadline, setDeadline] = useState(toLocalInput(linked?.deadline_at ?? null));
+  const [deadlineAllDay, setDeadlineAllDay] = useState(linked?.deadline_at ? linked.deadline_all_day : true);
+  const [deadline, setDeadline] = useState(
+    linked?.deadline_at && linked.deadline_all_day
+      ? toDateInput(linked.deadline_at)
+      : toLocalInput(linked?.deadline_at ?? null),
+  );
   const [priority, setPriority] = useState<(typeof PRIORITIES)[number]>(
     (linked?.priority as (typeof PRIORITIES)[number]) ?? "medium",
   );
@@ -84,9 +188,11 @@ export function TodoItemPanel({
 
   // How much working time the chosen window actually contains. A window that
   // can't hold the hours is the failure that looks like the scheduler ignoring
-  // a deadline: it places the work as early as it can, which is still late.
-  const startDate = start ? new Date(start) : new Date();
-  const deadlineDate = !noDeadline && deadline ? new Date(deadline) : null;
+  // a deadline: it places the task as early as it can, which is still late.
+  const startIso = startAllDay ? fromDateInput(start, "start") : fromLocalInput(start);
+  const deadlineIso = noDeadline ? null : deadlineAllDay ? fromDateInput(deadline, "end") : fromLocalInput(deadline);
+  const startDate = startIso ? new Date(startIso) : new Date();
+  const deadlineDate = deadlineIso ? new Date(deadlineIso) : null;
   const capacity = deadlineDate ? availableCapacity(startDate, deadlineDate, weeklyHours) : null;
   const hoursWanted = Number(hours);
   const windowTooSmall =
@@ -95,7 +201,11 @@ export function TodoItemPanel({
 
   // Hours booked toward something that happens at a known time are preparation
   // for it, and are titled that way on the calendar.
-  const isPrep = item.due_at != null && deadlineDate != null && deadlineDate <= new Date(item.due_at);
+  // Only against a due date with a real time on it: "finished by the morning of
+  // the talk" is preparation, but hours to be finished by the end of the day
+  // something is due are the work itself, not preparation for it.
+  const isPrep =
+    item.due_at != null && !item.due_all_day && deadlineDate != null && deadlineDate <= new Date(item.due_at);
 
   function toggleLead(minutes: number) {
     setLeads((prev) => (prev.includes(minutes) ? prev.filter((m) => m !== minutes) : [...prev, minutes].sort((a, b) => b - a)));
@@ -113,7 +223,7 @@ export function TodoItemPanel({
       return;
     }
 
-    const due = fromLocalInput(dueAt);
+    const due = dueAllDay ? fromDateInput(dueAt, "end") : fromLocalInput(dueAt);
     // A lead time is measured back from the due date, so leads without one
     // would never fire — say so rather than silently keeping dead settings.
     if (leads.length && !due) {
@@ -124,6 +234,7 @@ export function TodoItemPanel({
 
     const patch: Database["public"]["Tables"]["todo_items"]["Update"] = {
       due_at: due,
+      due_all_day: due ? dueAllDay : false,
       lead_minutes: leads,
       notes: notes.trim() || null,
     };
@@ -140,7 +251,7 @@ export function TodoItemPanel({
 
     if (windowInverted) {
       setBusy(false);
-      setError("The finish-by is before the start — the work would have nowhere to go.");
+      setError("The finish-by is before the start — the task would have nowhere to go.");
       return;
     }
 
@@ -153,8 +264,9 @@ export function TodoItemPanel({
         priority,
         // Empty start means "any time from now", which is the scheduler's
         // default anyway.
-        floor_at: fromLocalInput(start) ?? new Date().toISOString(),
-        deadline_at: noDeadline ? null : fromLocalInput(deadline),
+        floor_at: startIso ?? new Date().toISOString(),
+        deadline_at: deadlineIso,
+        deadline_all_day: deadlineIso ? deadlineAllDay : false,
         category_id: categoryId || null,
         max_per_day_min: maxPerDay ? Math.round(Number(maxPerDay) * 60) : null,
       };
@@ -181,11 +293,13 @@ export function TodoItemPanel({
     }
 
     if (wantsEvent) {
-      const startsAt = fromLocalInput(dueAt);
+      // Deliberately not the date-only branch: an event occupies a span between
+      // two clock times, so a date with no time can't produce one.
+      const startsAt = dueAllDay ? null : fromLocalInput(dueAt);
       const endsAt = fromLocalInput(eventEnd);
       if (!startsAt) {
         setBusy(false);
-        setError("An event needs a time — set when it happens first.");
+        setError("An event needs a set time — give it one above, or turn the event off.");
         return;
       }
       if (!endsAt || new Date(endsAt) <= new Date(startsAt)) {
@@ -194,7 +308,7 @@ export function TodoItemPanel({
         return;
       }
       // connection_id stays null: ICS resync deletes by connection, so a null
-      // one survives every sync. Flexible work reflows around it automatically,
+      // one survives every sync. Flexible tasks reflow around it automatically,
       // and a clash with another event renders side by side.
       const eventFields = { title: item.text, starts_at: startsAt, ends_at: endsAt };
       if (item.event_id) {
@@ -229,11 +343,33 @@ export function TodoItemPanel({
     <div className="mt-1.5 mb-2 rounded-md border border-border bg-surface p-2.5 flex flex-col gap-2.5">
       <section className="flex flex-col gap-1">
         <div className="text-[10px] tracking-wide uppercase text-muted-2">When it happens</div>
-        <input type="datetime-local" value={dueAt} onChange={(e) => setDueAt(e.target.value)} className={field} />
-        <div className="text-[10px] text-muted-2">Leave empty if it has no particular date.</div>
+        <DateField
+          value={dueAt}
+          allDay={dueAllDay}
+          edge="end"
+          fieldClass={field}
+          onChange={(v, allDay) => {
+            setDueAt(v);
+            setDueAllDay(allDay);
+            // An event is a span between two clock times; a date-only item has
+            // neither, so the option can't apply to it.
+            if (allDay) setWantsEvent(false);
+          }}
+        />
+        <div className="text-[10px] text-muted-2">
+          Leave empty if it has no particular date. A date on its own is fine — a deadline usually is one.
+        </div>
         <label className="flex items-center gap-1.5 text-[11px] text-text mt-1">
-          <input type="checkbox" checked={wantsEvent} onChange={(e) => setWantsEvent(e.target.checked)} />
-          Put it on my calendar as an event
+          <input
+            type="checkbox"
+            checked={wantsEvent}
+            disabled={dueAllDay}
+            onChange={(e) => setWantsEvent(e.target.checked)}
+          />
+          <span className={dueAllDay ? "text-muted-2" : undefined}>
+            Put it on my calendar as an event
+            {dueAllDay ? " — needs a set time" : ""}
+          </span>
         </label>
         {wantsEvent && (
           <div className="flex flex-col gap-1 pl-5">
@@ -245,7 +381,7 @@ export function TodoItemPanel({
               className={field}
             />
             <div className="text-[10px] text-muted-2">
-              That time is held: flexible work is moved out of the way, and another event at the same time sits
+              That time is held: flexible tasks are moved out of the way, and another event at the same time sits
               beside it rather than on top.
             </div>
           </div>
@@ -284,7 +420,16 @@ export function TodoItemPanel({
               <span className="text-[11px] text-muted">hours needed</span>
             </div>
             <label className="text-[10px] text-muted-2">start</label>
-            <input type="datetime-local" value={start} onChange={(e) => setStart(e.target.value)} className={field} />
+            <DateField
+              value={start}
+              allDay={startAllDay}
+              edge="start"
+              fieldClass={field}
+              onChange={(v, allDay) => {
+                setStart(v);
+                setStartAllDay(allDay);
+              }}
+            />
             <div className="text-[10px] text-muted-2">
               The earliest it may be scheduled. Leave empty to allow any time from now.
             </div>
@@ -295,11 +440,15 @@ export function TodoItemPanel({
             {!noDeadline && (
               <>
                 <label className="text-[10px] text-muted-2">finish by</label>
-                <input
-                  type="datetime-local"
+                <DateField
                   value={deadline}
-                  onChange={(e) => setDeadline(e.target.value)}
-                  className={field}
+                  allDay={deadlineAllDay}
+                  edge="end"
+                  fieldClass={field}
+                  onChange={(v, allDay) => {
+                    setDeadline(v);
+                    setDeadlineAllDay(allDay);
+                  }}
                 />
                 <div className="text-[10px] text-muted-2">
                   Set this earlier than the thing itself to book preparation — say two hours finished by the morning

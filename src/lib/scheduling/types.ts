@@ -25,6 +25,12 @@ export interface Category {
    * preferAfternoon by from-db before the engine sees it — the engine reads
    * placement off the work, never off the label. */
   timePref?: LabelTimePref | null;
+  /** Share of each week's available working time this label should get, 1-100.
+   * Null = no target; per-commitment weekly minimums stand as absolute hours.
+   * When set, this label's commitments have their weekly minutes scaled
+   * proportionally to sum to the target, so those minutes act as a RATIO
+   * between projects rather than a total anyone maintains by hand. */
+  weeklyTargetPct?: number | null;
 }
 
 /** See Database's LabelTimePref: "*_only" is a hard constraint the engine
@@ -261,6 +267,19 @@ export interface ComputeScheduleResult {
   nearDeadline: string[];
   /** Human-readable missed/short entries for the warning banner. */
   missed: string[];
+  /** THIS week's share targets: what each label with weekly_target_pct set
+   * should get, against what actually landed. Empty when no label has one. */
+  labelTargets: LabelTargetReport[];
+}
+
+export interface LabelTargetReport {
+  label: string;
+  pct: number;
+  /** Working minutes this week that weren't already taken by meetings, away
+   * days or routines — what the percentage is a share OF. */
+  capacityMin: number;
+  targetMin: number;
+  plannedMin: number;
 }
 
 export interface ScheduleInputs {
@@ -297,6 +316,11 @@ export interface ScheduleInputs {
    * "Routine", because "this repeats on its own" is worth seeing at a glance
    * and there is nothing else to say about them. */
   labelNames: Record<string, string>;
+  /** Label id -> its weekly share target as a percentage of that week's
+   * available working time (categories.weekly_target_pct). Absent = no target.
+   * See labelScaleForWeek in engine.ts for what it does to the commitments
+   * wearing that label. */
+  labelTargetPct: Record<string, number>;
 }
 
 export interface ResearchPin {

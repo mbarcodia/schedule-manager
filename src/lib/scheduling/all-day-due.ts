@@ -63,6 +63,16 @@ export function leadAnchor(
   return zonedTimeToUtc(z.year, z.month, z.day, Math.floor(startMin / 60), startMin % 60, timezone);
 }
 
+/** The civil date a date-only due date falls on, in the account's timezone.
+ *
+ * NOT `iso.slice(0, 10)`: the stored instant is 23:59 LOCAL, which in UTC is
+ * often the following day — a deadline of Aug 11 in New York is stored as
+ * 2026-08-12T03:59Z, so slicing the string reports it a day late. */
+export function allDayDueDate(dueIso: string, timezone: string): string {
+  const z = zonedNow(timezone, new Date(dueIso));
+  return `${z.year}-${String(z.month).padStart(2, "0")}-${String(z.day).padStart(2, "0")}`;
+}
+
 /** A due date as the user set it — no hour on a date-only item, because the
  * stored 23:59 is bookkeeping rather than something they chose. */
 export function formatDue(dueIso: string, allDay: boolean, timezone: string): string {

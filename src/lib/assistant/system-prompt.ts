@@ -11,6 +11,7 @@
 
 import { minToLabel, WEEKDAY_LABELS } from "@/lib/scheduling/time";
 import { resolveDayWindow } from "@/lib/scheduling/day-window";
+import { allDayDueDate } from "@/lib/scheduling/all-day-due";
 import { deriveBoardStatuses, boardStatusFor } from "@/lib/planner/board-status";
 import { DEFAULT_WIP_LIMIT } from "@/lib/planner/board-constants";
 import type { ComputeScheduleResult, DayOverrides } from "@/lib/scheduling/types";
@@ -43,6 +44,10 @@ export function buildPromptContext(rows: RawScheduleRows, inputs: ScheduleInputs
     .sort((a, b) => (a.research_ord ?? 5) - (b.research_ord ?? 5));
 
   const labelById = new Map(rows.categories.map((c) => [c.id, c.name]));
+  // A task reported its project as a raw UUID, which told the model nothing —
+  // it could see that a task was linked but not to what, so it described linked
+  // tasks as unlinked.
+  const projectTitleById = new Map(rows.projects.map((p) => [p.id, p.title]));
 
   // Soft WIP accounting for the kanban board's In Progress column — surfaced
   // in the snapshot so the planner can push back on starting new tasks while
@@ -64,13 +69,42 @@ export function buildPromptContext(rows: RawScheduleRows, inputs: ScheduleInputs
       name: c.name,
       minChunkMin: c.min_chunk_min ?? null,
       timeOfDay: c.time_pref ?? null,
+      weeklyTargetPct: c.weekly_target_pct ?? null,
     })),
+    /** Where a label with a weekly share target actually stands this week.
+     * capacityHrs is the working time left after meetings, away days and
+     * routines — the pool the percentage is a share of — so a travel week
+     * legitimately has a smaller target rather than a missed one. When planned
+     * falls short of target, the per-commitment hours wearing that label are
+     * the thing to change; they act as a ratio, not a total. */
+    labelTargetsThisWeek: schedule.labelTargets.map((t) => ({
+      label: t.label,
+      target: `${t.pct}% of ${(t.capacityMin / 60).toFixed(1)}h available = ${(t.targetMin / 60).toFixed(1)}h`,
+      plannedHrs: +(t.plannedMin / 60).toFixed(1),
+      shortfallHrs: +Math.max(0, (t.targetMin - t.plannedMin) / 60).toFixed(1),
+    })),
+    // A task's DEADLINE was missing here, which read as the deadline never
+    // having been saved: asked about three tasks, the planner reported all
+    // three as having no due date while two of them had one in the database.
+    // The only deadlines that reached the model were the ones already at risk
+    // (willMissDeadline/cuttingItClose below), so a comfortable deadline was
+    // indistinguishable from none at all. `important` was missing for the same
+    // reason and matters for the same conversation — it is the board's
+    // Eisenhower signal, and the planner is told to set it.
     tasks: rows.tasks.map((t) => ({
       title: t.title,
       priority: t.priority,
       durationMin: t.duration_min,
-      linkedProject: t.project_id,
+      due: t.deadline_at
+        ? t.deadline_all_day
+          ? { date: allDayDueDate(t.deadline_at, inputs.timezone), anyTimeThatDay: true }
+          : t.deadline_at
+        : null,
+      notBefore: t.floor_at,
+      important: t.important,
+      linkedProject: t.project_id ? (projectTitleById.get(t.project_id) ?? null) : null,
       label: t.category_id ? (labelById.get(t.category_id) ?? null) : null,
+      timeOfDay: t.time_of_day ?? null,
     })),
     // One thing with optional facets — only the ones actually set are reported,
     // so the model sees a project the way the user described it rather than a

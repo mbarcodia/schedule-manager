@@ -108,6 +108,7 @@ export interface Database {
           created_at: string;
           min_chunk_min: number | null;
           time_pref: LabelTimePref | null;
+          weekly_target_pct: number | null;
         },
         {
           id?: string;
@@ -117,6 +118,7 @@ export interface Database {
           sort_order?: number;
           min_chunk_min?: number | null;
           time_pref?: LabelTimePref | null;
+          weekly_target_pct?: number | null;
         },
         Partial<{
           name: string;
@@ -124,6 +126,7 @@ export interface Database {
           sort_order: number;
           min_chunk_min: number | null;
           time_pref: LabelTimePref | null;
+          weekly_target_pct: number | null;
         }>
       >;
       /** Projects. Still named `projects` in the database so that every

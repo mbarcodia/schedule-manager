@@ -430,6 +430,12 @@ export default function SettingsPage() {
     await supabase.from("categories").update({ min_chunk_min: minChunkMin }).eq("id", id);
   }
 
+  async function setCategoryTarget(id: string, pct: number | null) {
+    setCategories((prev) => prev.map((c) => (c.id === id ? { ...c, weekly_target_pct: pct } : c)));
+    const supabase = createClient();
+    await supabase.from("categories").update({ weekly_target_pct: pct }).eq("id", id);
+  }
+
   async function setCategoryTimePref(id: string, timePref: LabelTimePref | null) {
     setCategories((prev) => prev.map((c) => (c.id === id ? { ...c, time_pref: timePref } : c)));
     const supabase = createClient();
@@ -1017,9 +1023,16 @@ export default function SettingsPage() {
               day even if that means not fitting this week. <span className="text-text">Prefer</span> tries that half
               first and takes the other rather than leaving the work unbooked.
             </div>
+            <div>
+              <span className="text-text font-medium">% of week</span> — optional. The share of each week&apos;s
+              available time this label should get, where available means what&apos;s left after meetings, away days
+              and routines. Set Research to 40 and it targets 16h in a normal 40h week and scales itself down in a
+              conference week. The weekly hours on the commitments wearing the label then act as a{" "}
+              <span className="text-text">ratio</span> between them rather than a total you keep in sync by hand.
+            </div>
             <div className="text-muted-2">
-              Anything you set on one piece of work or one commitment wins over its label — a label says where this
-              kind of thing usually goes, not where this particular thing must.
+              Anything you set on one task or one commitment wins over its label — a label says where this kind of
+              thing usually goes, not where this particular thing must.
             </div>
           </div>
 
@@ -1030,6 +1043,7 @@ export default function SettingsPage() {
                 <span className="flex-1">Name</span>
                 <span className="w-16 flex-none">Min chunk</span>
                 <span className="w-36 flex-none">Time of day</span>
+                <span className="w-20 flex-none">% of week</span>
                 <span className="w-12 flex-none" />
               </div>
             )}
@@ -1075,6 +1089,23 @@ export default function SettingsPage() {
                     </option>
                   ))}
                 </select>
+                <div className="w-20 flex-none flex items-center gap-1">
+                  <input
+                    type="number"
+                    min={1}
+                    max={100}
+                    defaultValue={cat.weekly_target_pct ?? ""}
+                    placeholder="—"
+                    title="Share of each week's available time this label should get"
+                    onBlur={(e) => {
+                      const raw = e.target.value.trim();
+                      const parsed = raw === "" ? null : Math.min(100, Math.max(1, parseInt(raw, 10) || 0)) || null;
+                      if (parsed !== (cat.weekly_target_pct ?? null)) setCategoryTarget(cat.id, parsed);
+                    }}
+                    className="w-12 rounded-md border border-border bg-surface px-2 py-1 text-xs text-text outline-none focus-visible:border-accent"
+                  />
+                  <span className="text-[10px] text-muted-2">%</span>
+                </div>
                 <button
                   onClick={() => deleteCategory(cat.id)}
                   title="Remove label"

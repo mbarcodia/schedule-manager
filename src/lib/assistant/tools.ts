@@ -504,20 +504,21 @@ export function buildTools(ctx: ToolContext) {
       type: "object",
       properties: {
         title: { type: "string" },
-        due: { type: "string", description: 'hard deadline for the whole project, natural language, e.g. "december 31", "in 2 weeks"' },
+        due: { type: "string", description: 'hard deadline for the whole project, natural language, e.g. "december 31", "in 2 weeks". Pass "none" to remove an existing deadline.' },
         weekly_research_hrs: { type: "number", description: "hours per week the engine must find and defend for this project" },
         active_from: {
           type: "string",
           description:
             'the weekly hours only start applying from this date, natural language, e.g. "december 1". Without it the hours are booked from today, which is wrong for anything that starts next term.',
         },
-        active_until: { type: "string", description: "the weekly hours stop applying after this date" },
+        active_until: { type: "string", description: 'the weekly hours stop applying after this date. Pass "none" to remove either end of the window.' },
         hours_time_of_day: {
           type: "string",
-          enum: ["morning", "afternoon"],
-          description: "restrict this project's weekly hours to one half of the day. Omit to let them go anywhere, mornings first.",
+          enum: ["morning", "afternoon", "any"],
+          description:
+            'Where this project\'s weekly hours must go. "morning"/"afternoon" is a HARD restriction: the engine refuses the other half of the day even when that means the hours do not fit, which caps a big weekly minimum at whatever one half-day holds. "any" removes that restriction (mornings are still tried first, then afternoons as needed) and is how you undo it. OMITTING this leaves whatever is already set — it does NOT reset it, so pass "any" explicitly to unlock a project.',
         },
-        cadence: { type: "string", description: 'rhythm for a project with no deadline, e.g. "Weekly", "Ongoing". Descriptive only — nothing is scheduled from it.' },
+        cadence: { type: "string", description: 'rhythm for a project with no deadline, e.g. "Weekly", "Ongoing". Descriptive only — nothing is scheduled from it. Pass "none" to remove it.' },
         category: { type: "string", description: "name of the label for this project's weekly-hours blocks" },
       },
       required: ["title"],
@@ -525,10 +526,15 @@ export function buildTools(ctx: ToolContext) {
     run: async (inp) => {
       const toDateString = (d: Date) =>
         `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      /** "none" is an explicit erase, distinct from an omitted field (leave as
+       * is) and from an unparseable one (say so, change nothing). Without the
+       * distinction there was no way to remove a facet at all. */
+      const CLEAR = new Set(["none", "no deadline", "never", "clear", "remove", "unset"]);
       const parseDate = (text: string | undefined) => {
-        if (!text) return { value: null as string | null, failed: false };
+        if (!text) return { value: null as string | null, failed: false, clear: false };
+        if (CLEAR.has(text.trim().toLowerCase())) return { value: null as string | null, failed: false, clear: true };
         const d = parseDeadlineDate(text.toLowerCase(), ctx.today);
-        return { value: d ? toDateString(d) : null, failed: !d };
+        return { value: d ? toDateString(d) : null, failed: !d, clear: false };
       };
 
       const deadline = parseDate(inp.due);
@@ -552,11 +558,20 @@ export function buildTools(ctx: ToolContext) {
 
       const patch: Database["public"]["Tables"]["projects"]["Update"] = { title: inp.title };
       if (deadline.value) patch.deadline_date = deadline.value;
+      else if (deadline.clear) patch.deadline_date = null;
       if (from.value) patch.active_from = from.value;
+      else if (from.clear) patch.active_from = null;
       if (until.value) patch.active_until = until.value;
-      if (inp.cadence) patch.cadence = inp.cadence;
+      else if (until.clear) patch.active_until = null;
+      if (inp.cadence) patch.cadence = CLEAR.has(inp.cadence.trim().toLowerCase()) ? null : inp.cadence;
       if (categoryId) patch.category_id = categoryId;
-      if (inp.hours_time_of_day) patch.time_of_day = inp.hours_time_of_day;
+      // "any" erases the hard restriction. Previously only "morning" and
+      // "afternoon" existed and an omitted field meant "leave it", so a project
+      // locked to mornings could never be unlocked: the tool accepted the
+      // request, wrote nothing, and reported success — which read as the change
+      // having been made while research stayed capped at what one morning holds.
+      if (inp.hours_time_of_day === "any") patch.time_of_day = null;
+      else if (inp.hours_time_of_day) patch.time_of_day = inp.hours_time_of_day;
       if (inp.weekly_research_hrs != null) {
         patch.weekly_min_min = inp.weekly_research_hrs * 60;
         // Mornings-first stays the default for weekly hours, but an explicit
@@ -570,7 +585,11 @@ export function buildTools(ctx: ToolContext) {
         from.value || until.value
           ? `hours apply ${from.value ? `from ${from.value}` : "from now"}${until.value ? ` until ${until.value}` : ""}`
           : null,
-        inp.hours_time_of_day ? `${inp.hours_time_of_day}s only` : null,
+        inp.hours_time_of_day === "any"
+          ? "hours may go any time of day"
+          : inp.hours_time_of_day
+            ? `${inp.hours_time_of_day}s only`
+            : null,
         inp.cadence ? inp.cadence.toLowerCase() : null,
       ].filter(Boolean);
       const summary = facets.length ? ` — ${facets.join(", ")}.${dateNote}` : `.${dateNote}`;
@@ -594,7 +613,7 @@ export function buildTools(ctx: ToolContext) {
           deadline_date: deadline.value,
           weekly_min_min: inp.weekly_research_hrs ? inp.weekly_research_hrs * 60 : null,
           prefer_morning: !!inp.weekly_research_hrs && inp.hours_time_of_day !== "afternoon",
-          time_of_day: inp.hours_time_of_day ?? null,
+          time_of_day: inp.hours_time_of_day === "any" ? null : (inp.hours_time_of_day ?? null),
           active_from: from.value,
           active_until: until.value,
           cadence: inp.cadence ?? null,

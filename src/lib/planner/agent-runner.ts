@@ -28,21 +28,39 @@ function flattenSystem(system: PlannerSystemPrompt): string {
  * built-in variants (memory, bash, computer-use, …) that also inhabit
  * BetaRunnableTool's public union type. Naming that narrower shape
  * directly avoids the union collapsing tool.run's parameter to `never`. */
+/** One property of a tool's JSON Schema. `items` matters: an array property
+ * whose items are ignored silently becomes a string (see below). */
+interface JsonSchemaProp {
+  type?: string;
+  enum?: string[];
+  description?: string;
+  items?: { type?: string; enum?: string[] };
+}
+
 interface PlannerToolLike {
   name: string;
   description?: string;
-  input_schema: { properties?: Record<string, { type?: string; enum?: string[]; description?: string }>; required?: string[] };
+  input_schema: { properties?: Record<string, JsonSchemaProp>; required?: string[] };
   run: (args: Record<string, unknown>) => Promise<string | Array<{ type: string; text?: string }>>;
 }
 
 /** Our tool schemas are flat JSON Schema objects (string/number/boolean
- * properties, optional string enums, an optional `required` list) — the
+ * properties, string arrays, optional enums, an optional `required` list) — the
  * only shapes buildPlannerTools ever produces. The Agent SDK's tool()
  * requires a Zod raw shape, so this converts just that subset rather than
  * pulling in a general JSON-Schema-to-Zod library for one-off object
- * schemas we fully control ourselves. */
+ * schemas we fully control ourselves.
+ *
+ * The array branch is not optional decoration. Without it an array property
+ * fell through to z.string(), which made update_recurring's `days` impossible
+ * to satisfy on this path: an array was rejected ("expected string, received
+ * array") and a string was accepted and then crashed the tool body on
+ * `inp.days.map is not a function`. The model retried formats until it gave up,
+ * looking like model failure rather than a missing four-line branch. Any array
+ * property added in future would have failed exactly the same way, so the
+ * branch is keyed off the schema, not off `days`. */
 function jsonSchemaToZodShape(schema: {
-  properties?: Record<string, { type?: string; enum?: string[]; description?: string }>;
+  properties?: Record<string, JsonSchemaProp>;
   required?: string[];
 }): Record<string, ZodTypeAny> {
   const required = new Set(schema.required ?? []);
@@ -50,6 +68,7 @@ function jsonSchemaToZodShape(schema: {
   for (const [key, prop] of Object.entries(schema.properties ?? {})) {
     let field: ZodTypeAny;
     if (prop.enum) field = z.enum(prop.enum as [string, ...string[]]);
+    else if (prop.type === "array") field = z.array(scalarFor(prop.items));
     else if (prop.type === "number") field = z.number();
     else if (prop.type === "boolean") field = z.boolean();
     else field = z.string();
@@ -57,6 +76,15 @@ function jsonSchemaToZodShape(schema: {
     shape[key] = required.has(key) ? field : field.optional();
   }
   return shape;
+}
+
+/** Element type of an array property. Missing `items` means "some scalar" —
+ * string is the safe read, and it's what every array in our schemas holds. */
+function scalarFor(items: JsonSchemaProp["items"]): ZodTypeAny {
+  if (items?.enum) return z.enum(items.enum as [string, ...string[]]);
+  if (items?.type === "number") return z.number();
+  if (items?.type === "boolean") return z.boolean();
+  return z.string();
 }
 
 /** Adapts one of our betaTool()-shaped planner tools (name/description/

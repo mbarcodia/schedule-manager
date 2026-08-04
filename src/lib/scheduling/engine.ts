@@ -82,9 +82,68 @@ interface TaskDef extends Task {
   ord: number;
 }
 
-function taskDefs(inputs: ScheduleInputs): TaskDef[] {
+/** Working minutes in a week that are available to allocate — the week's
+ * standard hours minus what makes a week ABNORMAL: meetings, and days an
+ * all-day entry marks "away".
+ *
+ * Deliberately does NOT subtract routines, even though `busy` would let it.
+ * "40% of the time I have each week — 16 hours when I have 40 hours available"
+ * is the stated meaning, and a normal week's standard hours ARE 40h; netting
+ * out ~11h of standing routines first turns that 40% into 11.4h and the rule
+ * stops matching its own worked example. Routines are also a poor thing to
+ * subtract here specifically, since some of them (a literature scan, a proposal
+ * search) are the very work the target is about — taking them off the top and
+ * then asking for 40% of the rest charges for them twice.
+ *
+ * So `busy` must be a snapshot taken after events and pins are marked but
+ * BEFORE anchors, and long before any auto-placed work.
+ *
+ * Mon-Fri only, matching the fence weekly hours are generated inside. */
+function weekCapacityMin(inputs: ScheduleInputs, busy: Set<AbsMinute>, w: number): number {
+  let free = 0;
+  for (let d = 0; d < 5; d++) {
+    const gday = w * 7 + d;
+    const win = resolveDayWindow(gday, inputs.weeklyHours, inputs.dayOverrides, inputs.allDayBlocks);
+    if (!win) continue;
+    const base = gday * 1440;
+    for (let m = win.start; m < win.end; m++) if (!busy.has(base + m)) free++;
+  }
+  return free;
+}
+
+/** How much a label's weekly hours should be multiplied by this week to hit its
+ * percentage-of-capacity target, keyed by label id. 1 (or absent) = leave the
+ * declared minutes alone.
+ *
+ * The declared per-commitment minutes become a RATIO under a target: 6h/4h/3h
+ * stays 2:1.33:1 whatever the week holds. Scaling is per week, so a conference
+ * week shrinks every project in step instead of the engine trying to force a
+ * full week of research into it and reporting the remainder as not fitting. */
+function labelScaleForWeek(
+  inputs: ScheduleInputs,
+  busy: Set<AbsMinute>,
+  w: number,
+): Record<string, number> {
+  const targets = inputs.labelTargetPct ?? {};
+  if (!Object.keys(targets).length) return {};
+  const capacity = weekCapacityMin(inputs, busy, w);
+  const scale: Record<string, number> = {};
+  for (const [labelId, pct] of Object.entries(targets)) {
+    const declared = inputs.projects
+      .filter((p) => p.weeklyMinMin && p.categoryId === labelId)
+      .reduce((sum, p) => sum + p.weeklyMinMin!, 0);
+    // Nothing wearing the label carries hours, so there is nothing to scale —
+    // a target can't invent a project to spend the time on.
+    if (!declared) continue;
+    scale[labelId] = ((capacity * pct) / 100) / declared;
+  }
+  return scale;
+}
+
+function taskDefs(inputs: ScheduleInputs, labelScaleByWeek: Record<string, number>[] = []): TaskDef[] {
   const research: TaskDef[] = [];
   for (let w = 0; w < inputs.horizonWeeks; w++) {
+    const labelScale = labelScaleByWeek[w] ?? {};
     // A week's chunk is fenced to Mon-Fri of that week. An active window
     // narrows that fence further, so a project that starts in December
     // simply generates nothing for the weeks before it and a partial chunk for
@@ -100,11 +159,31 @@ function taskDefs(inputs: ScheduleInputs): TaskDef[] {
         // The window closes this project out of this week entirely, or
         // leaves too little of it to be worth a block.
         if (ceilAbs - floor < (p.minChunk ?? 30)) return;
+        // Rounded to 5 minutes so a scaled target yields a sane block length
+        // rather than 47.3 minutes.
+        // `?? 1`, never `|| 1`: a scale of 0 is meaningful (a week with no
+        // capacity at all, e.g. one entirely inside a conference) and `||`
+        // silently promoted it to 1, so exactly the weeks that should generate
+        // nothing instead asked for the full declared hours and reported every
+        // project as not fitting.
+        const scale = (p.categoryId ? labelScale[p.categoryId] : undefined) ?? 1;
+        const floorMin = p.minChunk ?? 30;
+        const scaled = scale === 1 ? p.weeklyMinMin! : Math.round((p.weeklyMinMin! * scale) / 5) * 5;
+        // A share of this week smaller than one placeable chunk means this
+        // project genuinely gets no time this week — the honest outcome in a
+        // week eaten by travel, and the same "closed out of this week" case the
+        // active-window check above handles.
+        //
+        // Emphatically NOT floored up to minChunk: in a week with zero capacity
+        // that forced a full minimum block per project into a week with no room
+        // for it, and every one of them came back as "didn't fit" — turning a
+        // correctly-scaled-to-nothing week into four false alarms.
+        if (scale !== 1 && scaled < floorMin) return;
         research.push({
           id: `research-${p.id}-w${w}`,
           title: p.title,
           priority: "high",
-          duration: p.weeklyMinMin!,
+          duration: scaled,
           chunk: p.chunk || 120,
           minChunk: p.minChunk,
           dependsOn: null,
@@ -423,6 +502,10 @@ export function computeSchedule(
     });
   });
 
+  // Snapshot before anchors are placed — see weekCapacityMin on why routines
+  // are not netted out of the pool a share target claims from.
+  const busyBeforeAnchors = new Set(baseBusy);
+
   anchorDefs(inputs).forEach((a) => {
     const dayWindow = resolveDayWindow(a.gday, inputs.weeklyHours, inputs.dayOverrides, inputs.allDayBlocks);
     if (dayWindow == null) return; // day off entirely
@@ -493,7 +576,14 @@ export function computeSchedule(
     });
   });
 
-  const defs = taskDefs(inputs).map((t) =>
+  const labelScaleByWeek = Array.from({ length: inputs.horizonWeeks }, (_, w) =>
+    labelScaleForWeek(inputs, busyBeforeAnchors, w),
+  );
+  const weekCapacity = Array.from({ length: inputs.horizonWeeks }, (_, w) =>
+    weekCapacityMin(inputs, busyBeforeAnchors, w),
+  );
+
+  const defs = taskDefs(inputs, labelScaleByWeek).map((t) =>
     pinReduction[t.id] ? { ...t, duration: Math.max(0, t.duration - pinReduction[t.id]) } : t,
   );
   const plan = runScheduler(inputs, defs, new Set(baseBusy), 0, null);
@@ -627,5 +717,22 @@ export function computeSchedule(
     else if (Math.floor(finishedAbs / 1440) === Math.floor(t.deadline / 1440)) nearDeadline.push(t.title);
   });
 
-  return { blocks, overflow: res.overflow, risk, nearDeadline, missed };
+  // Reported for THIS week only: it exists so the chat and the board can state
+  // the target against reality ("Research 4.7h of a 4.7h target") instead of
+  // the user having to work out from five per-project numbers whether a rule
+  // they stated in percentages is being met.
+  const labelTargets = Object.entries(inputs.labelTargetPct).map(([labelId, pct]) => {
+    const plannedMin = blocks
+      .filter((b) => b.categoryId === labelId && Math.floor(b.gday / 7) === 0 && b.status !== "missed")
+      .reduce((sum, b) => sum + (b.end - b.start), 0);
+    return {
+      label: inputs.labelNames[labelId] ?? labelId,
+      pct,
+      capacityMin: weekCapacity[0] ?? 0,
+      targetMin: Math.round(((weekCapacity[0] ?? 0) * pct) / 100),
+      plannedMin,
+    };
+  });
+
+  return { blocks, overflow: res.overflow, risk, nearDeadline, missed, labelTargets };
 }

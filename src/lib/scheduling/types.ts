@@ -275,6 +275,11 @@ export interface ComputeScheduleResult {
   /** THIS week's share targets: what each label with weekly_target_pct set
    * should get, against what actually landed. Empty when no label has one. */
   labelTargets: LabelTargetReport[];
+  /** THIS week's scaled goal in minutes, keyed by commitment id, for those whose
+   * label carries a share target. Absent for everything else, where the declared
+   * weekly minimum is still the goal as stated. 0 means the week has no room for
+   * it (travel), which is a real answer rather than a shortfall. */
+  weeklyTargetMinByProject: Record<string, number>;
 }
 
 export interface LabelTargetReport {

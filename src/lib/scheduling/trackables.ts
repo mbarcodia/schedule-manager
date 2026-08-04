@@ -41,21 +41,43 @@ export function computeTrackableChips(
   for (const c of projects) {
     if (c.weeklyMinMin) {
       const sched = schedByProject[c.id] || 0;
-      const under = sched < c.weeklyMinMin;
+      // Under a label share target the declared minutes are a RATIO between
+      // commitments, not a weekly total, so the goal for THIS week is the scaled
+      // figure the engine actually worked to. Comparing against the declared
+      // number instead made a correctly-scheduled commitment look short.
+      const scaledGoal = schedule.weeklyTargetMinByProject[c.id];
+      const goal = scaledGoal ?? c.weeklyMinMin;
+      const scaledByTarget = scaledGoal != null;
+      const under = sched < goal;
       const windowNote =
         c.activeFromAbs != null || c.activeUntilAbs != null ? " · only inside its active window" : "";
+      const placement = c.timeOfDay
+        ? ` · ${c.timeOfDay}s`
+        : c.preferMorning
+          ? " · mornings first"
+          : c.preferAfternoon
+            ? " · afternoons first"
+            : "";
+      // A share of zero means the week is gone to travel, not that hours are
+      // missing — saying "0.0h / 0h" invites exactly the wrong reading.
+      const statusText = scaledByTarget && goal === 0
+        ? "away this week"
+        : `${(sched / 60).toFixed(1)}h / ${+(goal / 60).toFixed(2)}h wk`;
+      const tooltip = scaledByTarget
+        ? `${+(goal / 60).toFixed(2)}h this week — its share of the label's weekly target. ` +
+          `The ${c.weeklyMinMin / 60}h set on this commitment is its size relative to the others, ` +
+          `not a weekly total, so it scales with how much of the week is actually free${placement}${windowNote}`
+        : `Weekly minimum ${c.weeklyMinMin / 60}h${placement}${windowNote}`;
       chips.push({
         projectId: c.id,
         facet: "weekly",
         title: c.title,
-        statusText: `${(sched / 60).toFixed(1)}h / ${c.weeklyMinMin / 60}h wk`,
+        statusText,
         statusColor: under ? "#d2cefd" : "#9397ab",
         statusWeight: under ? "600" : "500",
         border: under ? "#9184d9" : "rgba(233,233,237,0.16)",
         bg: under ? "rgba(145,132,217,0.12)" : "#1d1f2b",
-        tooltip: `Weekly minimum ${c.weeklyMinMin / 60}h${
-          c.timeOfDay ? ` · ${c.timeOfDay}s` : c.preferMorning ? " · mornings first" : ""
-        }${windowNote}`,
+        tooltip,
       });
     }
     if (c.deadlineDate) {

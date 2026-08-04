@@ -140,6 +140,48 @@ function labelScaleForWeek(
   return scale;
 }
 
+/** The weekly minutes a commitment should get under a share target, chosen so it
+ * decomposes into whole chunks with NO tail shorter than its minimum chunk.
+ *
+ * Rounding the scaled figure to 5 minutes was not enough: 6h scaled by 1.014
+ * gives 365 minutes, and against a 120-minute chunk that lands as 120+120+120+5,
+ * putting a 5-MINUTE research block on a Monday morning. The engine's
+ * minimum-chunk floor doesn't catch it, because that floor governs shrinking a
+ * block to fit a gap, not the leftover at the end of a duration.
+ *
+ * So the duration is snapped to a value that divides cleanly: a tail is either
+ * zero, or at least one minimum chunk long. Where that means moving off the
+ * exact target it moves to whichever clean value is nearer — a few minutes
+ * either side of a percentage-derived goal is not meaningful, and a 5-minute
+ * block is.
+ *
+ * Returns 0 when not even one placeable block fits the share, which is the
+ * honest answer for a week mostly eaten by travel. */
+export function scaledWeeklyMin(
+  declaredMin: number,
+  scale: number,
+  chunkMin: number,
+  floorMin: number,
+): number {
+  if (scale === 1) return declaredMin;
+  const chunk = Math.max(1, chunkMin);
+  const raw = declaredMin * scale;
+  if (raw < floorMin) return 0;
+
+  const whole = Math.floor(raw / chunk) * chunk;
+  const tail = raw - whole;
+  if (tail === 0) return whole;
+  // A tail at or above the floor is a legitimate block in its own right, rounded
+  // to the 15-minute grid findSlot actually places on — rounding to 5 produced
+  // lengths like 65 minutes that can never start on a grid boundary and end on
+  // one, and read as oddly precise for a goal derived from a percentage.
+  if (tail >= floorMin) return whole + Math.round(tail / 15) * 15;
+  // Otherwise it cannot stand alone: drop it, or grow it to the floor.
+  const up = whole + floorMin;
+  if (whole === 0) return up;
+  return raw - whole <= up - raw ? whole : up;
+}
+
 function taskDefs(inputs: ScheduleInputs, labelScaleByWeek: Record<string, number>[] = []): TaskDef[] {
   const research: TaskDef[] = [];
   for (let w = 0; w < inputs.horizonWeeks; w++) {
@@ -159,26 +201,19 @@ function taskDefs(inputs: ScheduleInputs, labelScaleByWeek: Record<string, numbe
         // The window closes this project out of this week entirely, or
         // leaves too little of it to be worth a block.
         if (ceilAbs - floor < (p.minChunk ?? 30)) return;
-        // Rounded to 5 minutes so a scaled target yields a sane block length
-        // rather than 47.3 minutes.
         // `?? 1`, never `|| 1`: a scale of 0 is meaningful (a week with no
         // capacity at all, e.g. one entirely inside a conference) and `||`
         // silently promoted it to 1, so exactly the weeks that should generate
         // nothing instead asked for the full declared hours and reported every
         // project as not fitting.
         const scale = (p.categoryId ? labelScale[p.categoryId] : undefined) ?? 1;
-        const floorMin = p.minChunk ?? 30;
-        const scaled = scale === 1 ? p.weeklyMinMin! : Math.round((p.weeklyMinMin! * scale) / 5) * 5;
-        // A share of this week smaller than one placeable chunk means this
-        // project genuinely gets no time this week — the honest outcome in a
-        // week eaten by travel, and the same "closed out of this week" case the
-        // active-window check above handles.
-        //
-        // Emphatically NOT floored up to minChunk: in a week with zero capacity
-        // that forced a full minimum block per project into a week with no room
-        // for it, and every one of them came back as "didn't fit" — turning a
-        // correctly-scaled-to-nothing week into four false alarms.
-        if (scale !== 1 && scaled < floorMin) return;
+        const scaled = scaledWeeklyMin(p.weeklyMinMin!, scale, p.chunk || 120, p.minChunk ?? 30);
+        // Nothing placeable this week — the honest outcome in a week eaten by
+        // travel, and the same "closed out of this week" case the active-window
+        // check above handles. Emphatically NOT rounded up to a minimum block:
+        // that forced one into a week with no room for it and reported every
+        // project as "didn't fit".
+        if (scaled <= 0) return;
         research.push({
           id: `research-${p.id}-w${w}`,
           title: p.title,
@@ -745,5 +780,28 @@ export function computeSchedule(
     };
   });
 
-  return { blocks, overflow: res.overflow, beyondHorizon: res.beyondHorizon, risk, nearDeadline, missed, labelTargets };
+  // This week's scaled goal per commitment, for anything under a share target.
+  // The chips used to print the DECLARED weekly minimum, which stopped being a
+  // weekly total the moment a label target turned those numbers into a ratio —
+  // so a commitment showing "3h wk" could correctly be given 3.08h in a normal
+  // week and nothing at all in a conference week, and the chip called both wrong.
+  const weeklyTargetMinByProject: Record<string, number> = {};
+  const scale0 = labelScaleByWeek[0] ?? {};
+  inputs.projects.forEach((p) => {
+    if (!p.weeklyMinMin || !p.categoryId) return;
+    const scale = scale0[p.categoryId];
+    if (scale == null) return; // no share target — the declared figure still stands
+    weeklyTargetMinByProject[p.id] = scaledWeeklyMin(p.weeklyMinMin, scale, p.chunk || 120, p.minChunk ?? 30);
+  });
+
+  return {
+    blocks,
+    overflow: res.overflow,
+    beyondHorizon: res.beyondHorizon,
+    risk,
+    nearDeadline,
+    missed,
+    labelTargets,
+    weeklyTargetMinByProject,
+  };
 }

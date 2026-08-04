@@ -7,8 +7,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
 import type { RawScheduleRows } from "./from-db";
+import { HORIZON_WEEKS } from "./horizon";
 
-const HORIZON_WEEKS = 12;
 const DAY_MS = 86400000;
 
 export async function queryScheduleRows(

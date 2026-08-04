@@ -258,8 +258,13 @@ export interface ScheduleBlock {
 
 export interface ComputeScheduleResult {
   blocks: ScheduleBlock[];
-  /** Task titles that couldn't be fully placed within the horizon. */
+  /** Task titles the engine couldn't find room for — a genuine capacity
+   * problem. Excludes work that simply starts later than the horizon reaches;
+   * that's beyondHorizon, which is not a capacity problem at all. */
   overflow: string[];
+  /** Task titles whose earliest start is past the end of the horizon, so there
+   * is nothing to decide about them yet. */
+  beyondHorizon: string[];
   /** Task titles scheduled to finish strictly after their deadline — red. */
   risk: string[];
   /** Task titles scheduled to finish on the same day as their deadline —

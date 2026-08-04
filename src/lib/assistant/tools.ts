@@ -170,7 +170,9 @@ function resolvePin(ctx: ToolContext, dateStr?: string, timeStr?: string): Resol
       : parseTimeStr(timeStr);
   if (start == null) return `Couldn't understand the time "${timeStr}" — try "2pm", "14:30", "noon", or "right now".`;
   const gday = gdayForDate(ctx.timezone, { year: d.getFullYear(), month: d.getMonth() + 1, day: d.getDate() }, new Date());
-  if (gday < 0 || gday >= ctx.horizonWeeks * 7) return `That date is outside the ${ctx.horizonWeeks}-week scheduling horizon.`;
+  if (gday < 0 || gday >= ctx.horizonWeeks * 7) return gday < 0
+      ? `That date is in the past.`
+      : `That date is further out than the ${ctx.horizonWeeks}-week (about ${Math.round(ctx.horizonWeeks / 4.35)}-month) planning horizon, so nothing can be placed on it yet. Record it as a note or a target for now, and it becomes schedulable as the date comes into range.`;
   const pinned_date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   return { pinned_date, pinned_start_min: start };
 }
@@ -726,7 +728,9 @@ export function buildTools(ctx: ToolContext) {
         if (d) dateObj = d;
       }
       const gday = gdayForDate(ctx.timezone, { year: dateObj.getFullYear(), month: dateObj.getMonth() + 1, day: dateObj.getDate() }, new Date());
-      if (gday < 0 || gday >= ctx.horizonWeeks * 7) return `That date is outside the ${ctx.horizonWeeks}-week scheduling horizon.`;
+      if (gday < 0 || gday >= ctx.horizonWeeks * 7) return gday < 0
+      ? `That date is in the past.`
+      : `That date is further out than the ${ctx.horizonWeeks}-week (about ${Math.round(ctx.horizonWeeks / 4.35)}-month) planning horizon, so nothing can be placed on it yet. Record it as a note or a target for now, and it becomes schedulable as the date comes into range.`;
 
       const start = parseTimeStr(inp.start_time);
       if (start == null) return 'Give a start time like "2pm" or "14:30".';
@@ -1046,6 +1050,11 @@ export function buildTools(ctx: ToolContext) {
         schedule.risk.length ? "Will miss deadline: " + schedule.risk.join(", ") + "." : "",
         schedule.nearDeadline.length ? "Cutting it close (finishes the day it's due): " + schedule.nearDeadline.join(", ") + "." : "",
         schedule.overflow.length ? "Didn't fit this week: " + schedule.overflow.join(", ") + "." : "",
+        schedule.beyondHorizon.length
+          ? "Starts beyond the planning horizon, so not scheduled yet (not a capacity problem): " +
+            schedule.beyondHorizon.join(", ") +
+            "."
+          : "",
       ].filter(Boolean);
       return parts.join(" ") || "All clear.";
     },

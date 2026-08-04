@@ -101,8 +101,11 @@ export function CalendarPanel({ scheduleData }: CalendarPanelProps) {
   const hasRisk = schedule.risk.length > 0;
   const hasNearDeadline = schedule.nearDeadline.length > 0;
   const hasOverflow = schedule.overflow.length > 0;
+  // Not a warning: work that starts beyond the planning horizon has no capacity
+  // problem to report, so it gets a neutral note rather than a red flag.
+  const beyondHorizon = schedule.beyondHorizon;
   const hasMissed = weekMissed.length > 0;
-  const hasWarnings = hasRisk || hasNearDeadline || hasOverflow || hasMissed;
+  const hasWarnings = hasRisk || hasNearDeadline || hasOverflow || hasMissed || beyondHorizon.length > 0;
 
   return (
     <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
@@ -264,6 +267,11 @@ export function CalendarPanel({ scheduleData }: CalendarPanelProps) {
             <span style={{ color: "#ffd9a0" }}>Cutting it close: {schedule.nearDeadline.join(", ")}</span>
           )}
           {hasOverflow && <span>Didn&apos;t fit this week: {schedule.overflow.join(", ")}</span>}
+          {beyondHorizon.length > 0 && (
+            <span className="text-muted">
+              Starts beyond the planned six months, so not scheduled yet: {beyondHorizon.join(", ")}
+            </span>
+          )}
         </div>
       )}
 

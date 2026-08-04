@@ -265,6 +265,7 @@ export function markBusy(abs: AbsMinute, len: number, busy: Set<AbsMinute>): voi
 interface RunSchedulerResult {
   chunks: ScheduleBlock[];
   overflow: string[];
+  beyondHorizon: string[];
   risk: string[];
   nearDeadline: string[];
 }
@@ -386,13 +387,23 @@ function runScheduler(
     }
   }
 
+  const horizonAbs = inputs.horizonWeeks * 7 * 1440;
+  const unplaced = remaining.filter((t) => t.remaining > 0 || t.remaining === -1);
+  const startsAfterHorizon = (t: { floor?: number }) => (t.floor ?? 0) >= horizonAbs;
+
   return {
     chunks,
+    // Work that cannot START until after the horizon ends is not work that
+    // didn't fit — there is no capacity question to answer about it yet, and
+    // reporting it as overflow made "your week is too full" indistinguishable
+    // from "this begins later than we plan". Split so the two can be worded
+    // differently wherever they surface.
     overflow: [
       ...new Set(
-        remaining.filter((t) => t.remaining > 0 || t.remaining === -1).map((t) => t.title),
+        unplaced.filter((t) => !startsAfterHorizon(t)).map((t) => t.title),
       ),
     ],
+    beyondHorizon: [...new Set(unplaced.filter(startsAfterHorizon).map((t) => t.title))],
     risk: remaining
       .filter(
         (t) =>
@@ -734,5 +745,5 @@ export function computeSchedule(
     };
   });
 
-  return { blocks, overflow: res.overflow, risk, nearDeadline, missed, labelTargets };
+  return { blocks, overflow: res.overflow, beyondHorizon: res.beyondHorizon, risk, nearDeadline, missed, labelTargets };
 }

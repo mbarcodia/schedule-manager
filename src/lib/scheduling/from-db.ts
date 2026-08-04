@@ -6,6 +6,7 @@
 
 import { gdayForDate, zonedNow } from "./time";
 import { defaultDayWindow } from "./day-window";
+import { HORIZON_WEEKS } from "./horizon";
 import type {
   CalendarEvent,
   Category,
@@ -54,7 +55,6 @@ function timestampToParts(iso: string, timeZone: string) {
 }
 
 const NO_DEADLINE = 99999;
-const HORIZON_WEEKS = 12;
 
 export function buildScheduleInputs(
   rows: RawScheduleRows,

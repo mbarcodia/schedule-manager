@@ -9,7 +9,7 @@
 // with optional facets — weekly hours, a deadline, a cadence, an active window —
 // and targets are the dated checkpoints inside it that carry no hours.
 
-import { minToLabel, WEEKDAY_LABELS } from "@/lib/scheduling/time";
+import { dateForGday, minToLabel, MONTH_NAMES, WEEKDAY_LABELS } from "@/lib/scheduling/time";
 import { resolveDayWindow } from "@/lib/scheduling/day-window";
 import { allDayDueDate } from "@/lib/scheduling/all-day-due";
 import { deriveBoardStatuses, boardStatusFor } from "@/lib/planner/board-status";
@@ -17,6 +17,61 @@ import { DEFAULT_WIP_LIMIT } from "@/lib/planner/board-constants";
 import type { ComputeScheduleResult, DayOverrides } from "@/lib/scheduling/types";
 import type { RawScheduleRows } from "@/lib/scheduling/from-db";
 import type { ScheduleInputs } from "@/lib/scheduling/types";
+
+/** How far out the snapshot lists individual meetings. Past this, only travel
+ * and a per-month count survive — see beyondTheNextWeeks. Four weeks covers
+ * "this week", "next week" and the fortnight after, which is the range ordinary
+ * scheduling questions are about. */
+const DETAILED_EVENT_DAYS = 28;
+
+/** Distant weeks reduced to what makes them usable or not: the away/no-meetings
+ * entries that decide whether a week can hold work at all, and a count of
+ * ordinary meetings per month so a busy month is still visible.
+ *
+ * Grouped by calendar month rather than by week because that is how the far
+ * future gets discussed ("September is packed"), and a multi-day trip stored as
+ * one row per day is collapsed back into a single range so a two-week trip costs
+ * one line instead of fourteen. */
+function summariseDistantEvents(inputs: ScheduleInputs, fromGday: number) {
+  const distant = inputs.events.filter((e) => e.gday >= fromGday);
+  if (!distant.length) return null;
+
+  const monthOf = (gday: number) => {
+    const d = dateForGday(inputs.timezone, gday);
+    return { key: `${d.year}-${String(d.month).padStart(2, "0")}`, label: `${MONTH_NAMES[d.month - 1]} ${d.year}` };
+  };
+
+  // Consecutive away/no-meetings days under the same title are one trip.
+  const blocking = distant
+    .filter((e) => e.allDay && inputs.allDayBlocks[e.gday])
+    .sort((a, b) => a.gday - b.gday);
+  const trips: { title: string; from: number; to: number; blocks: "away" | "no_meetings" }[] = [];
+  for (const e of blocking) {
+    const mode = inputs.allDayBlocks[e.gday]!;
+    const last = trips[trips.length - 1];
+    if (last && last.title === e.title && last.blocks === mode && e.gday <= last.to + 1) last.to = e.gday;
+    else trips.push({ title: e.title, from: e.gday, to: e.gday, blocks: mode });
+  }
+  const fmt = (gday: number) => {
+    const d = dateForGday(inputs.timezone, gday);
+    return `${MONTH_NAMES[d.month - 1]} ${d.day}`;
+  };
+
+  const meetingsByMonth: Record<string, number> = {};
+  distant.filter((e) => !e.allDay).forEach((e) => {
+    const { label } = monthOf(e.gday);
+    meetingsByMonth[label] = (meetingsByMonth[label] ?? 0) + 1;
+  });
+
+  return {
+    travelAndAwayDays: trips.map((t) => ({
+      title: t.title,
+      dates: t.from === t.to ? fmt(t.from) : `${fmt(t.from)}–${fmt(t.to)}`,
+      blocks: t.blocks === "away" ? "nothing is scheduled these days" : "others cannot book, still working days",
+    })),
+    otherMeetingsPerMonth: meetingsByMonth,
+  };
+}
 
 /** The schedule-state sections shared by the assistant and planner prompts —
  * extracted so the planner can compose its own behavioral text around the
@@ -128,7 +183,7 @@ export function buildPromptContext(rows: RawScheduleRows, inputs: ScheduleInputs
     // midnight-to-midnight event and reasonably concluded the day was gone —
     // then described a conference day as having no working time, when
     // "no_meetings" days are still working days by design.
-    events: inputs.events.map((e) => ({
+    events: inputs.events.filter((e) => e.gday < DETAILED_EVENT_DAYS).map((e) => ({
       title: e.title,
       day: WEEKDAY_LABELS[e.gday % 7],
       weeksOut: Math.floor(e.gday / 7),
@@ -142,6 +197,18 @@ export function buildPromptContext(rows: RawScheduleRows, inputs: ScheduleInputs
           }
         : { time: `${minToLabel(e.start)}–${minToLabel(e.end)}` }),
     })),
+    /** Everything past the detailed window above, summarised.
+     *
+     * This snapshot is rebuilt and re-sent on EVERY turn, so listing each
+     * meeting across the whole horizon put a wall of them in front of every
+     * message — already 77% of the snapshot at a 12-week horizon, and it grows
+     * with the horizon. What long-range planning actually needs from a distant
+     * week is whether it is usable at all, which is travel and away days, plus
+     * enough of a count to see that a month is busy. Individual 1:1s in October
+     * are not worth re-sending while answering a question about this week.
+     *
+     * Ask for the detail when it's needed: get_status takes a date range. */
+    beyondTheNextWeeks: summariseDistantEvents(inputs, DETAILED_EVENT_DAYS),
     /** Working time genuinely left on each of the next 14 days, after meetings,
      * routines and already-placed tasks. The model was previously inferring this
      * from the event list and getting conference weeks wrong. */
@@ -161,6 +228,10 @@ export function buildPromptContext(rows: RawScheduleRows, inputs: ScheduleInputs
     willMissDeadline: schedule.risk,
     cuttingItClose: schedule.nearDeadline,
     didNotFit: schedule.overflow,
+    /** Not a capacity problem: these start later than the horizon reaches, so
+     * no hours have been placed for them yet. Say that, don't call them work
+     * that didn't fit. */
+    startsBeyondThePlannedHorizon: schedule.beyondHorizon,
     dayOverrides: formatDayOverrides(inputs.dayOverrides),
   };
 

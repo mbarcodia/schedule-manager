@@ -359,7 +359,7 @@ export function buildTodoReminderTools(ctx: ToolContext) {
         text: { type: "string", description: "which to-do (fuzzy match on its text)" },
         hours: { type: "number", description: "hours to book" },
         start: { type: "string", description: 'earliest the hours may be scheduled, natural language ("august 4", "monday"). A bare date means the start of that day. Omit to allow any time from now.' },
-        due: { type: "string", description: 'when the hours must be finished, natural language. A bare date ("august 11") means date-only — finished some time that day, which is the usual case. Name a time ("1pm on november 10") only if the user did. Omit for no deadline.' },
+        due: { type: "string", description: 'when the hours must be finished. OMIT THIS when the hours should be finished by the to-do\'s own due date, which is the usual case and needs no restating — it is inherited. Pass it only to finish EARLIER than that (which is how preparation is expressed), or when the item has no due date of its own. A bare date ("august 11") means date-only; name a time only if the user did.' },
         priority: { type: "string", enum: ["high", "medium", "low"] },
         category: { type: "string", description: "label name for the booked time" },
       },
@@ -369,7 +369,7 @@ export function buildTodoReminderTools(ctx: ToolContext) {
       if (!hours) return "Say how many hours to book.";
       const { data: items } = await supabase
         .from("todo_items")
-        .select("id,text,due_at,task_id")
+        .select("id,text,due_at,due_all_day,task_id")
         .eq("user_id", userId)
         .eq("done", false);
       const found = findByTitle((items ?? []).map((i) => ({ ...i, title: i.text })), text);
@@ -384,7 +384,15 @@ export function buildTodoReminderTools(ctx: ToolContext) {
       const done: string[] = [];
 
       {
-        const deadlineAt = due ? resolveWhen(ctx, due) : null;
+        // The item's OWN due date is the finish-by unless a different one is
+        // given. Restating "due August 11" when booking hours for something
+        // already recorded as due August 11 is a re-entry the user should never
+        // have to make, and getting it slightly wrong silently splits the two.
+        const deadlineAt = due
+          ? resolveWhen(ctx, due)
+          : item.due_at
+            ? { at: item.due_at, allDay: item.due_all_day }
+            : null;
         if (due && !deadlineAt) return `Couldn't understand the deadline "${due}".`;
         const startAt = start ? resolveStart(ctx, start) : null;
         if (start && !startAt) return `Couldn't understand the start "${start}".`;
@@ -410,7 +418,9 @@ export function buildTodoReminderTools(ctx: ToolContext) {
           patch.task_id = made.id;
         }
         done.push(
-          `${hours}h${startAt ? ", starting no earlier than then" : ""}${deadlineAt ? ", finished by then" : ""}`,
+          `${hours}h${startAt ? ", starting no earlier than then" : ""}${
+            deadlineAt ? (due ? ", finished by then" : ", finished by its own due date") : ""
+          }`,
         );
       }
 

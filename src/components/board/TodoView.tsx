@@ -23,6 +23,7 @@ type ListRow = Database["public"]["Tables"]["todo_lists"]["Row"];
 type ItemRow = Database["public"]["Tables"]["todo_items"]["Row"];
 type CategoryRow = Database["public"]["Tables"]["categories"]["Row"];
 type TaskRow = Database["public"]["Tables"]["tasks"]["Row"];
+type EventRow = Database["public"]["Tables"]["events"]["Row"];
 
 /** Said as a plain outcome rather than a verb: the earlier wording ("chased
  * weekly") described the mechanism and left the user guessing what it did. */
@@ -60,6 +61,10 @@ export function TodoView({ onMutated, focusItem }: { onMutated?: () => void; foc
   const [categories, setCategories] = useState<CategoryRow[]>([]);
   const [weeklyHours, setWeeklyHours] = useState<WeeklyHours>({});
   const [tasks, setTasks] = useState<TaskRow[]>([]);
+  // Needed so the panel can show an existing event's END time. Without it that
+  // field opened blank on every re-edit and the save then failed validation for
+  // an end time the user had already set.
+  const [events, setEvents] = useState<EventRow[]>([]);
   const [newList, setNewList] = useState("");
   const [newChase, setNewChase] = useState<ChaseCadence | "">("");
   const [draft, setDraft] = useState<Record<string, string>>({});
@@ -71,18 +76,20 @@ export function TodoView({ onMutated, focusItem }: { onMutated?: () => void; foc
       data: { user },
     } = await supabase.auth.getUser();
     if (!user) return;
-    const [{ data: listRows }, { data: itemRows }, { data: catRows }, { data: taskRows }, { data: profile }] =
+    const [{ data: listRows }, { data: itemRows }, { data: catRows }, { data: taskRows }, { data: profile }, { data: eventRows }] =
       await Promise.all([
         supabase.from("todo_lists").select("*").order("sort_order").order("name"),
         supabase.from("todo_items").select("*").order("sort_order").order("created_at"),
         supabase.from("categories").select("*").order("sort_order"),
         supabase.from("tasks").select("*").is("archived_at", null),
         supabase.from("profiles").select("weekly_hours").eq("id", user.id).maybeSingle(),
+        supabase.from("events").select("*").eq("source", "manual"),
       ]);
     setLists(listRows ?? []);
     setItems(itemRows ?? []);
     setCategories(catRows ?? []);
     setTasks(taskRows ?? []);
+    setEvents(eventRows ?? []);
     if (profile) {
       const hours: WeeklyHours = {};
       for (let dow = 0; dow < 7; dow++) hours[dow] = profile.weekly_hours[String(dow)] ?? null;
@@ -317,6 +324,7 @@ export function TodoView({ onMutated, focusItem }: { onMutated?: () => void; foc
                           item={item}
                           categories={categories}
                           tasks={tasks}
+                          events={events}
                           weeklyHours={weeklyHours}
                           onClose={() => setOpenItem(null)}
                           onSaved={refresh}

@@ -1,8 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AllDayMode, CalendarProvider, Database, EventSource } from "@/lib/supabase/database.types";
 import { fetchIcsEvents } from "./ics";
-
-const HORIZON_WEEKS = 12;
+import { HORIZON_WEEKS } from "@/lib/scheduling/horizon";
 
 const SOURCE_BY_PROVIDER: Record<CalendarProvider, EventSource> = {
   outlook_ics: "outlook",

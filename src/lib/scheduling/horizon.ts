@@ -1,10 +1,17 @@
 // How far ahead the scheduler plans.
 //
-// One constant, imported by both the row fetcher (which bounds the date range it
-// queries) and the input builder (which converts real dates onto the relative
-// grid). They used to hold a copy each, which is a silent-drift hazard: raising
-// one alone would either fetch rows the engine then discards, or fence the
-// engine to a window narrower than the data it was handed.
+// One constant. THREE places held a copy of it, which is a silent-drift hazard
+// with a different symptom in each:
+//
+//   query-rows.ts        bounds the date range read from the database
+//   from-db.ts           fences the relative grid the engine works on
+//   calendar-sync/sync.ts  bounds the date range pulled from each ICS feed
+//
+// The last one is the nastiest, because it decides what is ever STORED. Raising
+// the other two while it stayed at 12 weeks would make a December trip that is
+// sitting on the source calendar simply never arrive — a sync would report
+// success, the event would be absent, and nothing anywhere would say why.
+// Anything that needs a horizon bound must import this rather than restate it.
 //
 // Was 12 weeks, which quietly refused anything further out. Two things a
 // semester needs fell straight off the end: travel in December could not be

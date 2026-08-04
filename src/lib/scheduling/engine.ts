@@ -182,6 +182,47 @@ export function scaledWeeklyMin(
   return raw - whole <= up - raw ? whole : up;
 }
 
+/** Chunk lengths worth trying for a task's next block, longest first.
+ *
+ * Two rules, both about the minimum chunk:
+ *   1. no length is below the floor
+ *   2. no length leaves a remainder too small to place on its own — that
+ *      remainder becomes the NEXT block, so allowing it just breaks rule 1 one
+ *      iteration later
+ *
+ * Rule 1 is why a project with a 30-minute chunk under a label whose floor is 60
+ * now gets 60-minute blocks. The preferred chunk size used to be applied first
+ * and the floor only consulted when shrinking to fit a gap, so a chunk smaller
+ * than the floor produced blocks below it without the floor ever being read —
+ * silently breaking the guarantee the floor exists to make (migration 0013).
+ *
+ * Rule 2 is why a 150-minute task with a 60-minute floor is placed 60+90 rather
+ * than 60+60+30. Greedy chunking hands the leftover to the final block, which is
+ * precisely where a sliver appears.
+ */
+export function chunkLengthsToTry(remaining: number, chunk: number, floorMin: number): number[] {
+  // A task shorter than the floor has nothing to honour — it is placed at its
+  // real length rather than being made unschedulable.
+  const floor = Math.min(floorMin, remaining);
+  const viable = (len: number) => {
+    if (len < floor || len > remaining) return false;
+    const left = remaining - len;
+    return left === 0 || left >= floor;
+  };
+  const preferred = Math.min(remaining, Math.max(chunk || remaining, floor));
+  const lens: number[] = [];
+  const add = (len: number) => {
+    if (viable(len) && !lens.includes(len)) lens.push(len);
+  };
+
+  // When the preferred size would orphan a sliver, folding the tail into this
+  // block comes first — better one longer block than a stranded remainder.
+  if (remaining - preferred > 0 && remaining - preferred < floor) add(remaining);
+  for (let len = preferred; len >= floor; len -= 30) add(len);
+  add(floor);
+  return lens;
+}
+
 function taskDefs(inputs: ScheduleInputs, labelScaleByWeek: Record<string, number>[] = []): TaskDef[] {
   const research: TaskDef[] = [];
   for (let w = 0; w < inputs.horizonWeeks; w++) {
@@ -345,7 +386,7 @@ function runScheduler(
     );
     const t = ready[0];
     const floor = Math.max(t.floor || 0, floorMin || 0);
-    let chunkLen = Math.min(t.chunk || t.remaining, t.remaining);
+    let chunkLen = 0; // set from the chosen placement below
 
     const tryLen = (len: number, ceil: number | undefined): Slot | null => {
       const dayOk = t.maxPerDayMin
@@ -368,16 +409,18 @@ function runScheduler(
       return findSlot(inputs, floor, len, false, busy, dayOk, ceil);
     };
 
-    const shrinkFloor = t.minChunk ?? 30;
-    /** Places the chunk under a ceiling, shrinking toward minChunk to fit. */
+    // Capped by maxPerDayMin as well: "no block under 90 minutes" and "at most
+    // 60 minutes of this a day" are both hard constraints, and honouring only
+    // the floor would make the pair unschedulable rather than picking the
+    // tighter one.
+    const chunkFloor = Math.min(t.minChunk ?? 30, t.duration, t.maxPerDayMin ?? Infinity);
+    /** Places the chunk under a ceiling, trying shorter viable lengths to fit. */
     const placeUnder = (ceil: number | undefined): { slot: Slot; len: number } | null => {
-      let len = Math.min(t.chunk || t.remaining, t.remaining);
-      let found = tryLen(len, ceil);
-      while (!found && len > shrinkFloor) {
-        len = Math.max(shrinkFloor, len - 30);
-        found = tryLen(len, ceil);
+      for (const len of chunkLengthsToTry(t.remaining, t.chunk ?? 0, chunkFloor)) {
+        const found = tryLen(len, ceil);
+        if (found) return { slot: found, len };
       }
-      return found ? { slot: found, len } : null;
+      return null;
     };
 
     // A deadline bounds where the work may go, not just the order it's

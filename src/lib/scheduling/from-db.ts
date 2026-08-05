@@ -53,6 +53,17 @@ function dateParts(iso: string): { year: number; month: number; day: number } {
   return { year: y, month: m, day: d };
 }
 
+/** A date-only column ("2026-10-30") as a LOCAL calendar date.
+ *
+ * `new Date("2026-10-30")` is parsed as UTC midnight, which renders as the 29th
+ * anywhere west of Greenwich — so a deadline stored as the 30th displayed as the
+ * 29th, and a target the user set for Aug 20 showed as Aug 19. These columns are
+ * civil dates with no time in them; they must be built in local terms. */
+function localDate(iso: string): Date {
+  const { year, month, day } = dateParts(iso);
+  return new Date(year, month - 1, day);
+}
+
 /** A timestamptz converted to this account's timezone, as civil date parts
  * plus minute-of-day — used to place it on the relative grid. */
 function timestampToParts(iso: string, timeZone: string) {
@@ -133,7 +144,7 @@ export function buildScheduleInputs(
   const projects: Project[] = rows.projects.map((p) => ({
     id: p.id,
     title: p.title,
-    deadlineDate: p.deadline_date ? new Date(p.deadline_date) : null,
+    deadlineDate: p.deadline_date ? localDate(p.deadline_date) : null,
     weeklyMinMin: p.weekly_min_min,
     ...timePrefFor(p.category_id, p.time_of_day, p.prefer_morning),
     activeFromAbs: p.active_from ? dateToAbs(p.active_from, false) : null,
@@ -152,7 +163,7 @@ export function buildScheduleInputs(
     id: t.id,
     projectId: t.commitment_id,
     title: t.title,
-    date: new Date(t.target_date),
+    date: localDate(t.target_date),
     completedAt: t.completed_at ? new Date(t.completed_at) : null,
     dateKind: t.date_kind,
   }));

@@ -91,7 +91,9 @@ export function computeTrackableChips(
       });
     }
     if (c.deadlineDate) {
-      chips.push(deadlineChip(c.id, c.title, c.deadlineDate, paceById.get(c.id), today, weeklyHours));
+      chips.push(
+        deadlineChip(c.id, c.title, c.deadlineDate, c.deadlineKind ?? "hard", paceById.get(c.id), today, weeklyHours),
+      );
     }
     // Nothing scheduled and no date: a project that exists to be tracked
     // rather than solved. Cadence describes its rhythm if it has one.
@@ -129,12 +131,16 @@ function deadlineChip(
   projectId: string,
   title: string,
   deadlineDate: Date,
+  deadlineKind: "hard" | "goal",
   pace: CommitmentPace | undefined,
   today: Date,
   weeklyHours: WeeklyHours,
 ): TrackableChip {
   const days = availableCapacity(today, deadlineDate, weeklyHours)?.days ?? 0;
-  const kind = pace?.nextDateKind ?? "hard";
+  // The commitment's OWN kind, not pace.nextDateKind — pace is measured against
+  // the soonest unmet date, which is often an interim target with a different
+  // kind, and using it here labelled a hard deadline as a goal.
+  const kind = deadlineKind;
   const status = pace?.status ?? "unmeasurable";
   const flag = status === "slipping" || (status === "on_pace" && kind === "hard");
   const label =

@@ -151,6 +151,10 @@ export interface Target {
   completedAt: Date | null;
   /** Interim dates default to "goal" — a checkpoint is an aim by nature. */
   dateKind?: "hard" | "goal";
+  /** Effort for THIS phase alone, when the commitment's estimate has been split
+   * across its targets. Null leaves pace measuring the whole remaining effort
+   * against this date — see pace.ts. */
+  effortEstimateMin?: number | null;
 }
 
 /** A fixed calendar event (meeting) — immovable; tasks flow around it. */

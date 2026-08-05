@@ -87,6 +87,7 @@ export function toTargets(rows: Row<"targets">[]): Target[] {
     date: localDate(t.target_date),
     completedAt: t.completed_at ? new Date(t.completed_at) : null,
     dateKind: t.date_kind,
+    effortEstimateMin: t.effort_estimate_min,
   }));
 }
 

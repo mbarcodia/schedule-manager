@@ -672,6 +672,11 @@ export function buildTools(ctx: ToolContext) {
           description:
             'Whether this checkpoint is externally imposed ("hard") or one the user set for themselves ("goal", the default and the usual case for an interim date). Pace is measured against the soonest unmet target either way; the difference is whether missing it is a problem to solve or a date to move.',
         },
+        hours: {
+          type: "number",
+          description:
+            "How much of the project's effort this phase alone is expected to take — not the running total. Give it whenever it's known: pace then measures the hours due by this date rather than the project's whole remaining effort against it, which otherwise reports a two-week checkpoint as months behind. Omit if the checkpoint isn't a slice of the work (a meeting, a decision).",
+        },
       },
       required: ["title", "project", "date"],
     },
@@ -690,15 +695,19 @@ export function buildTools(ctx: ToolContext) {
         .from("targets")
         .select("id,title")
         .eq("commitment_id", lookup.projectId);
+      // `hours != null`, not `if (inp.hours)`: a 0 would be a bad figure to
+      // accept, but the check-constraint should be the one to say so rather than
+      // the value being silently dropped.
+      const effort = inp.hours != null ? { effort_estimate_min: Math.round(inp.hours * 60) } : {};
       const dupe = (existing ?? []).find((t) => normTitle(t.title) === normTitle(inp.title));
       if (dupe) {
         const { error } = await supabase
           .from("targets")
-          .update({ target_date, ...(inp.date_kind ? { date_kind: inp.date_kind } : {}) })
+          .update({ target_date, ...(inp.date_kind ? { date_kind: inp.date_kind } : {}), ...effort })
           .eq("id", dupe.id);
         if (error) return `Couldn't move that target: ${error.message}`;
         markMutated(ctx);
-        return `Moved "${dupe.title}" to ${target_date} (${lookup.title}).`;
+        return `Moved "${dupe.title}" to ${target_date} (${lookup.title})${inp.hours != null ? `, ${inp.hours}h of work due by then` : ""}.`;
       }
       const { error } = await supabase
         .from("targets")
@@ -708,10 +717,17 @@ export function buildTools(ctx: ToolContext) {
           title: inp.title,
           target_date,
           date_kind: inp.date_kind ?? "goal",
+          ...effort,
         });
       if (error) return `Couldn't add that target: ${error.message}`;
       markMutated(ctx);
-      return `Target "${inp.title}" set for ${target_date} under ${lookup.title} (${inp.date_kind ?? "goal"} date). It takes no calendar time, and pace is now measured against it.`;
+      return (
+        `Target "${inp.title}" set for ${target_date} under ${lookup.title} (${inp.date_kind ?? "goal"} date). ` +
+        `It takes no calendar time, and pace is now measured against it` +
+        (inp.hours != null
+          ? ` — ${inp.hours}h of the project's effort is due by then.`
+          : `. Only this phase's own hours are missing: without them pace compares the project's WHOLE remaining effort against this date, which reads as badly behind for any near checkpoint.`)
+      );
     },
   });
 
@@ -723,8 +739,8 @@ export function buildTools(ctx: ToolContext) {
       "placed for this project week by week, so travel weeks, conference weeks and days off are skipped instead of being " +
       "assumed available. Use it when a project has a final date and phases but no interim dates — interim dates are what " +
       "make progress visible, and a project with only a final date gives no signal until it is too late. " +
-      "Each phase becomes a target (no calendar hours of its own). Phase hours are optional: without them the total effort " +
-      "estimate is split evenly and the reply says so.",
+      "Each phase becomes a target: a date, and the hours due by it, but no calendar time of its own. Phase hours are " +
+      "optional: without them the total effort estimate is split evenly and the reply says so.",
     inputSchema: {
       type: "object",
       properties: {
@@ -812,9 +828,16 @@ export function buildTools(ctx: ToolContext) {
           .from("targets")
           .select("id,title")
           .eq("commitment_id", lookup.projectId);
+        // Keep the phase's hours, not just the date they imply. Pace needs them
+        // to measure this checkpoint rather than the whole project against it,
+        // and they were being discarded after the dates were derived from them.
+        const effort_estimate_min = Math.round(hours[i] * 60);
         const dupe = (existing ?? []).find((t) => normTitle(t.title) === normTitle(title));
         if (dupe) {
-          await supabase.from("targets").update({ target_date: on, date_kind: "goal" }).eq("id", dupe.id);
+          await supabase
+            .from("targets")
+            .update({ target_date: on, date_kind: "goal", effort_estimate_min })
+            .eq("id", dupe.id);
         } else {
           await supabase.from("targets").insert({
             user_id: userId,
@@ -822,6 +845,7 @@ export function buildTools(ctx: ToolContext) {
             title,
             target_date: on,
             date_kind: "goal",
+            effort_estimate_min,
           });
         }
         written.push(`${title} (${hours[i]}h) — goal ${on}`);

@@ -199,8 +199,13 @@ function TargetMarker({
     <button
       onClick={onToggle}
       title={`${target.title} — ${target.date.toLocaleDateString()}${
-        done ? " · done, click to reopen" : late ? " · date passed, click if you hit it" : " · click when you hit it"
-      }`}
+        // The hours due by a checkpoint are what pace measures against it, so
+        // the marker has to say whether it carries any: an undimensioned one is
+        // measured against the whole project's remaining effort instead.
+        target.effortEstimateMin != null
+          ? ` · ${+(target.effortEstimateMin / 60).toFixed(1)}h of work due by it`
+          : " · no hours of its own, so pace uses the project's whole remaining effort"
+      }${done ? " · done, click to reopen" : late ? " · date passed, click if you hit it" : " · click when you hit it"}`}
       className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 rounded-full cursor-pointer p-0"
       style={{
         left: `${pct}%`,

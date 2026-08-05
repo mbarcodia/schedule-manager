@@ -200,6 +200,7 @@ export interface Database {
           target_date: string;
           completed_at: string | null;
           date_kind: DateKind;
+          effort_estimate_min: number | null;
           created_at: string;
         },
         {
@@ -210,8 +211,15 @@ export interface Database {
           target_date: string;
           completed_at?: string | null;
           date_kind?: DateKind;
+          effort_estimate_min?: number | null;
         },
-        Partial<{ title: string; target_date: string; completed_at: string | null; date_kind: DateKind }>
+        Partial<{
+          title: string;
+          target_date: string;
+          completed_at: string | null;
+          date_kind: DateKind;
+          effort_estimate_min: number | null;
+        }>
       >;
       tasks: Table<
         {

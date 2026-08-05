@@ -19,6 +19,16 @@
 // Deliberately reports "unmeasurable" rather than guessing when a piece is
 // missing. A confident-looking pace derived from an absent estimate is what the
 // old chip did, and it is worse than admitting the input isn't there.
+//
+// SCOPE. "Remaining" has to mean remaining BEFORE THE DATE BEING MEASURED. The
+// next date is usually an interim target, and measuring the whole commitment
+// against it invents a crisis: an 80h proposal with a notice-of-intent two
+// weeks out reported 27 weeks of work due before a date that wants four hours
+// of it, and advised 38h/wk. So when the targets up to that date carry their own
+// hours (targets.effort_estimate_min, written by plan_phases), pace measures the
+// cumulative slice due by then. Without them it measures the whole thing, which
+// is right for a commitment that hasn't been broken into phases and is also
+// exactly the old behaviour.
 
 import type { Project, Target, WeeklyHours } from "./types";
 
@@ -41,10 +51,16 @@ export interface CommitmentPace {
   status: PaceStatus;
   /** Why pace can't be computed — shown so the gap is fixable rather than a shrug. */
   missing: ("estimate" | "date" | "weekly hours")[];
+  /** The commitment's TOTAL expected effort. The progress bar and fractionDone
+   * are against this, whatever pace is measuring. */
   estimateMin: number | null;
+  /** The effort due by nextDate — the cumulative phase hours up to it, or the
+   * whole estimate when the phases carry no hours. What pace divides. */
+  scopeMin: number | null;
   loggedMin: number;
+  /** Of scopeMin, not of estimateMin. */
   remainingMin: number | null;
-  /** 0-1, or null without an estimate. */
+  /** 0-1 against the total estimate, or null without one. */
   fractionDone: number | null;
   weeklyRateMin: number | null;
   /** The date pace is measured against: the soonest unmet target, else the
@@ -110,13 +126,14 @@ export function computePace(inputs: PaceInputs): CommitmentPace[] {
     const estimateMin = p.effortEstimateMin ?? null;
     const loggedMin = loggedByProject[p.id] ?? 0;
     const weeklyRateMin = p.weeklyMinMin ?? null;
-    const remainingMin = estimateMin == null ? null : Math.max(0, estimateMin - loggedMin);
     const fractionDone = estimateMin == null ? null : Math.min(1, loggedMin / estimateMin);
+
+    const mine = targets.filter((t) => t.projectId === p.id);
 
     // The soonest date still to be met. An unmet target comes before the
     // commitment's own deadline, because that's the one pace is against now.
-    const openTargets = targets
-      .filter((t) => t.projectId === p.id && !t.completedAt && t.date.getTime() > now.getTime())
+    const openTargets = mine
+      .filter((t) => !t.completedAt && t.date.getTime() > now.getTime())
       .sort((a, b) => a.date.getTime() - b.date.getTime());
     const nextTarget = openTargets[0];
     const deadline = p.deadlineDate && p.deadlineDate.getTime() > now.getTime() ? p.deadlineDate : null;
@@ -125,8 +142,20 @@ export function computePace(inputs: PaceInputs): CommitmentPace[] {
     const nextDateKind = nextDate ? (useTarget ? (nextTarget.dateKind ?? "goal") : (p.deadlineKind ?? "hard")) : null;
     const nextDateLabel = nextDate ? (useTarget ? nextTarget.title : "deadline") : null;
 
+    // What's due by that date. Every target up to and including it counts, hit or
+    // missed: a phase whose date has passed unfinished is still work owed before
+    // the next one. All of them have to carry hours — a single undimensioned
+    // phase in the run makes the cumulative figure an undercount, and quietly
+    // reporting an undercount is worse than measuring the whole commitment.
+    const upTo = useTarget ? mine.filter((t) => t.date.getTime() <= nextTarget.date.getTime()) : [];
+    const phased = upTo.length > 0 && upTo.every((t) => t.effortEstimateMin != null);
+    const scopeMin = phased ? upTo.reduce((sum, t) => sum + t.effortEstimateMin!, 0) : estimateMin;
+    const remainingMin = scopeMin == null ? null : Math.max(0, scopeMin - loggedMin);
+
     const missing: CommitmentPace["missing"] = [];
-    if (estimateMin == null) missing.push("estimate");
+    // Phase hours are an estimate too: a commitment with no total but a costed
+    // next phase has everything this calculation needs.
+    if (scopeMin == null) missing.push("estimate");
     if (!nextDate) missing.push("date");
     if (!weeklyRateMin) missing.push("weekly hours");
 
@@ -136,6 +165,7 @@ export function computePace(inputs: PaceInputs): CommitmentPace[] {
       important: !!p.important,
       missing,
       estimateMin,
+      scopeMin,
       loggedMin,
       remainingMin,
       fractionDone,
@@ -185,17 +215,30 @@ export function paceSentence(p: CommitmentPace): string {
       p.missing.length > 1 ? `${p.missing.slice(0, -1).join(", ")} and ${p.missing[p.missing.length - 1]}` : p.missing[0];
     return `Pace unknown — needs ${list} to be measurable.`;
   }
-  const progress = p.estimateMin ? `${hrs(p.loggedMin)} of ${hrs(p.estimateMin)}` : hrs(p.loggedMin);
   const on = p.nextDate!.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-  const by = p.nextDateLabel === "deadline" ? `the ${p.nextDateKind} deadline, ${on}` : `“${p.nextDateLabel}” on ${on}`;
-  if (p.status === "not_started") return `${progress} — nothing logged yet, ${by}.`;
+  const date = p.nextDateLabel === "deadline" ? `the ${p.nextDateKind} deadline, ${on}` : `“${p.nextDateLabel}” on ${on}`;
+
+  // When pace is against a phase rather than the whole commitment, the figures
+  // have to say so: "3h of 12h" next to a bar reading 3h/80h is otherwise read
+  // as a contradiction. Naming the date inside the progress phrase also stops it
+  // being repeated at the end of every branch.
+  const scoped = p.scopeMin != null && p.estimateMin != null && p.scopeMin < p.estimateMin;
+  const progress = scoped
+    ? `${hrs(p.loggedMin)} of the ${hrs(p.scopeMin!)} due by ${date}`
+    : p.scopeMin
+      ? `${hrs(p.loggedMin)} of ${hrs(p.scopeMin)}`
+      : hrs(p.loggedMin);
+  const by = scoped ? "" : ` ${date}`;
+
+  if (p.status === "not_started") return `${progress} — nothing logged yet${scoped ? "" : `,${by}`}.`;
   if (p.status === "slipping") {
     const late = Math.max(1, Math.round(p.slipWeeks!));
     const push = p.nextDateKind === "hard" ? "needs" : "move the date, or go";
-    return `${progress}. At ${hrs(p.weeklyRateMin!)}/wk this lands about ${late} week${late > 1 ? "s" : ""} past ${by} — ${push} ${hrs(p.rateToHitMin!)}/wk.`;
+    const past = scoped ? "late" : `past${by}`;
+    return `${progress}. At ${hrs(p.weeklyRateMin!)}/wk this lands about ${late} week${late > 1 ? "s" : ""} ${past} — ${push} ${hrs(p.rateToHitMin!)}/wk.`;
   }
-  if (p.status === "ahead") return `${progress} — comfortably ahead of ${by}.`;
-  return `${progress} — on pace for ${by}, without much slack.`;
+  if (p.status === "ahead") return `${progress} — comfortably ahead${scoped ? "" : ` of${by}`}.`;
+  return `${progress} — on pace${scoped ? "" : ` for${by}`}, without much slack.`;
 }
 
 /** Pace from the shape the UI already holds, so the four places that need it

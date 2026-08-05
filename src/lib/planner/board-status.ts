@@ -20,6 +20,11 @@ export function deriveBoardStatuses(schedule: ComputeScheduleResult): BoardStatu
   const blocksByTask: Record<string, ScheduleBlock[]> = {};
   for (const b of schedule.blocks) {
     if (b.type !== "task" || !b.taskId) continue;
+    // Past weeks are in the schedule now so the calendar can be scrolled back,
+    // and they carry done/partial status — which would otherwise mark a task
+    // "done" on the strength of work logged a month ago, against the this-week
+    // meaning documented above.
+    if (b.gday < 0) continue;
     (blocksByTask[b.taskId] ??= []).push(b);
   }
 

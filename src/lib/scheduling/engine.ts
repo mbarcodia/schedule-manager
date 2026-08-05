@@ -837,6 +837,11 @@ export function computeSchedule(
     weeklyTargetMinByProject[p.id] = scaledWeeklyMin(p.weeklyMinMin, scale, p.chunk || 120, p.minChunk ?? 30);
   });
 
+  // Past days, exactly as they happened. Appended rather than computed: nothing
+  // in the scheduler ever looks at a gday below 0, which is what keeps a past
+  // week a record instead of a re-derivation.
+  blocks.push(...inputs.historyBlocks);
+
   return {
     blocks,
     overflow: res.overflow,

@@ -777,7 +777,9 @@ export function buildTools(ctx: ToolContext) {
       // project gets nothing contributes nothing.
       const schedule = computeSchedule(inputs);
       const placed = schedule.blocks
-        .filter((b) => b.type === "task" && b.projectId === lookup.projectId)
+        // gday >= 0: the schedule now carries past weeks as a record, and counting
+        // already-worked hours as future capacity would date every phase early.
+        .filter((b) => b.type === "task" && b.gday >= 0 && b.projectId === lookup.projectId)
         .sort((a, b) => a.gday * 1440 + a.start - (b.gday * 1440 + b.start));
       if (!placed.length) {
         return `Nothing is currently scheduled for "${lookup.title}", so there is no pace to derive dates from. Give it weekly hours first (add_trackable's weekly_research_hrs).`;
@@ -1000,7 +1002,11 @@ export function buildTools(ctx: ToolContext) {
       const schedule = computeSchedule(inputs);
       const n = title.toLowerCase();
       const candidates = schedule.blocks.filter(
-        (b) => b.type === "task" && b.status && (b.title.toLowerCase().includes(n) || n.includes(b.title.toLowerCase())),
+        (b) =>
+          b.type === "task" &&
+          b.gday >= 0 && // history blocks are already logged; this is for the current week
+          b.status &&
+          (b.title.toLowerCase().includes(n) || n.includes(b.title.toLowerCase())),
       );
       if (!candidates.length) return `No started or past block matching "${title}" this week.`;
       candidates.sort((a, b) => (a.abs ?? 0) - (b.abs ?? 0));

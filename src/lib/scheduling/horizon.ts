@@ -33,3 +33,15 @@
 // weeks, travel and deadlines only beyond them — so this number is free to be
 // about planning range rather than about tokens.
 export const HORIZON_WEEKS = 26;
+
+/** How far BACK the calendar can be scrolled, and how far back rows are fetched.
+ *
+ * A past week is shown as a record, not a plan: the blocks you ticked off, plus
+ * your own manually-added events. The scheduler is never run over it, because
+ * re-deriving a past week from today's rules and hours would put blocks on it
+ * that never happened and nothing would distinguish them from the ones that did.
+ *
+ * Four weeks rather than the 26 the horizon reaches forward, because the cost is
+ * asymmetric: every past week adds rows to every page load forever, while a
+ * future week is computed rather than fetched. */
+export const HISTORY_WEEKS = 4;

@@ -49,7 +49,16 @@ export async function syncConnection(
     const events = await fetchIcsEvents(connection.ics_url, horizonStart, horizonEnd, includeAllDay, timeZone);
     const source = SOURCE_BY_PROVIDER[connection.provider];
 
-    const { error: deleteError } = await supabase.from("events").delete().eq("connection_id", connection.id);
+    // Scoped to the range just re-fetched, NOT the whole connection. Deleting
+    // everything meant each sync wiped every synced meeting older than
+    // horizonStart (yesterday), so the calendar had no history to scroll back
+    // through — the rows were being thrown away hourly. Now anything before the
+    // window is left alone and accumulates as a record of what the week held.
+    const { error: deleteError } = await supabase
+      .from("events")
+      .delete()
+      .eq("connection_id", connection.id)
+      .gte("starts_at", horizonStart.toISOString());
     if (deleteError) throw deleteError;
 
     if (events.length > 0) {

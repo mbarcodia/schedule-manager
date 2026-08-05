@@ -337,6 +337,11 @@ export interface ScheduleInputs {
    * "Routine", because "this repeats on its own" is worth seeing at a glance
    * and there is nothing else to say about them. */
   labelNames: Record<string, string>;
+  /** Days BEFORE this week, as they actually happened: the blocks that were
+   * ticked off or part-logged, drawn at the length really worked. Passed straight
+   * through to the result — the scheduler never runs over a past week, since
+   * re-deriving one from today's rules would invent blocks that never existed. */
+  historyBlocks: ScheduleBlock[];
   /** Label id -> its weekly share target as a percentage of that week's
    * available working time (categories.weekly_target_pct). Absent = no target.
    * See labelScaleForWeek in engine.ts for what it does to the commitments

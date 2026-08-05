@@ -6,7 +6,8 @@
 
 import { gdayForDate, zonedNow } from "./time";
 import { defaultDayWindow } from "./day-window";
-import { HORIZON_WEEKS } from "./horizon";
+import { ROUTINE_TAG_LABEL } from "./types";
+import { HISTORY_WEEKS, HORIZON_WEEKS } from "./horizon";
 import type { ProgressFacts } from "./logged-hours";
 import type {
   CalendarEvent,
@@ -16,6 +17,7 @@ import type {
   Project,
   RecurringRule,
   ResearchPin,
+  ScheduleBlock,
   ScheduleInputs,
   Target,
   Task,
@@ -244,7 +246,7 @@ export function buildScheduleInputs(
   const dayOverrides: DayOverrides = {};
   for (const ov of rows.dayOverrides) {
     const gday = gdayForDate(timezone, dateParts(ov.override_date), now);
-    if (gday < 0 || gday >= horizonWeeks * 7) continue; // outside the visible horizon
+    if (gday < -HISTORY_WEEKS * 7 || gday >= horizonWeeks * 7) continue; // outside the visible range
     dayOverrides[gday] = {
       start: ov.start_min ?? undefined,
       end: ov.end_min ?? undefined,
@@ -310,6 +312,58 @@ export function buildScheduleInputs(
     else partial[key] = p.minutes_done;
   }
 
+  // Past weeks are a RECORD, not a plan. The scheduler is never run over them —
+  // re-deriving a past week from today's rules would put blocks on it that never
+  // happened, indistinguishable from the ones that did. So a past day shows only
+  // what was logged at the time, built here where the titles can be resolved.
+  const taskTitle = new Map(rows.tasks.map((t) => [t.id, t.title]));
+  const projectTitle = new Map(rows.projects.map((p) => [p.id, p.title]));
+  const ruleTitle = new Map(rows.recurringRules.map((r) => [r.id, r.title]));
+  const taskById = new Map(rows.tasks.map((t) => [t.id, t]));
+  const projectById = new Map(rows.projects.map((p) => [p.id, p]));
+
+  const historyBlocks: ScheduleBlock[] = [];
+  for (const p of rows.progressLog) {
+    const gday = gdayForDate(timezone, dateParts(p.occurred_date), now);
+    // Strictly before this week: from gday 0 on, the engine reconciles progress
+    // against the plan it just built, and a second copy would double up.
+    if (gday >= 0 || gday < -HISTORY_WEEKS * 7) continue;
+    const title =
+      p.subject_type === "research"
+        ? (projectTitle.get(p.subject_id) ?? "Research")
+        : p.subject_type === "anchor"
+          ? (ruleTitle.get(p.subject_id) ?? "Routine")
+          : (taskTitle.get(p.subject_id) ?? "Work");
+    const categoryId =
+      p.subject_type === "research"
+        ? (projectById.get(p.subject_id)?.category_id ?? null)
+        : p.subject_type === "task"
+          ? (taskById.get(p.subject_id)?.category_id ?? null)
+          : null;
+    const projectId =
+      p.subject_type === "research" ? p.subject_id : (taskById.get(p.subject_id)?.project_id ?? null);
+    // A partial log means only that many minutes were worked, so the block is
+    // drawn at the length actually done rather than as it was scheduled.
+    const doneMin = p.minutes_done ?? p.end_min - p.start_min;
+    if (doneMin <= 0) continue;
+    historyBlocks.push({
+      type: p.subject_type === "anchor" ? "anchor" : "task",
+      taskId: p.subject_id,
+      projectId,
+      categoryId,
+      tagLabel: p.subject_type === "anchor" ? ROUTINE_TAG_LABEL : labelNames[categoryId ?? ""] ?? null,
+      title,
+      gday,
+      start: p.start_min,
+      end: p.start_min + doneMin,
+      priority: null,
+      status: p.minutes_done == null ? "done" : "partial",
+      partMin: p.minutes_done ?? null,
+      key: `history-${p.subject_type}-${p.subject_id}@${gday}-${p.start_min}`,
+      abs: gday * 1440 + p.start_min,
+    });
+  }
+
   const pinned: Record<string, PinnedEntry> = {};
   for (const p of rows.pinnedChunks) {
     const gday = gdayForDate(timezone, dateParts(p.occurred_date), now);
@@ -356,6 +410,7 @@ export function buildScheduleInputs(
     completed,
     partial,
     pinned,
+    historyBlocks,
     labelNames,
     labelTargetPct,
   };

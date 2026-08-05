@@ -23,6 +23,7 @@ import {
   writeViewDays,
   type ViewDays,
 } from "@/lib/calendar/view-prefs";
+import { HISTORY_WEEKS } from "@/lib/scheduling/horizon";
 import type { UseScheduleDataResult } from "@/hooks/useScheduleData";
 
 const MONTH_NAMES = [
@@ -80,10 +81,13 @@ export function CalendarPanel({ scheduleData }: CalendarPanelProps) {
 
   const timezone = data.inputs.timezone;
   const horizonDays = data.inputs.horizonWeeks * 7;
+  // Scrollable into the past as well as the future. A past week is a record of
+  // what was logged, not a re-derived plan — see historyBlocks in from-db.
+  const minStart = -HISTORY_WEEKS * 7;
   // gday 0 is Monday of the current week, so today's index is its weekday.
   const todayGday = zonedNow(timezone).weekdayIdx;
   const maxStart = Math.max(0, horizonDays - viewDays);
-  const shift = (delta: number) => setStartGday((g) => Math.min(maxStart, Math.max(0, g + delta)));
+  const shift = (delta: number) => setStartGday((g) => Math.min(maxStart, Math.max(minStart, g + delta)));
   /** A week at a time, keeping the weekday you're looking at.
    *
    * The double arrows used to move by viewDays, so in a 5-day view Monday–Friday
@@ -94,7 +98,7 @@ export function CalendarPanel({ scheduleData }: CalendarPanelProps) {
   const shiftWeek = (weeks: number) =>
     setStartGday((g) => {
       const next = g + weeks * 7;
-      return next < 0 || next > maxStart ? g : next;
+      return next < minStart || next > maxStart ? g : next;
     });
 
   const first = dateForGday(timezone, startGday);
@@ -140,7 +144,7 @@ export function CalendarPanel({ scheduleData }: CalendarPanelProps) {
           <button
             onClick={() => shiftWeek(-1)}
             title="Back one week (same weekday)"
-            disabled={startGday - 7 < 0}
+            disabled={startGday - 7 < minStart}
             className="inline-flex items-center justify-center border border-border rounded-md w-[30px] h-[30px] hover:bg-white/5 disabled:opacity-40"
           >
             <CaretDoubleLeftIcon size={13} weight="bold" />
@@ -148,7 +152,7 @@ export function CalendarPanel({ scheduleData }: CalendarPanelProps) {
           <button
             onClick={() => shift(-1)}
             title="Back one day"
-            disabled={startGday === 0}
+            disabled={startGday <= minStart}
             className="inline-flex items-center justify-center border border-border rounded-md w-[30px] h-[30px] hover:bg-white/5 disabled:opacity-40"
           >
             <CaretLeftIcon size={14} weight="bold" />
@@ -190,7 +194,11 @@ export function CalendarPanel({ scheduleData }: CalendarPanelProps) {
                 onClick={() => {
                   writeViewDays(d);
                   // Keep today in frame when narrowing the window.
-                  setStartGday(d === 7 ? 0 : Math.min(Math.max(0, horizonDays - d), todayGday));
+                  // Staying put when already looking at a past week — changing how
+                  // many days are shown shouldn't jump you back to today.
+                  setStartGday((g) =>
+                    g < 0 ? Math.max(minStart, g) : d === 7 ? 0 : Math.min(Math.max(0, horizonDays - d), todayGday),
+                  );
                 }}
                 title={`Show ${d} day${d > 1 ? "s" : ""} at a time`}
                 className="rounded-md w-[26px] h-[26px] text-[11px] font-medium border"

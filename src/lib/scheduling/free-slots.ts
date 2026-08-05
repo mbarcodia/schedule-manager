@@ -56,6 +56,7 @@ export async function buildAvailability(
 
   const busy = new Set<AbsMinute>();
   for (const b of schedule.blocks) {
+    if (b.gday < 0) continue; // past weeks are a record; nothing there is bookable
     const hard = b.type === "synced" || b.type === "anchor";
     const protectedTask = b.type === "task" && b.categoryId != null && blocking.has(b.categoryId);
     if (!hard && !protectedTask) continue;

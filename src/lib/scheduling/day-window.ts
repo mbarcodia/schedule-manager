@@ -30,7 +30,10 @@ export function resolveDayWindow(
 ): DayWindow | null {
   if (allDayBlocks?.[gday] === "away") return null;
 
-  const dow = gday % 7;
+  // Normalised, because a gday is negative for a past day and `-1 % 7` is -1 in
+  // JS — which looked up weeklyHours[-1], found nothing, and reported every day
+  // before this week as a day off.
+  const dow = ((gday % 7) + 7) % 7;
   const defaultWindow = weeklyHours[dow] ?? null;
   const override = dayOverrides[gday];
 

@@ -157,7 +157,13 @@ export function WeekGrid({
           const banners = schedule.blocks.filter((b) => b.gday === gday && b.allDay);
           const away = allDayBlocks?.[gday] === "away";
           return (
-            <div key={i} className="py-2.5 pl-2.5 @max-[720px]:pl-1.5 border-l border-border-grid min-w-0">
+            <div
+              key={i}
+              className="py-2.5 pl-2.5 @max-[720px]:pl-1.5 border-l border-border-grid min-w-0"
+              // A past day holds only what was logged, never a plan — dimmed so
+              // it's clear at a glance that you're looking at a record.
+              style={gday < 0 ? { opacity: 0.72 } : undefined}
+            >
               <div className="text-[10px] @max-[720px]:text-[9px] tracking-wider @max-[720px]:tracking-wide text-muted uppercase truncate">
                 {WEEKDAY_LABELS[((gday % 7) + 7) % 7]}
               </div>

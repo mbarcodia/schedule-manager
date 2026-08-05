@@ -7,7 +7,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
 import type { RawScheduleRows } from "./from-db";
-import { HORIZON_WEEKS } from "./horizon";
+import { HISTORY_WEEKS, HORIZON_WEEKS } from "./horizon";
 import { fetchProgressFacts } from "./logged-hours";
 
 const DAY_MS = 86400000;
@@ -20,7 +20,10 @@ export async function queryScheduleRows(
   // The profile defaults to UTC at signup (the trigger has no way to know
   // the browser's zone); the browser client syncs it on load. Here we just
   // read whatever's currently stored.
-  const windowStart = new Date(now.getTime() - 14 * DAY_MS).toISOString();
+  // Reaches back as far as the calendar can be scrolled, so a past week has its
+  // rows. Was a flat fortnight, which is why scrolling back was pointless even
+  // once the UI allowed it.
+  const windowStart = new Date(now.getTime() - HISTORY_WEEKS * 7 * DAY_MS).toISOString();
   const windowEnd = new Date(now.getTime() + HORIZON_WEEKS * 7 * DAY_MS).toISOString();
   const windowStartDate = windowStart.slice(0, 10);
   const windowEndDate = windowEnd.slice(0, 10);

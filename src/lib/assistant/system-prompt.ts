@@ -234,7 +234,11 @@ export function buildPromptContext(rows: RawScheduleRows, inputs: ScheduleInputs
     // midnight-to-midnight event and reasonably concluded the day was gone —
     // then described a conference day as having no working time, when
     // "no_meetings" days are still working days by design.
-    events: inputs.events.filter((e) => e.gday < DETAILED_EVENT_DAYS).map((e) => ({
+    // gday >= 0 as well as the cap: the row window now reaches four weeks BACK so
+    // the calendar can be scrolled there, and a past event has a negative gday —
+    // which is trivially under the cap, so without this the chat would be handed
+    // a month of meetings that already happened, on every single turn.
+    events: inputs.events.filter((e) => e.gday >= 0 && e.gday < DETAILED_EVENT_DAYS).map((e) => ({
       title: e.title,
       day: WEEKDAY_LABELS[e.gday % 7],
       weeksOut: Math.floor(e.gday / 7),

@@ -9,6 +9,8 @@ import { fetchTodoLinks, type TodoLink } from "@/lib/planner/todo-links";
 import { setTaskImportant, setCommitmentImportant, setTaskArchived } from "@/lib/planner/board-actions";
 import { quadrantFor, commitmentQuadrant, type Quadrant } from "@/lib/planner/eisenhower";
 import { computePace, type CommitmentPace } from "@/lib/scheduling/pace";
+import { computeStreaks, type CommitmentStreak } from "@/lib/scheduling/streaks";
+import { projectTotalMin } from "@/lib/scheduling/calibration";
 import { CommitmentCard } from "./CommitmentCard";
 import { URGENT_THRESHOLD_DAYS } from "@/lib/planner/board-constants";
 import type { UseScheduleDataResult } from "@/hooks/useScheduleData";
@@ -59,7 +61,7 @@ export function EisenhowerBoard({ scheduleData, onMutated }: EisenhowerBoardProp
     const pace = computePace({
       projects: data.projects,
       targets: data.targets,
-      loggedByProject: data.loggedByProject,
+      loggedByProject: data.progressFacts.byProject,
       weeklyHours: data.inputs.weeklyHours,
       now,
     });
@@ -75,6 +77,27 @@ export function EisenhowerBoard({ scheduleData, onMutated }: EisenhowerBoardProp
       ].push(p);
     }
     return groups;
+  }, [data, now]);
+
+  // Consistency and the phase-based projection, alongside pace. Both read from
+  // the full work history rather than the visible fortnight.
+  const extras = useMemo(() => {
+    if (!data) return { streaks: new Map<string, CommitmentStreak>(), projected: new Map<string, number>() };
+    const streaks = new Map(
+      computeStreaks({
+        logged: data.progressFacts.logged,
+        commitments: data.projects.map((p) => ({ id: p.id, weeklyMinMin: p.weeklyMinMin, createdAt: null })),
+        now,
+      }).map((s) => [s.projectId, s]),
+    );
+    const projected = new Map<string, number>();
+    for (const p of data.projects) {
+      const mine = data.targets.filter((t) => t.projectId === p.id);
+      const done = mine.filter((t) => t.completedAt).length;
+      const proj = projectTotalMin(data.progressFacts.byProject[p.id] ?? 0, mine.length, done);
+      if (proj != null) projected.set(p.id, proj);
+    }
+    return { streaks, projected };
   }, [data, now]);
 
   const categoriesById = useMemo(() => {
@@ -121,6 +144,8 @@ export function EisenhowerBoard({ scheduleData, onMutated }: EisenhowerBoardProp
                 <CommitmentCard
                   key={p.projectId}
                   pace={p}
+                  streak={extras.streaks.get(p.projectId) ?? null}
+                  projectedTotalMin={extras.projected.get(p.projectId) ?? null}
                   color={(() => {
                     const labelId = data.projects.find((x) => x.id === p.projectId)?.categoryId;
                     return labelId ? (categoriesById[labelId]?.color ?? null) : null;

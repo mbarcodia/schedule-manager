@@ -10,6 +10,8 @@ import { DEFAULT_WIP_LIMIT } from "@/lib/planner/board-constants";
 import { moveTaskToColumn, setTaskImportant, setCommitmentImportant, setTaskArchived, type DroppableColumn } from "@/lib/planner/board-actions";
 import { CommitmentCard } from "./CommitmentCard";
 import { computePace, type CommitmentPace, type PaceStatus } from "@/lib/scheduling/pace";
+import { computeStreaks, type CommitmentStreak } from "@/lib/scheduling/streaks";
+import { projectTotalMin } from "@/lib/scheduling/calibration";
 import type { UseScheduleDataResult } from "@/hooks/useScheduleData";
 import type { Category } from "@/lib/scheduling/types";
 
@@ -65,10 +67,31 @@ export function KanbanBoard({ scheduleData, onMutated }: KanbanBoardProps) {
     return computePace({
       projects: data.projects,
       targets: data.targets,
-      loggedByProject: data.loggedByProject,
+      loggedByProject: data.progressFacts.byProject,
       weeklyHours: data.inputs.weeklyHours,
       now,
     });
+  }, [data, now]);
+
+  // Consistency and the phase-based projection, alongside pace. Both read from
+  // the full work history rather than the visible fortnight.
+  const extras = useMemo(() => {
+    if (!data) return { streaks: new Map<string, CommitmentStreak>(), projected: new Map<string, number>() };
+    const streaks = new Map(
+      computeStreaks({
+        logged: data.progressFacts.logged,
+        commitments: data.projects.map((p) => ({ id: p.id, weeklyMinMin: p.weeklyMinMin, createdAt: null })),
+        now,
+      }).map((s) => [s.projectId, s]),
+    );
+    const projected = new Map<string, number>();
+    for (const p of data.projects) {
+      const mine = data.targets.filter((t) => t.projectId === p.id);
+      const done = mine.filter((t) => t.completedAt).length;
+      const proj = projectTotalMin(data.progressFacts.byProject[p.id] ?? 0, mine.length, done);
+      if (proj != null) projected.set(p.id, proj);
+    }
+    return { streaks, projected };
   }, [data, now]);
 
   const paceColumn = (p: CommitmentPace): PaceStatus => (p.status === "ahead" ? "on_pace" : p.status);
@@ -171,6 +194,8 @@ export function KanbanBoard({ scheduleData, onMutated }: KanbanBoardProps) {
                 <CommitmentCard
                   key={p.projectId}
                   pace={p}
+                  streak={extras.streaks.get(p.projectId) ?? null}
+                  projectedTotalMin={extras.projected.get(p.projectId) ?? null}
                   color={commitmentColor(p.projectId)}
                   onToggleImportant={() => void handleToggleCommitmentImportant(p.projectId, !p.important)}
                 >

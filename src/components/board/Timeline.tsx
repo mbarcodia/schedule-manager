@@ -43,7 +43,7 @@ export function Timeline({ scheduleData }: { scheduleData: UseScheduleDataResult
     const pace = computePace({
       projects: data.projects,
       targets: data.targets,
-      loggedByProject: data.loggedByProject,
+      loggedByProject: data.progressFacts.byProject,
       weeklyHours: data.inputs.weeklyHours,
       now,
     });

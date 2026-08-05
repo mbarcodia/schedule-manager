@@ -12,7 +12,9 @@
 import { dateForGday, minToLabel, MONTH_NAMES, WEEKDAY_LABELS } from "@/lib/scheduling/time";
 import { resolveDayWindow } from "@/lib/scheduling/day-window";
 import { allDayDueDate } from "@/lib/scheduling/all-day-due";
-import { computePace, loggedMinutesByCommitment, paceSentence } from "@/lib/scheduling/pace";
+import { computePace, paceSentence } from "@/lib/scheduling/pace";
+import { computeCalibration, correctEstimate, projectTotalMin } from "@/lib/scheduling/calibration";
+import { computeStreaks, streakGlyphs } from "@/lib/scheduling/streaks";
 import { deriveBoardStatuses, boardStatusFor } from "@/lib/planner/board-status";
 import { DEFAULT_WIP_LIMIT } from "@/lib/planner/board-constants";
 import type { ComputeScheduleResult, DayOverrides } from "@/lib/scheduling/types";
@@ -123,11 +125,20 @@ export function buildPromptContext(rows: RawScheduleRows, inputs: ScheduleInputs
       completedAt: t.completed_at ? new Date(t.completed_at) : null,
       dateKind: t.date_kind,
     })),
-    loggedByProject: loggedMinutesByCommitment(rows.progressLog, rows.tasks),
+    loggedByProject: rows.progressFacts?.byProject ?? {},
     weeklyHours: inputs.weeklyHours,
     now: new Date(),
   });
   const paceById = new Map(pace.map((p) => [p.projectId, p]));
+  const facts = rows.progressFacts;
+  const calibration = computeCalibration(facts?.finished ?? []);
+  const streakById = new Map(
+    computeStreaks({
+      logged: facts?.logged ?? [],
+      commitments: inputs.projects.map((p) => ({ id: p.id, weeklyMinMin: p.weeklyMinMin, createdAt: null })),
+      now: new Date(),
+    }).map((s) => [s.projectId, s]),
+  );
 
   const snapshot = {
     wip: {
@@ -188,6 +199,28 @@ export function buildPromptContext(rows: RawScheduleRows, inputs: ScheduleInputs
       important: p.important || undefined,
       totalEffortHrs: p.effort_estimate_min ? p.effort_estimate_min / 60 : null,
       pace: paceById.get(p.id) ? paceSentence(paceById.get(p.id)!) : null,
+      /** Last 8 weeks against this commitment's weekly minimum, oldest first:
+       * ● met, ○ missed, – nothing logged anywhere that week (treated as time
+       * off rather than a failure), blank before it existed. */
+      weeklyConsistency: streakById.get(p.id)?.marks.some((m) => m === "hit" || m === "missed")
+        ? {
+            marks: streakGlyphs(streakById.get(p.id)!.marks),
+            currentStreak: streakById.get(p.id)!.current,
+            bestStreak: streakById.get(p.id)!.best,
+          }
+        : null,
+      /** Where the effort is really heading, from the share of phases done.
+       * Derived from phases rather than hours, since projecting hours from hours
+       * is circular. Worth raising when it exceeds the estimate. */
+      projectedTotalHrs: (() => {
+        const mine = rows.targets.filter((t) => t.commitment_id === p.id);
+        const proj = projectTotalMin(
+          facts?.byProject[p.id] ?? 0,
+          mine.length,
+          mine.filter((t) => t.completed_at).length,
+        );
+        return proj == null ? null : +(proj / 60).toFixed(1);
+      })(),
       weeklyHrs: p.weekly_min_min ? p.weekly_min_min / 60 : null,
       scheduledThisWeekHrs: +((schedByProject[p.id] || 0) / 60).toFixed(1),
       label: p.category_id ? (labelById.get(p.category_id) ?? null) : null,
@@ -255,6 +288,21 @@ export function buildPromptContext(rows: RawScheduleRows, inputs: ScheduleInputs
      * that didn't fit. */
     startsBeyondThePlannedHorizon: schedule.beyondHorizon,
     dayOverrides: formatDayOverrides(inputs.dayOverrides),
+    /** How wrong this account's estimates have run, measured on finished work.
+     *
+     * Use it when PROPOSING a duration or a total effort figure: say the number
+     * asked for, say what similar work actually took, and propose the corrected
+     * one. Never silently store a different number than the one the user gave —
+     * an estimate they chose is information too, and quietly rewriting it makes
+     * every later comparison meaningless. Null until there is enough finished
+     * work to mean anything, in which case say nothing about it. */
+    estimateCalibration: calibration.summary
+      ? {
+          summary: calibration.summary,
+          factor: calibration.factor,
+          example: `an 8h estimate would more realistically be ${+(correctEstimate(480, calibration.factor) / 60).toFixed(2)}h`,
+        }
+      : null,
     /** What the board cannot answer yet, and why.
      *
      * The boards are only as informative as what has been filled in, and an

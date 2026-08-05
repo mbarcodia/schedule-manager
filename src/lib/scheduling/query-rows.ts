@@ -8,7 +8,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
 import type { RawScheduleRows } from "./from-db";
 import { HORIZON_WEEKS } from "./horizon";
-import { fetchLoggedMinutesByCommitment } from "./logged-hours";
+import { fetchProgressFacts } from "./logged-hours";
 
 const DAY_MS = 86400000;
 
@@ -25,7 +25,7 @@ export async function queryScheduleRows(
   const windowStartDate = windowStart.slice(0, 10);
   const windowEndDate = windowEnd.slice(0, 10);
 
-  const loggedPromise = fetchLoggedMinutesByCommitment(supabase, userId);
+  const factsPromise = fetchProgressFacts(supabase, userId);
 
   const [
     profileRes,
@@ -103,7 +103,7 @@ export async function queryScheduleRows(
     if (res.error) throw res.error;
   }
 
-  const loggedByProject = await loggedPromise;
+  const progressFacts = await factsPromise;
 
   return {
     profile: profileRes.data!,
@@ -119,6 +119,6 @@ export async function queryScheduleRows(
     pinnedChunks: pinnedRes.data ?? [],
     researchPins: researchPinsRes.data ?? [],
     calendarConnections: connectionsRes.data ?? [],
-    loggedByProject,
+    progressFacts,
   };
 }

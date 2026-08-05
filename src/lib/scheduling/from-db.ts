@@ -7,6 +7,7 @@
 import { gdayForDate, zonedNow } from "./time";
 import { defaultDayWindow } from "./day-window";
 import { HORIZON_WEEKS } from "./horizon";
+import type { ProgressFacts } from "./logged-hours";
 import type {
   CalendarEvent,
   Category,
@@ -39,11 +40,12 @@ export interface RawScheduleRows {
   pinnedChunks: Row<"pinned_chunks">[];
   researchPins: Row<"research_pins">[];
   calendarConnections: Row<"calendar_connections">[];
-  /** The one derived field here: LIFETIME minutes worked per commitment, which
-   * progressLog above cannot give because it is windowed to a fortnight back for
-   * done/missed resolution. Optional so callers that don't need pace (and the
-   * engine, which never does) can leave it out. See logged-hours.ts. */
-  loggedByProject?: Record<string, number>;
+  /** The one derived field here: everything computed from the FULL work history,
+   * which progressLog above cannot give because it is windowed to a fortnight
+   * back for done/missed resolution. Feeds pace, estimate calibration and weekly
+   * consistency. Optional so callers that don't need it (and the engine, which
+   * never does) can leave it out. See logged-hours.ts. */
+  progressFacts?: ProgressFacts;
 }
 
 function dateParts(iso: string): { year: number; month: number; day: number } {

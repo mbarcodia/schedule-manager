@@ -21,7 +21,7 @@ import {
   parseRelativeMinutes,
 } from "./nlp-dates";
 import { statusReply } from "./status";
-import { gdayForDate, minToLabel, zonedTimeToUtc, zonedNow } from "@/lib/scheduling/time";
+import { dateForGday, gdayForDate, minToLabel, zonedTimeToUtc, zonedNow } from "@/lib/scheduling/time";
 import { allDayDueAt } from "@/lib/scheduling/all-day-due";
 import { computeSchedule } from "@/lib/scheduling/engine";
 import { buildScheduleInputs } from "@/lib/scheduling/from-db";
@@ -715,6 +715,143 @@ export function buildTools(ctx: ToolContext) {
     },
   });
 
+  const plan_phases = betaTool({
+    name: "plan_phases",
+    description:
+      "Break a project into phases and set a GOAL DATE for each by working out when each one can actually be finished. " +
+      "This is backward planning done against real capacity rather than a calendar: it uses the hours the engine has actually " +
+      "placed for this project week by week, so travel weeks, conference weeks and days off are skipped instead of being " +
+      "assumed available. Use it when a project has a final date and phases but no interim dates — interim dates are what " +
+      "make progress visible, and a project with only a final date gives no signal until it is too late. " +
+      "Each phase becomes a target (no calendar hours of its own). Phase hours are optional: without them the total effort " +
+      "estimate is split evenly and the reply says so.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: { type: "string", description: "fuzzy title of the project" },
+        phases: {
+          type: "array",
+          items: { type: "string" },
+          description: 'the phases in order, e.g. ["run simulations", "process data", "analysis", "write up"]',
+        },
+        phase_hours: {
+          type: "array",
+          items: { type: "number" },
+          description:
+            "hours for each phase, in the same order as `phases`. Omit to split the project's total effort estimate evenly — but ask first, since later phases rarely take as long as earlier ones.",
+        },
+      },
+      required: ["project", "phases"],
+    },
+    run: async (inp) => {
+      const lookup = await findTrackableId(ctx, inp.project);
+      if (lookup.status === "ambiguous") {
+        return `"${inp.project}" matches more than one project: ${lookup.candidates.join(", ")}. Say which one.`;
+      }
+      if (lookup.status === "none") return `No project matching "${inp.project}".`;
+      if (!inp.phases.length) return "Give at least one phase.";
+      if (inp.phase_hours && inp.phase_hours.length !== inp.phases.length) {
+        return `You gave ${inp.phases.length} phases but ${inp.phase_hours.length} hour figures — they have to line up.`;
+      }
+
+      const rows = await queryScheduleRows(supabase, userId);
+      const { inputs } = buildScheduleInputs(rows);
+      const project = inputs.projects.find((p) => p.id === lookup.projectId);
+      if (!project) return `Couldn't load "${lookup.title}".`;
+
+      // Split the total estimate evenly when no per-phase figures were given.
+      let hours = inp.phase_hours;
+      let evenSplit = false;
+      if (!hours) {
+        if (!project.effortEstimateMin) {
+          return `"${lookup.title}" has no total effort estimate and no per-phase hours were given, so there is nothing to spread across the phases. Either set a total (add_trackable's total_effort_hrs) or pass phase_hours.`;
+        }
+        const each = project.effortEstimateMin / 60 / inp.phases.length;
+        hours = inp.phases.map(() => each);
+        evenSplit = true;
+      }
+
+      // Walk the hours the engine has ACTUALLY placed for this project, in order,
+      // and note the date at which each phase's cumulative hours are reached.
+      // That's what makes the dates achievable rather than arithmetic: a week the
+      // project gets nothing contributes nothing.
+      const schedule = computeSchedule(inputs);
+      const placed = schedule.blocks
+        .filter((b) => b.type === "task" && b.projectId === lookup.projectId)
+        .sort((a, b) => a.gday * 1440 + a.start - (b.gday * 1440 + b.start));
+      if (!placed.length) {
+        return `Nothing is currently scheduled for "${lookup.title}", so there is no pace to derive dates from. Give it weekly hours first (add_trackable's weekly_research_hrs).`;
+      }
+
+      const cumulativeTargets = hours.map((h, i) => hours!.slice(0, i + 1).reduce((a, b) => a + b, 0) * 60);
+      const dates: (string | null)[] = cumulativeTargets.map(() => null);
+      let run = 0;
+      let next = 0;
+      for (const b of placed) {
+        run += b.end - b.start;
+        while (next < cumulativeTargets.length && run >= cumulativeTargets[next]) {
+          const d = dateForGday(ctx.timezone, b.gday);
+          dates[next] = `${d.year}-${String(d.month).padStart(2, "0")}-${String(d.day).padStart(2, "0")}`;
+          next++;
+        }
+        if (next >= cumulativeTargets.length) break;
+      }
+
+      const written: string[] = [];
+      const unreachable: string[] = [];
+      for (let i = 0; i < inp.phases.length; i++) {
+        const title = inp.phases[i];
+        const on = dates[i];
+        if (!on) {
+          unreachable.push(`${title} (${hours[i]}h)`);
+          continue;
+        }
+        const { data: existing } = await supabase
+          .from("targets")
+          .select("id,title")
+          .eq("commitment_id", lookup.projectId);
+        const dupe = (existing ?? []).find((t) => normTitle(t.title) === normTitle(title));
+        if (dupe) {
+          await supabase.from("targets").update({ target_date: on, date_kind: "goal" }).eq("id", dupe.id);
+        } else {
+          await supabase.from("targets").insert({
+            user_id: userId,
+            commitment_id: lookup.projectId,
+            title,
+            target_date: on,
+            date_kind: "goal",
+          });
+        }
+        written.push(`${title} (${hours[i]}h) — goal ${on}`);
+      }
+      markMutated(ctx);
+
+      const rate = project.weeklyMinMin ? `${project.weeklyMinMin / 60}h/wk` : "its current pace";
+      const deadlineNote = project.deadlineDate
+        ? (() => {
+            const last = dates[dates.length - 1];
+            if (!last) return ` The final phase doesn't fit inside the planning horizon at ${rate}.`;
+            const over = new Date(last) > project.deadlineDate;
+            return over
+              ? ` That lands the last phase after the ${project.deadlineKind ?? "hard"} deadline of ${project.deadlineDate.toISOString().slice(0, 10)} — the hours per week or the scope has to change.`
+              : ` The last phase lands on ${last}, inside the ${project.deadlineKind ?? "hard"} deadline of ${project.deadlineDate.toISOString().slice(0, 10)}.`;
+          })()
+        : "";
+
+      return (
+        `Phase dates for ${lookup.title}, derived from the ${rate} actually on the calendar (travel and days off skipped):\n` +
+        written.map((w) => `  ${w}`).join("\n") +
+        (unreachable.length
+          ? `\nNot reachable within the planning horizon at this rate: ${unreachable.join(", ")}.`
+          : "") +
+        deadlineNote +
+        (evenSplit
+          ? ` Hours were split evenly across the phases because none were given — worth revising, since writing up rarely takes as long as the analysis.`
+          : "")
+      );
+    },
+  });
+
   const complete_target = betaTool({
     name: "complete_target",
     description:
@@ -1105,6 +1242,7 @@ export function buildTools(ctx: ToolContext) {
     remove_item,
     add_trackable,
     add_target,
+    plan_phases,
     complete_target,
     add_event,
     adjust_day_hours,

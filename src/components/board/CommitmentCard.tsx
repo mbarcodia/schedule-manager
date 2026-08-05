@@ -13,15 +13,23 @@
 import { StarIcon } from "@phosphor-icons/react";
 import type { CommitmentPace } from "@/lib/scheduling/pace";
 import { paceSentence } from "@/lib/scheduling/pace";
+import type { CommitmentStreak } from "@/lib/scheduling/streaks";
 import type { ReactNode } from "react";
 
 export function CommitmentCard({
   pace,
+  streak,
+  projectedTotalMin,
   color,
   onToggleImportant,
   children,
 }: {
   pace: CommitmentPace;
+  /** Week-by-week consistency against the weekly minimum, oldest mark first. */
+  streak?: CommitmentStreak | null;
+  /** Where the effort is really heading, from how many phases are done. Shown
+   * only when it disagrees with the estimate — agreeing with it is not news. */
+  projectedTotalMin?: number | null;
   /** The commitment's label colour, as a left edge — same treatment as a task. */
   color?: string | null;
   onToggleImportant: () => void;
@@ -63,7 +71,34 @@ export function CommitmentCard({
         </div>
       )}
 
+      {/* Consistency: the lead measure, and the one actually under your control
+         each week. Filled = minimum met, hollow = missed, dash = a week nothing
+         was logged anywhere (travel), blank = before this existed. */}
+      {/* Only when there's something to read: an account with no logged history
+         yet would otherwise show a row of dashes meaning nothing. */}
+      {streak && streak.marks.some((m) => m === "hit" || m === "missed") && (
+        <div className="flex items-center gap-1.5" title="Last 8 weeks against this weekly minimum">
+          <span className="text-[9px] tracking-[0.15em] leading-none text-muted">
+            {streak.marks.map((m) => (m === "hit" ? "●" : m === "missed" ? "○" : m === "skipped" ? "–" : " ")).join(" ")}
+          </span>
+          <span className="flex-none text-[9.5px] text-muted-2">
+            {streak.current > 0
+              ? `${streak.current} wk streak`
+              : streak.best > 0
+                ? `best ${streak.best}`
+                : ""}
+          </span>
+        </div>
+      )}
+
       <div className="text-[9.5px] text-muted-2 leading-snug">{paceSentence(pace)}</div>
+
+      {projectedTotalMin != null && pace.estimateMin != null && projectedTotalMin > pace.estimateMin * 1.15 && (
+        <div className="text-[9.5px]" style={{ color: "#e0a94e" }}>
+          Phases done so far imply ~{Math.round(projectedTotalMin / 60)}h in total, not{" "}
+          {Math.round(pace.estimateMin / 60)}h.
+        </div>
+      )}
 
       {children && <div className="flex flex-col gap-1 pt-0.5">{children}</div>}
     </div>

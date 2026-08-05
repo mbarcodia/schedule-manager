@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { buildScheduleInputs, type RawScheduleRows } from "./from-db";
 import { queryScheduleRows } from "./query-rows";
 import type { Category, Project, ScheduleInputs, Target } from "./types";
+import type { ProgressFacts } from "./logged-hours";
 
 export interface ScheduleData {
   inputs: ScheduleInputs;
@@ -17,9 +18,9 @@ export interface ScheduleData {
    * transformed Task drops (important, archived_at, raw deadline_at,
    * project/proposal links). */
   rawTasks: RawScheduleRows["tasks"];
-  /** Lifetime minutes worked per commitment — the input the Progress board and
-   * the timeline need to judge pace. See logged-hours.ts. */
-  loggedByProject: Record<string, number>;
+  /** Derived from the full work history: pace, estimate calibration and weekly
+   * consistency all read from this. See logged-hours.ts. */
+  progressFacts: ProgressFacts;
 }
 
 export async function fetchScheduleData(): Promise<ScheduleData> {
@@ -52,6 +53,6 @@ export async function fetchScheduleData(): Promise<ScheduleData> {
     categories,
     preferredModel: rows.profile.preferred_model,
     rawTasks: rows.tasks,
-    loggedByProject: rows.loggedByProject ?? {},
+    progressFacts: rows.progressFacts ?? { byProject: {}, finished: [], logged: [] },
   };
 }

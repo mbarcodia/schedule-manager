@@ -8,6 +8,10 @@ interface EventDetailPopoverProps {
   block: ScheduleBlock;
   top: number;
   onClose: () => void;
+  /** Only passed for a MANUAL event. A synced one is a copy of a row owned by
+   * Google or an ICS feed, so the next sync would overwrite any change — the
+   * option is left out rather than offered and quietly undone. */
+  onEdit?: () => void;
 }
 
 const URL_PATTERN = /https?:\/\/[^\s<>"']+/g;
@@ -43,7 +47,7 @@ function linkify(text: string): React.ReactNode[] {
  * calendar feed (location, notes, join link) so this can stand in for
  * actually opening Outlook/iCloud/Google. Notes are rendered as plain text
  * (never HTML) since feed content is third-party and untrusted. */
-export function EventDetailPopover({ block, top, onClose }: EventDetailPopoverProps) {
+export function EventDetailPopover({ block, top, onClose, onEdit }: EventDetailPopoverProps) {
   return (
     <div
       onClick={(e) => e.stopPropagation()}
@@ -95,6 +99,12 @@ export function EventDetailPopover({ block, top, onClose }: EventDetailPopoverPr
         >
           Join meeting →
         </a>
+      )}
+
+      {onEdit && (
+        <button onClick={onEdit} className="schedule-menu-item block w-full text-left">
+          Change or remove it
+        </button>
       )}
     </div>
   );

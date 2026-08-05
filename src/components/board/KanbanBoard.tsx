@@ -11,6 +11,7 @@ import { DEFAULT_WIP_LIMIT } from "@/lib/planner/board-constants";
 import { moveTaskToColumn, setTaskImportant, setCommitmentImportant, setTaskArchived, type DroppableColumn } from "@/lib/planner/board-actions";
 import { CommitmentCard } from "./CommitmentCard";
 import { CommitmentPanelHost, NEW_COMMITMENT } from "./CommitmentPanel";
+import { TaskPanel } from "./TaskPanel";
 import { computePace, type CommitmentPace, type PaceStatus } from "@/lib/scheduling/pace";
 import { computeStreaks, type CommitmentStreak } from "@/lib/scheduling/streaks";
 import { projectTotalMin } from "@/lib/scheduling/calibration";
@@ -57,6 +58,8 @@ export function KanbanBoard({ scheduleData, onMutated }: KanbanBoardProps) {
   const { data, schedule, refresh } = scheduleData;
   const [notice, setNotice] = useState<string | null>(null);
   const [openCommitment, setOpenCommitment] = useState<string | null>(null);
+  /** A task id being edited, "new" for a fresh one, null for closed. */
+  const [openTask, setOpenTask] = useState<string | null>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
   // Stable per mount, as Timeline does it — `new Date()` inside a data memo is
@@ -223,6 +226,7 @@ export function KanbanBoard({ scheduleData, onMutated }: KanbanBoardProps) {
                         todoLink={todoLinks.get(t.id) ?? null}
                         onToggleImportant={handleToggleImportant}
                         onArchive={handleArchive}
+                        onOpen={(task) => setOpenTask(task.id)}
                       />
                     ))}
                 </CommitmentCard>
@@ -245,6 +249,14 @@ export function KanbanBoard({ scheduleData, onMutated }: KanbanBoardProps) {
               warn={status === "in_progress" && wipCount > DEFAULT_WIP_LIMIT}
               badge={status === "in_progress" ? `${wipCount}/${DEFAULT_WIP_LIMIT}` : undefined}
             >
+              {status === "backlog" && (
+                <button
+                  onClick={() => setOpenTask("new")}
+                  className="self-start flex items-center gap-1 px-1 pb-0.5 text-[10.5px] text-muted-2 hover:text-text"
+                >
+                  <PlusIcon size={11} /> new task
+                </button>
+              )}
               {grouped[status].map((t) => (
                 <KanbanCard
                   key={t.id}
@@ -254,6 +266,7 @@ export function KanbanBoard({ scheduleData, onMutated }: KanbanBoardProps) {
                   draggable
                   onToggleImportant={handleToggleImportant}
                   onArchive={handleArchive}
+                  onOpen={(task) => setOpenTask(task.id)}
                 />
               ))}
               {grouped[status].length === 0 && <div className="px-1 text-[10.5px] text-muted-2">empty</div>}
@@ -272,6 +285,19 @@ export function KanbanBoard({ scheduleData, onMutated }: KanbanBoardProps) {
           onMutated?.();
         }}
       />
+
+      {openTask && (
+        <TaskPanel
+          task={openTask === "new" ? null : (data.rawTasks.find((t) => t.id === openTask) ?? null)}
+          projects={data.projects}
+          categories={data.categories}
+          onClose={() => setOpenTask(null)}
+          onSaved={async () => {
+            await refresh();
+            onMutated?.();
+          }}
+        />
+      )}
     </div>
   );
 }

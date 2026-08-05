@@ -16,6 +16,8 @@ import { queryScheduleRows } from "../src/lib/scheduling/query-rows.ts";
 import { buildScheduleInputs } from "../src/lib/scheduling/from-db.ts";
 import { computeSchedule } from "../src/lib/scheduling/engine.ts";
 import { buildPlannerDynamicContext } from "../src/lib/planner/system-prompt.ts";
+import { computePace, loggedMinutesByCommitment, paceSentence } from "../src/lib/scheduling/pace.ts";
+import { toTargets } from "../src/lib/scheduling/from-db.ts";
 
 const env = Object.fromEntries(
   readFileSync(new URL("../.env.local", import.meta.url), "utf8")
@@ -110,8 +112,6 @@ try {
       6: null,
     },
     grace_hours: 8,
-    label_task: "Work",
-    label_block: "Routine",
     eod_checkin_enabled: true,
     eod_checkin_time: 17 * 60,
     weekly_summary_enabled: true,
@@ -415,8 +415,8 @@ try {
   const snap = JSON.parse(ctx.match(/Current state: (\{.*\})\n/s)?.[1] ?? "{}");
   check(
     "snapshot reports the user's vocabulary",
-    Object.keys(snap).filter((k) => ["work", "projects", "labels"].includes(k)).sort(),
-    ["labels", "projects", "work"],
+    Object.keys(snap).filter((k) => ["tasks", "projects", "labels"].includes(k)).sort(),
+    ["labels", "projects", "tasks"],
   );
   // Blocks carry the id of the project they belong to, but the TITLE of the work
   // item — so this has to match on the id, not the name.
@@ -444,6 +444,143 @@ try {
   );
   checkThat("at-risk fields are present for the chat to reason from", 
     ["willMissDeadline", "cuttingItClose", "didNotFit", "missedTimeBlocks"].every((k) => k in snap));
+
+  // ------------------------------------------------------------------- pace
+  // The sanity checks cover computePace as a pure function. What only a real
+  // round trip can catch is a column that doesn't exist, or one whose value
+  // doesn't survive the write and the read — which is exactly how a schema and
+  // its code drift apart. Every figure here goes through Postgres first.
+  console.log("\n== pace, through the database ==");
+
+  const paceOf = (rows, projects, targets, logged, id) =>
+    computePace({
+      projects,
+      targets: toTargets(targets),
+      loggedByProject: logged,
+      weeklyHours: {},
+      now: MONDAY,
+    }).find((p) => p.projectId === id);
+
+  // A commitment with everything pace needs: a total, a rate, and its own date.
+  const { data: paceProj, error: paceErr } = await admin
+    .from("projects")
+    .insert({
+      user_id: userId,
+      title: "Paced proposal",
+      weekly_min_min: 180,
+      effort_estimate_min: 80 * 60,
+      deadline_date: dateOnly(70),
+      deadline_kind: "hard",
+    })
+    .select("id")
+    .single();
+  checkThat("effort estimate and deadline kind round-trip", paceProj != null, paceErr?.message ?? "");
+
+  {
+    const r = await recompute();
+    const p = paceOf(r.rows, r.projects, r.rows.targets, {}, paceProj.id);
+    check("no targets: pace measures the whole estimate", [p.scopeMin, p.estimateMin], [4800, 4800]);
+    check("nothing logged yet", p.status, "not_started");
+  }
+
+  // A costed phase two weeks out. Before targets carried hours this reported the
+  // whole 80h as due by it — the bug the column exists to fix.
+  const { error: phaseErr } = await admin.from("targets").insert({
+    user_id: userId,
+    commitment_id: paceProj.id,
+    title: "Notice of intent",
+    target_date: dateOnly(14),
+    effort_estimate_min: 4 * 60,
+  });
+  checkThat("a target's own hours round-trip", phaseErr == null, phaseErr?.message ?? "");
+
+  {
+    const r = await recompute();
+    const p = paceOf(r.rows, r.projects, r.rows.targets, {}, paceProj.id);
+    check("a costed phase is what gets measured, not the project", p.scopeMin, 240);
+    check("the total is still reported alongside it", p.estimateMin, 4800);
+    check("the phase is the date in the sentence", p.nextDateLabel, "Notice of intent");
+  }
+
+  // Logged hours have to reach pace by the same route the app uses: progress_log
+  // rows attributed through subject_type.
+  await admin.from("progress_log").insert({
+    user_id: userId,
+    subject_type: "research",
+    subject_id: paceProj.id,
+    occurred_date: dateOnly(0),
+    start_min: 540,
+    end_min: 660,
+    minutes_done: 120,
+  });
+
+  {
+    const r = await recompute();
+    const { data: log } = await admin.from("progress_log").select("subject_type,subject_id,start_min,end_min,minutes_done").eq("user_id", userId);
+    const logged = loggedMinutesByCommitment(log ?? [], r.rows.tasks);
+    const p = paceOf(r.rows, r.projects, r.rows.targets, logged, paceProj.id);
+    check("logged research hours are attributed to the commitment", p.loggedMin, 120);
+    check("remaining is measured against the phase, not the project", p.remainingMin, 120);
+    // 2h left at 3h/wk against 2 weeks — comfortable. Against the whole 80h it
+    // would have been 26 weeks of work and reported as slipping.
+    check("and so the near checkpoint is not a crisis", p.status, "ahead");
+    checkThat(
+      "the sentence names the phase's hours",
+      paceSentence(p).includes("of the 4h due by"),
+      paceSentence(p),
+    );
+  }
+
+  // ------------------------------------------------------- archiving a commitment
+  console.log("\n== archiving keeps the record ==");
+  await admin.from("projects").update({ archived_at: new Date().toISOString() }).eq("id", paceProj.id);
+  {
+    const r = await recompute();
+    checkThat(
+      "an archived commitment leaves the schedule",
+      !r.rows.projects.some((p) => p.id === paceProj.id),
+      "still returned by queryScheduleRows",
+    );
+    const { data: log } = await admin.from("progress_log").select("id").eq("subject_id", paceProj.id);
+    check("but its logged hours survive", log?.length, 1);
+    const { data: kept } = await admin.from("targets").select("id,effort_estimate_min").eq("commitment_id", paceProj.id);
+    check("and so do its dates, with their hours", kept?.map((t) => t.effort_estimate_min), [240]);
+  }
+  await admin.from("projects").update({ archived_at: null }).eq("id", paceProj.id);
+  {
+    const r = await recompute();
+    checkThat(
+      "restoring brings it back",
+      r.rows.projects.some((p) => p.id === paceProj.id),
+      "not returned after un-archiving",
+    );
+  }
+
+  // ------------------------------------------------------- one day's hours
+  // The `closed` column, and the thing it exists for: an override with no start
+  // and no end is NOT a closed day — it falls through to the standard hours.
+  console.log("\n== a day that is different ==");
+  const { error: ovErr } = await admin
+    .from("day_overrides")
+    .insert({ user_id: userId, override_date: dateOnly(2), start_min: 540, end_min: 720, closed: false });
+  checkThat("a shortened day round-trips", ovErr == null, ovErr?.message ?? "");
+  {
+    const r = await recompute();
+    check("the engine sees the shortened window", r.inputs.dayOverrides[2]?.end, 720);
+    const latest = Math.max(
+      ...r.schedule.blocks.filter((b) => b.gday === 2 && !b.allDay).map((b) => b.end),
+      0,
+    );
+    checkThat("and places nothing after it", latest <= 720, `something ends at ${latest}`);
+  }
+
+  await admin.from("day_overrides").update({ closed: true }).eq("override_date", dateOnly(2));
+  {
+    const r = await recompute();
+    check("a closed day reaches the engine", r.inputs.dayOverrides[2]?.closed, true);
+    const onClosedDay = r.schedule.blocks.filter((b) => b.gday === 2 && !b.allDay && b.type !== "synced");
+    check("and nothing is scheduled on it", onClosedDay.length, 0);
+  }
 
   // ---------------------------------------------------------------- cleanup
   console.log("\n== cleanup ==");

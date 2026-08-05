@@ -11,9 +11,11 @@ import {
   CheckIcon,
   CopyIcon,
   GearSixIcon,
+  PlusIcon,
   WarningIcon,
 } from "@phosphor-icons/react";
 import { WeekGrid } from "./WeekGrid";
+import { EventPanel } from "./EventPanel";
 import { dateForGday, WEEKDAY_LABELS, zonedNow } from "@/lib/scheduling/time";
 import {
   DEFAULT_VIEW_DAYS,
@@ -42,6 +44,8 @@ export function CalendarPanel({ scheduleData }: CalendarPanelProps) {
    * page directly — sharing it is a frequent errand, and it lived three clicks
    * deep in Settings. Null while loading or when none is set up. */
   const [bookingSlug, setBookingSlug] = useState<string | null>(null);
+  /** A manual event id being edited, "new" for a fresh one, null for closed. */
+  const [openEvent, setOpenEvent] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [viewDays, setViewDays] = useState<ViewDays>(DEFAULT_VIEW_DAYS);
   const { data, schedule, loading, error, refresh, setProgress, pinDone, unpinDone } = scheduleData;
@@ -233,6 +237,13 @@ export function CalendarPanel({ scheduleData }: CalendarPanelProps) {
           >
             Will miss
           </span>
+          <button
+            onClick={() => setOpenEvent("new")}
+            title="Add a meeting or an away day"
+            className="inline-flex items-center gap-1 border border-border rounded-md h-[30px] px-2.5 hover:bg-white/5 text-muted text-[12px] font-medium"
+          >
+            <PlusIcon size={12} /> Event
+          </button>
           <Link
             href="/planner"
             title="Planner"
@@ -315,7 +326,16 @@ export function CalendarPanel({ scheduleData }: CalendarPanelProps) {
         onPinDone={pinDone}
         onUnpinDone={unpinDone}
         onRefresh={refresh}
+        onOpenEvent={setOpenEvent}
       />
+
+      {openEvent && (
+        <EventPanel
+          eventId={openEvent === "new" ? null : openEvent}
+          onClose={() => setOpenEvent(null)}
+          onSaved={refresh}
+        />
+      )}
     </div>
   );
 }

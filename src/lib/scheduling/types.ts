@@ -244,6 +244,12 @@ export type BlockType = "synced" | "anchor" | "task";
 export interface ScheduleBlock {
   type: BlockType;
   taskId?: string;
+  /** For a synced block: the events row it came from, and where that row came
+   * from. Both are needed to offer editing, which only makes sense for a manual
+   * event — a synced one is a copy the next sync would overwrite. The id was
+   * previously only recoverable by parsing the display key. */
+  eventId?: string;
+  eventSource?: "manual" | "google" | "icloud" | "outlook";
   projectId?: string | null;
   categoryId?: string | null;
   /** The word in the block's corner: its label's name, "Routine" for a

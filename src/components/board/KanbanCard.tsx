@@ -21,6 +21,10 @@ interface KanbanCardProps {
   todoLink?: TodoLink | null;
   onToggleImportant?: (task: TaskRow) => void;
   onArchive?: (task: TaskRow) => void;
+  /** Opens the task's own panel. A task that came from a to-do keeps its link
+   * below instead — its date, reminders and notes live there, and two editors for
+   * one thing is how they drift. */
+  onOpen?: (task: TaskRow) => void;
 }
 
 export function KanbanCard({
@@ -30,6 +34,7 @@ export function KanbanCard({
   todoLink,
   onToggleImportant,
   onArchive,
+  onOpen,
 }: KanbanCardProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: task.id,
@@ -92,9 +97,23 @@ export function KanbanCard({
           )}
         </span>
       </div>
-      <div className="text-[11.5px] text-text truncate" title={task.title}>
-        {task.title}
-      </div>
+      {onOpen && !todoLink ? (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpen(task);
+          }}
+          onPointerDown={(e) => e.stopPropagation()}
+          className="block w-full text-left text-[11.5px] text-text truncate hover:text-accent-text"
+          title={`${task.title} — open to change its hours or dates`}
+        >
+          {task.title}
+        </button>
+      ) : (
+        <div className="text-[11.5px] text-text truncate" title={task.title}>
+          {task.title}
+        </div>
+      )}
       <div className="mt-0.5 text-[10px] text-muted">
         {(task.duration_min / 60).toFixed(task.duration_min % 60 === 0 ? 0 : 1)}h
         {deadline && <> · due {deadline.toLocaleDateString(undefined, { month: "short", day: "numeric" })}</>}

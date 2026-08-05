@@ -522,6 +522,8 @@ export function computeSchedule(
     if (!e.allDay) markBusy(e.gday * 1440 + e.start, e.end - e.start, baseBusy);
     blocks.push({
       type: "synced",
+      eventId: e.id,
+      eventSource: e.source,
       tagLabel: e.allDay ? "All day" : "Meeting",
       allDay: e.allDay,
       title: e.title,

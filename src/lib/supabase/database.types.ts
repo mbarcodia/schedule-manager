@@ -421,7 +421,18 @@ export interface Database {
           location?: string | null;
           meeting_url?: string | null;
         },
-        Partial<{ title: string; starts_at: string; ends_at: string }>
+        // all_day and location joined title/times when manual events became
+        // editable from the calendar. Still narrower than the row: source,
+        // external_id and connection_id say where an event CAME from and are not
+        // the user's to change — editing them would let a manual event pretend to
+        // be a synced one and get overwritten on the next sync.
+        Partial<{
+          title: string;
+          starts_at: string;
+          ends_at: string;
+          all_day: boolean;
+          location: string | null;
+        }>
       >;
       calendar_connections: Table<
         {

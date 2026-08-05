@@ -32,6 +32,8 @@ interface WeekGridProps {
   onUnpinDone: (block: ScheduleBlock) => void;
   /** Re-read after a day's hours change — the whole schedule reflows around them. */
   onRefresh: () => Promise<void>;
+  /** Opens a manual event for editing, by its events-table id. */
+  onOpenEvent: (eventId: string) => void;
 }
 
 const hourLabels = Array.from({ length: 24 }, (_, h) => ({ top: h * 60 * PX_PER_MIN, label: minToLabel(h * 60) }));
@@ -124,6 +126,7 @@ export function WeekGrid({
   onPinDone,
   onUnpinDone,
   onRefresh,
+  onOpenEvent,
 }: WeekGridProps) {
   const now = new Date();
   const NOW = nowAbsMinute(timezone, now);
@@ -336,7 +339,23 @@ export function WeekGrid({
                   const clampStart = Math.max(openBlock.start, DAY_START_MIN);
                   const popoverTop = Math.min((clampStart - DAY_START_MIN) * PX_PER_MIN + 22, VIEW_HEIGHT - 180);
                   return openBlock.type === "synced" ? (
-                    <EventDetailPopover block={openBlock} top={popoverTop} onClose={() => setOpenKey(null)} />
+                    <EventDetailPopover
+                      block={openBlock}
+                      top={popoverTop}
+                      onClose={() => setOpenKey(null)}
+                      // Only a manual event: a synced one is a copy of a row that
+                      // belongs to Google or an ICS feed, and the next sync would
+                      // take any change back.
+                      onEdit={
+                        openBlock.eventSource === "manual" && openBlock.eventId
+                          ? () => {
+                              const id = openBlock.eventId!;
+                              setOpenKey(null);
+                              onOpenEvent(id);
+                            }
+                          : undefined
+                      }
+                    />
                   ) : (
                     <TaskDetailPopover
                       block={openBlock}

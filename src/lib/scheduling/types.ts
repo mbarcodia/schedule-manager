@@ -201,6 +201,10 @@ export interface DayOverride {
    * weekday). Ignored for days that are already on. New in production — not
    * in the prototype, which only understood a global Mon-Fri window. */
   allowWeekend?: boolean;
+  /** Nothing is scheduled on this date at all, whatever the weekday's standard
+   * hours say — a holiday, a day of travel, a day taken back. Wins over start
+   * and end, which are kept so re-opening the day restores its window. */
+  closed?: boolean;
 }
 
 export type DayOverrides = Record<GDay, DayOverride>;

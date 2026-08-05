@@ -968,7 +968,8 @@ export function buildTools(ctx: ToolContext) {
 
   const adjust_day_hours = betaTool({
     name: "adjust_day_hours",
-    description: "Shorten a day: set a later start or earlier end. Displaced tasks reschedule automatically.",
+    description:
+      "Change ONE date's working hours: a later start, an earlier end, nothing at all, or back to normal. Displaced tasks reschedule automatically. Use `off` for a holiday or a day taken back — a one-minute window is not the same thing. Use `back_to_standard` to remove the exception entirely, which is different from re-typing the standard hours into it: the standard hours can change later, and only a removed exception follows them.",
     inputSchema: {
       type: "object",
       properties: {
@@ -977,6 +978,16 @@ export function buildTools(ctx: ToolContext) {
         start_hour: { type: "number", description: "24h clock, e.g. 11" },
         end_hour: { type: "number", description: "24h clock, e.g. 15" },
         allow_weekend: { type: "boolean", description: "explicitly allow scheduling on this Saturday/Sunday" },
+        off: {
+          type: "boolean",
+          description:
+            "Nothing is scheduled that date at all, whatever the weekday's normal hours say — a holiday, a day of travel, a day taken back. Pass false to re-open a day that was closed; the hours it had are kept, so it returns to those.",
+        },
+        back_to_standard: {
+          type: "boolean",
+          description:
+            "Remove the exception for this date so it follows the weekday's standard hours again, now and if those hours change later. Overrides the other fields.",
+        },
       },
       required: ["day"],
     },
@@ -995,19 +1006,34 @@ export function buildTools(ctx: ToolContext) {
         .eq("override_date", override_date)
         .maybeSingle();
 
+      // Deleting the row, not writing today's standard hours into it: a stored
+      // copy of the default stops following the default the moment it changes.
+      if (inp.back_to_standard) {
+        if (!existing) return `${inp.day} already follows your standard hours.`;
+        const { error } = await supabase.from("day_overrides").delete().eq("id", existing.id);
+        if (error) return `Couldn't reset that day: ${error.message}`;
+        markMutated(ctx);
+        return `${inp.day} follows your standard hours again.`;
+      }
+
       const patch = {
         user_id: userId,
         override_date,
         start_min: inp.start_hour != null ? inp.start_hour * 60 : (existing?.start_min ?? null),
         end_min: inp.end_hour != null ? inp.end_hour * 60 : (existing?.end_min ?? null),
         allow_weekend: inp.allow_weekend ?? existing?.allow_weekend ?? false,
+        // `!= null`, not truthiness: `off: false` is a real instruction (re-open
+        // a closed day) and must not read as "leave it alone".
+        closed: inp.off != null ? inp.off : (existing?.closed ?? false),
       };
       const { error } = await supabase
         .from("day_overrides")
         .upsert(patch, { onConflict: "user_id,override_date" });
       if (error) return `Couldn't adjust that day: ${error.message}`;
       markMutated(ctx);
-      return `${inp.day} ${inp.weeks_from_now ? `(${inp.weeks_from_now} week${inp.weeks_from_now > 1 ? "s" : ""} out) ` : ""}updated.${inp.allow_weekend ? " That weekend day is now allowed for scheduling." : ""}`;
+      const weeks = inp.weeks_from_now ? `(${inp.weeks_from_now} week${inp.weeks_from_now > 1 ? "s" : ""} out) ` : "";
+      if (patch.closed) return `${inp.day} ${weeks}now has nothing scheduled — anything that was there has moved.`;
+      return `${inp.day} ${weeks}updated.${inp.allow_weekend ? " That weekend day is now allowed for scheduling." : ""}${inp.off === false ? " It is open again, back to the hours it had." : ""}`;
     },
   });
 

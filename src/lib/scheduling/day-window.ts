@@ -37,6 +37,11 @@ export function resolveDayWindow(
   const defaultWindow = weeklyHours[dow] ?? null;
   const override = dayOverrides[gday];
 
+  // A date closed outright, whatever the weekday normally allows. Checked before
+  // the window fields because a closed day keeps the hours it had, so that
+  // re-opening it restores them rather than starting from nothing.
+  if (override?.closed) return null;
+
   if (override && (override.start != null || override.end != null || override.allowWeekend)) {
     const base = defaultWindow ?? FALLBACK_WINDOW;
     return {
@@ -52,5 +57,9 @@ export function resolveDayWindow(
  * "starts early" from "starts late" against the account's normal hours for
  * that weekday, not just against the calendar's 7am-7pm render span. */
 export function defaultDayWindow(gday: GDay, weeklyHours: WeeklyHours): DayWindow | null {
-  return weeklyHours[gday % 7] ?? null;
+  // Normalised for the same reason resolveDayWindow is: `-1 % 7` is -1, so every
+  // past day resolved to no default, and the STARTS EARLY/LATE labels this feeds
+  // fell back to "starts early" for anything logged before this week rather than
+  // comparing against that weekday's real hours. Same bug, one function down.
+  return weeklyHours[((gday % 7) + 7) % 7] ?? null;
 }

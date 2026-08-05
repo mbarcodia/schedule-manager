@@ -44,7 +44,7 @@ export function CalendarPanel({ scheduleData }: CalendarPanelProps) {
   const [bookingSlug, setBookingSlug] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [viewDays, setViewDays] = useState<ViewDays>(DEFAULT_VIEW_DAYS);
-  const { data, schedule, loading, error, setProgress, pinDone, unpinDone } = scheduleData;
+  const { data, schedule, loading, error, refresh, setProgress, pinDone, unpinDone } = scheduleData;
 
   useEffect(() => {
     void (async () => {
@@ -314,6 +314,7 @@ export function CalendarPanel({ scheduleData }: CalendarPanelProps) {
         onSetProgress={setProgress}
         onPinDone={pinDone}
         onUnpinDone={unpinDone}
+        onRefresh={refresh}
       />
     </div>
   );

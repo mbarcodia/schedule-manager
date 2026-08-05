@@ -5,6 +5,8 @@ import { Block } from "./Block";
 import { TaskDetailPopover } from "./TaskDetailPopover";
 import { EventDetailPopover } from "./EventDetailPopover";
 import { defaultDayWindow, resolveDayWindow } from "@/lib/scheduling/day-window";
+import { DayHoursPopover } from "./DayHoursPopover";
+import { dateKey as toDateKey } from "@/lib/calendar/day-hours";
 import { computeBlockLanes, DAY_END_MIN, DAY_START_MIN, DEFAULT_SCROLL_MIN, PX_PER_MIN } from "@/lib/scheduling/render";
 import { dateForGday, minToLabel, nowAbsMinute, WEEKDAY_LABELS } from "@/lib/scheduling/time";
 import type { Category, ComputeScheduleResult, DayOverrides, ScheduleBlock, WeeklyHours } from "@/lib/scheduling/types";
@@ -28,6 +30,8 @@ interface WeekGridProps {
   onSetProgress: (block: ScheduleBlock, mode: "done" | "partial" | "none", minutes?: number) => void;
   onPinDone: (block: ScheduleBlock) => void;
   onUnpinDone: (block: ScheduleBlock) => void;
+  /** Re-read after a day's hours change — the whole schedule reflows around them. */
+  onRefresh: () => Promise<void>;
 }
 
 const hourLabels = Array.from({ length: 24 }, (_, h) => ({ top: h * 60 * PX_PER_MIN, label: minToLabel(h * 60) }));
@@ -119,11 +123,14 @@ export function WeekGrid({
   onSetProgress,
   onPinDone,
   onUnpinDone,
+  onRefresh,
 }: WeekGridProps) {
   const now = new Date();
   const NOW = nowAbsMinute(timezone, now);
   const todayGday = Math.floor(NOW / 1440);
   const [openKey, setOpenKey] = useState<string | null>(null);
+  /** Which day's hours are open, by gday. */
+  const [openDay, setOpenDay] = useState<number | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // The grid spans the full 24h day so you can scroll to any hour, but most
@@ -159,7 +166,7 @@ export function WeekGrid({
           return (
             <div
               key={i}
-              className="py-2.5 pl-2.5 @max-[720px]:pl-1.5 border-l border-border-grid min-w-0"
+              className="relative py-2.5 pl-2.5 @max-[720px]:pl-1.5 border-l border-border-grid min-w-0"
               // A past day holds only what was logged, never a plan — dimmed so
               // it's clear at a glance that you're looking at a record.
               style={gday < 0 ? { opacity: 0.72 } : undefined}
@@ -167,12 +174,42 @@ export function WeekGrid({
               <div className="text-[10px] @max-[720px]:text-[9px] tracking-wider @max-[720px]:tracking-wide text-muted uppercase truncate">
                 {WEEKDAY_LABELS[((gday % 7) + 7) % 7]}
               </div>
-              <div
-                className="mt-0.5 text-[15px] @max-[720px]:text-[13px] font-medium"
-                style={{ color: isToday ? "var(--color-accent)" : "var(--color-text)" }}
-              >
-                {date.day}
-              </div>
+              {/* The date opens this day's hours. Past days are a record of what
+                 was worked and are never re-derived from hours, so changing them
+                 would alter nothing — left as plain text rather than a control
+                 that appears to do something. */}
+              {gday < 0 ? (
+                <div
+                  className="mt-0.5 text-[15px] @max-[720px]:text-[13px] font-medium"
+                  style={{ color: "var(--color-text)" }}
+                >
+                  {date.day}
+                </div>
+              ) : (
+                <button
+                  onClick={() => setOpenDay(openDay === gday ? null : gday)}
+                  title={
+                    resolveDayWindow(gday, weeklyHours, dayOverrides) == null
+                      ? "Nothing is scheduled this day — click to change its hours"
+                      : "Change this day's hours"
+                  }
+                  className="mt-0.5 text-[15px] @max-[720px]:text-[13px] font-medium hover:underline"
+                  style={{ color: isToday ? "var(--color-accent)" : "var(--color-text)" }}
+                >
+                  {date.day}
+                  {dayOverrides[gday] && <span className="ml-1 align-middle text-[9px] text-muted-2">·</span>}
+                </button>
+              )}
+              {openDay === gday && (
+                <DayHoursPopover
+                  dateLabel={`${WEEKDAY_LABELS[((gday % 7) + 7) % 7]} ${date.day}`}
+                  dateKey={toDateKey(date)}
+                  override={dayOverrides[gday]}
+                  standard={defaultDayWindow(gday, weeklyHours)}
+                  onClose={() => setOpenDay(null)}
+                  onSaved={onRefresh}
+                />
+              )}
               {banners.map((b) => (
                 <div
                   key={b.key ?? b.title}

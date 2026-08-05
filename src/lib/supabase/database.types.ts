@@ -374,6 +374,7 @@ export interface Database {
           start_min: number | null;
           end_min: number | null;
           allow_weekend: boolean;
+          closed: boolean;
           created_at: string;
         },
         {
@@ -383,8 +384,9 @@ export interface Database {
           start_min?: number | null;
           end_min?: number | null;
           allow_weekend?: boolean;
+          closed?: boolean;
         },
-        Partial<{ start_min: number | null; end_min: number | null; allow_weekend: boolean }>
+        Partial<{ start_min: number | null; end_min: number | null; allow_weekend: boolean; closed: boolean }>
       >;
       events: Table<
         {

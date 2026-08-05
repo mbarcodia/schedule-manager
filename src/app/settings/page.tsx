@@ -16,6 +16,7 @@ import type {
 } from "@/lib/supabase/database.types";
 import { getPushSubscriptionStatus, subscribeToPush, unsubscribeFromPush } from "@/lib/push/subscribe";
 import { BookingSection } from "@/components/settings/BookingSection";
+import { RoutinesSection } from "@/components/settings/RoutinesSection";
 import {
   DEFAULT_VIEW_DAYS,
   VIEW_DAY_OPTIONS,
@@ -186,6 +187,7 @@ const SECTION_GROUPS: { group: string; items: { id: string; label: string }[] }[
     group: "Your time",
     items: [
       { id: "standard-hours", label: "Standard hours" },
+      { id: "routines", label: "Routines" },
       { id: "grace-window", label: "Un-ticked blocks" },
       { id: "categories", label: "Labels" },
       { id: "calendar-view", label: "Calendar view" },
@@ -1004,6 +1006,10 @@ export default function SettingsPage() {
             </div>
           )}
         </div>
+
+        {/* Directly after the standard hours the routines sit inside — both
+           answer "what does a normal week look like". */}
+        <RoutinesSection />
 
         <div className="mt-8 pt-5 border-t border-border">
           <h2 id="categories" className="text-base font-medium mb-1 scroll-mt-4">Labels</h2>

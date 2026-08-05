@@ -252,6 +252,7 @@ export function buildScheduleInputs(
       start: ov.start_min ?? undefined,
       end: ov.end_min ?? undefined,
       allowWeekend: ov.allow_weekend,
+      closed: ov.closed,
     };
   }
 

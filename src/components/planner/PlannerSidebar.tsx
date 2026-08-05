@@ -51,6 +51,9 @@ export function PlannerSidebar({ refreshKey }: PlannerSidebarProps) {
   }, []);
 
   useEffect(() => {
+    // Fetch-on-mount, and again whenever the chat reports a mutation — same
+    // pattern (and lint caveat) as useScheduleData, TodoView and ArchiveView.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
   }, [load, refreshKey]);
 

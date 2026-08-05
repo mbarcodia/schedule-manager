@@ -109,7 +109,7 @@ export function PlannerSidebar({ refreshKey }: PlannerSidebarProps) {
               >
                 <TrashIcon size={12} /> Delete
               </button>
-              <span className="ml-auto text-[10px] text-muted-2">edited {n.updated_at.slice(0, 10)}</span>
+              <span className="ml-auto text-[10px] text-muted-2">edited {new Date(n.updated_at).toLocaleDateString()}</span>
             </div>
           </div>
         )}

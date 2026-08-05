@@ -111,6 +111,7 @@ export function Timeline({ scheduleData }: { scheduleData: UseScheduleDataResult
             // Only a deadline can be overdue. A target's date passing is worth
             // seeing, but it doesn't make the whole project late.
             const overdue = c.deadlineDate != null && c.deadlineDate.getTime() < now.getTime();
+            const kind = c.deadlineDate ? (c.deadlineKind ?? "hard") : "goal";
             return (
               <div key={c.id} className="flex items-center gap-2">
                 <div className="flex-none w-[172px] min-w-0 flex items-baseline gap-1.5">
@@ -122,19 +123,32 @@ export function Timeline({ scheduleData }: { scheduleData: UseScheduleDataResult
                   <span className="text-[11.5px] text-text truncate" title={c.title}>
                     {c.title}
                   </span>
+                  {c.deadlineDate && (
+                    <span
+                      className="flex-none text-[8.5px] tracking-wide uppercase"
+                      style={{ color: kind === "hard" ? "#e0a94e" : "var(--color-muted-2, #75798c)" }}
+                      title={kind === "hard" ? "Externally imposed — cannot move" : "A date you set — yours to move"}
+                    >
+                      {kind}
+                    </span>
+                  )}
                 </div>
                 <div className="flex-1 relative h-5 rounded bg-surface overflow-hidden">
                   <div
                     className="absolute inset-y-1 left-0 rounded-r"
                     title={
                       c.deadlineDate
-                        ? `${chip?.statusText ?? ""} — due ${c.deadlineDate.toLocaleDateString()}`.trim()
+                        ? `${chip?.statusText ?? ""} — ${kind === "hard" ? "hard deadline" : "goal date"} ${c.deadlineDate.toLocaleDateString()}`.trim()
                         : `Last target ${end!.toLocaleDateString()} — no deadline of its own`
                     }
                     style={{
                       width: `${endPct}%`,
                       background: overdue ? "rgba(229,72,77,0.35)" : (chip?.bg ?? "#1d1f2b"),
-                      border: `1px solid ${overdue ? "#e5484d" : (chip?.border ?? "rgba(233,233,237,0.16)")}`,
+                      // A goal date is yours to move, so its end is drawn as
+                      // provisional rather than a wall. The tab's description
+                      // promises this distinction; without it the text described
+                      // something the view never showed.
+                      border: `1px ${kind === "goal" ? "dashed" : "solid"} ${overdue ? "#e5484d" : (chip?.border ?? "rgba(233,233,237,0.16)")}`,
                     }}
                   />
                   {targets.map((t) => (

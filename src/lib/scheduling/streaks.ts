@@ -12,6 +12,11 @@
 //   some past weeks from hit to missed. Recording per-week targets would fix it
 //   and is not worth a table yet.
 //
+//   Weeks are bucketed by the BROWSER's local Monday, while the engine's grid
+//   uses the account timezone. These agree in practice — fetch-schedule-data
+//   syncs the stored timezone to the browser's on load — but a session in a
+//   different zone from the stored one could bucket a boundary day either side.
+//
 //   "Away" is inferred. Which past weeks were travel isn't recoverable — events
 //   are only fetched a fortnight back — so a week in which NOTHING was logged
 //   anywhere on the account is treated as a week you weren't working, and

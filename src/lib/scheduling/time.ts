@@ -151,3 +151,16 @@ export function fmtMin(m: number): string {
   if (m < 60) return `${m}m`;
   return `${Math.floor(m / 60)}h${m % 60}m`;
 }
+
+/** A Date as a local YYYY-MM-DD key, for the date-only columns
+ * (occurred_date, deadline_date, target_date, pinned_date).
+ *
+ * NEVER `d.toISOString().slice(0, 10)` for this. That converts to UTC first, so
+ * local midnight anywhere EAST of Greenwich lands on the previous day — which in
+ * a write path means progress logged against the wrong date and a done-marker
+ * that no longer matches its block. The bug is invisible in the Americas, which
+ * is exactly what makes it worth a named helper. */
+export function localDateKey(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}

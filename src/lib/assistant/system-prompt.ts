@@ -18,6 +18,7 @@ import { computeStreaks, streakGlyphs } from "@/lib/scheduling/streaks";
 import { deriveBoardStatuses, boardStatusFor } from "@/lib/planner/board-status";
 import { DEFAULT_WIP_LIMIT } from "@/lib/planner/board-constants";
 import type { ComputeScheduleResult, DayOverrides } from "@/lib/scheduling/types";
+import { toTargets } from "@/lib/scheduling/from-db";
 import type { RawScheduleRows } from "@/lib/scheduling/from-db";
 import type { ScheduleInputs } from "@/lib/scheduling/types";
 
@@ -114,17 +115,12 @@ export function buildPromptContext(rows: RawScheduleRows, inputs: ScheduleInputs
   const wipInProgressCount = rows.tasks.filter((t) => boardStatusFor(boardIndex, t.id) === "in_progress").length;
 
   // Targets are deliberately absent from ScheduleInputs (the engine must never
-  // schedule hours for them), so they're mapped from the raw rows here.
+  // schedule hours for them), so they come straight from the raw rows — through
+  // the shared mapper, since a local copy of it parsed the dates as UTC and
+  // reported every target a day early.
   const pace = computePace({
     projects: inputs.projects,
-    targets: rows.targets.map((t) => ({
-      id: t.id,
-      projectId: t.commitment_id,
-      title: t.title,
-      date: new Date(t.target_date),
-      completedAt: t.completed_at ? new Date(t.completed_at) : null,
-      dateKind: t.date_kind,
-    })),
+    targets: toTargets(rows.targets),
     loggedByProject: rows.progressFacts?.byProject ?? {},
     weeklyHours: inputs.weeklyHours,
     now: new Date(),

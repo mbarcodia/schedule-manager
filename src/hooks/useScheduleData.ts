@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { fetchScheduleData, type ScheduleData } from "@/lib/scheduling/fetch-schedule-data";
 import { computeSchedule } from "@/lib/scheduling/engine";
+import { localDateKey } from "@/lib/scheduling/time";
 import type { ComputeScheduleResult, ScheduleBlock } from "@/lib/scheduling/types";
 
 export interface UseScheduleDataResult {
@@ -32,13 +33,19 @@ function subjectFromTaskId(taskId: string): { subjectType: "task" | "research" |
 
 /** The real calendar date a block's gday falls on, given the account's
  * timezone-relative week grid — good enough for writing an occurred_date
- * (we don't need the exact instant, just the civil date). */
+ * (we don't need the exact instant, just the civil date).
+ *
+ * Built from LOCAL parts. It used to end in toISOString().slice(0, 10), which
+ * converts local midnight to UTC first — fine in the Americas, a day early
+ * everywhere east of Greenwich. In a write path that means progress recorded
+ * against the wrong day AND a done-marker whose key no longer matches its
+ * block, so ticking work off would appear to do nothing at all. */
 function gdayToISODate(gday: number): string {
   const d = new Date();
   d.setHours(0, 0, 0, 0);
   const todayIdx = (d.getDay() + 6) % 7; // 0=Mon..6=Sun
   d.setDate(d.getDate() - todayIdx + gday);
-  return d.toISOString().slice(0, 10);
+  return localDateKey(d);
 }
 
 export function useScheduleData(): UseScheduleDataResult {

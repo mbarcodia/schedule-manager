@@ -12,7 +12,7 @@ const KIND_LABEL: Record<NoteKind, string> = {
 };
 
 function renderNote(n: NoteRow): string {
-  return `### [${KIND_LABEL[n.kind]}] ${n.title}\n_updated ${n.updated_at.slice(0, 10)}_\n\n${n.content || "(empty)"}\n`;
+  return `### [${KIND_LABEL[n.kind]}] ${n.title}\n_updated ${n.updated_at.slice(0, 10)} (UTC)_\n\n${n.content || "(empty)"}\n`;
 }
 
 export async function GET() {

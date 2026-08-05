@@ -5,6 +5,7 @@
 // out of the prompt window.
 
 import { betaTool } from "@anthropic-ai/sdk/helpers/beta/json-schema";
+import { allDayDueDate, formatDue } from "@/lib/scheduling/all-day-due";
 import { buildTools, findTrackableId, markMutated, type ToolContext } from "@/lib/assistant/tools";
 import { findByTitle } from "@/lib/assistant/nlp-dates";
 import { buildTodoReminderTools } from "./todo-reminder-tools";
@@ -287,7 +288,7 @@ function archiveTools(ctx: ToolContext) {
     run: async ({ from, to }) => {
       let query = supabase
         .from("tasks")
-        .select("id,title,duration_min,deadline_at,archived_at,category_id")
+        .select("id,title,duration_min,deadline_at,deadline_all_day,archived_at,category_id")
         .eq("user_id", userId)
         .not("archived_at", "is", null)
         .order("archived_at", { ascending: false });
@@ -319,9 +320,16 @@ function archiveTools(ctx: ToolContext) {
         .map((t) => {
           const logged = minutesByTask.get(t.id);
           const cat = t.category_id ? catName.get(t.category_id) : null;
-          return `- ${t.title}${cat ? ` [${cat}]` : ""} — archived ${t.archived_at!.slice(0, 10)}${
+          // Slicing the timestamp gives the UTC date, and a date-only deadline is
+          // stored at 23:59 LOCAL — so an Aug 11 deadline reported as Aug 12.
+          const wasDue = t.deadline_at
+            ? t.deadline_all_day
+              ? allDayDueDate(t.deadline_at, ctx.timezone)
+              : formatDue(t.deadline_at, false, ctx.timezone)
+            : null;
+          return `- ${t.title}${cat ? ` [${cat}]` : ""} — archived ${new Date(t.archived_at!).toLocaleDateString("en-CA", { timeZone: ctx.timezone })}${
             logged ? `, ${Math.round((logged / 60) * 10) / 10}h logged` : ""
-          }${t.deadline_at ? `, was due ${t.deadline_at.slice(0, 10)}` : ""}`;
+          }${wasDue ? `, was due ${wasDue}` : ""}`;
         })
         .join("\n");
     },

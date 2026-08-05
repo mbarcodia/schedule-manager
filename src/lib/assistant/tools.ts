@@ -21,7 +21,7 @@ import {
   parseRelativeMinutes,
 } from "./nlp-dates";
 import { statusReply } from "./status";
-import { dateForGday, gdayForDate, minToLabel, zonedTimeToUtc, zonedNow } from "@/lib/scheduling/time";
+import { dateForGday, gdayForDate, localDateKey, minToLabel, zonedTimeToUtc, zonedNow } from "@/lib/scheduling/time";
 import { allDayDueAt } from "@/lib/scheduling/all-day-due";
 import { computeSchedule } from "@/lib/scheduling/engine";
 import { buildScheduleInputs } from "@/lib/scheduling/from-db";
@@ -833,8 +833,8 @@ export function buildTools(ctx: ToolContext) {
             if (!last) return ` The final phase doesn't fit inside the planning horizon at ${rate}.`;
             const over = new Date(last) > project.deadlineDate;
             return over
-              ? ` That lands the last phase after the ${project.deadlineKind ?? "hard"} deadline of ${project.deadlineDate.toISOString().slice(0, 10)} — the hours per week or the scope has to change.`
-              : ` The last phase lands on ${last}, inside the ${project.deadlineKind ?? "hard"} deadline of ${project.deadlineDate.toISOString().slice(0, 10)}.`;
+              ? ` That lands the last phase after the ${project.deadlineKind ?? "hard"} deadline of ${localDateKey(project.deadlineDate)} — the hours per week or the scope has to change.`
+              : ` The last phase lands on ${last}, inside the ${project.deadlineKind ?? "hard"} deadline of ${localDateKey(project.deadlineDate)}.`;
           })()
         : "";
 
@@ -1205,13 +1205,10 @@ export function buildTools(ctx: ToolContext) {
       const rows = await queryScheduleRows(supabase, userId);
       const { inputs } = buildScheduleInputs(rows);
       const schedule = computeSchedule(inputs);
-      const trackables = rows.projects.map((p) => ({
-        id: p.id,
-        title: p.title,
-        deadlineDate: p.deadline_date ? new Date(p.deadline_date) : null,
-        weeklyMinMin: p.weekly_min_min,
-        preferMorning: p.prefer_morning,
-      }));
+      // inputs.projects already carries these, mapped once and correctly — the
+      // hand-rolled copy this replaces parsed deadline_date as UTC and so
+      // reported every deadline a day early.
+      const trackables = inputs.projects;
 
       if (title) {
         const { match: found, ambiguous } = findByTitle(trackables, title);

@@ -79,7 +79,7 @@ export function ArchiveView({ onMutated }: ArchiveViewProps) {
                       {cat.name}
                     </span>
                   )}
-                  <span className="text-[9px] text-muted-2">archived {t.archived_at!.slice(0, 10)}</span>
+                  <span className="text-[9px] text-muted-2">archived {new Date(t.archived_at!).toLocaleDateString()}</span>
                 </div>
                 <div className="text-[12px] text-text truncate" title={t.title}>
                   {t.title}

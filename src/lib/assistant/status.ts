@@ -41,7 +41,9 @@ export function availableCapacity(
 export interface TrackableLike {
   id: string;
   title: string;
-  deadlineDate: Date | null;
+  /** Undefined as well as null, so a domain Project satisfies this directly and
+   * callers don't hand-map (and re-break) the date. */
+  deadlineDate?: Date | null;
   weeklyMinMin?: number | null;
   preferMorning?: boolean;
 }

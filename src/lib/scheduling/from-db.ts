@@ -74,6 +74,20 @@ function timestampToParts(iso: string, timeZone: string) {
 
 const NO_DEADLINE = 99999;
 
+/** Exported because the chat's prompt context needs targets too, and a second
+ * copy of this mapping is how target dates went back to being parsed as UTC and
+ * displaying a day early. */
+export function toTargets(rows: Row<"targets">[]): Target[] {
+  return rows.map((t) => ({
+    id: t.id,
+    projectId: t.commitment_id,
+    title: t.title,
+    date: localDate(t.target_date),
+    completedAt: t.completed_at ? new Date(t.completed_at) : null,
+    dateKind: t.date_kind,
+  }));
+}
+
 export function buildScheduleInputs(
   rows: RawScheduleRows,
   now: Date = new Date(),
@@ -159,14 +173,7 @@ export function buildScheduleInputs(
     deadlineKind: p.deadline_kind,
   }));
 
-  const targets: Target[] = rows.targets.map((t) => ({
-    id: t.id,
-    projectId: t.commitment_id,
-    title: t.title,
-    date: localDate(t.target_date),
-    completedAt: t.completed_at ? new Date(t.completed_at) : null,
-    dateKind: t.date_kind,
-  }));
+  const targets: Target[] = toTargets(rows.targets);
 
   // Needed before the tasks below, not just by the engine: a date-only
   // deadline's ceiling is the end of that day's working window.

@@ -61,7 +61,11 @@ export async function GET(request: Request) {
         .from("projects")
         .select("id, title, weekly_min_min")
         .eq("user_id", p.id)
-        .not("weekly_min_min", "is", null),
+        .not("weekly_min_min", "is", null)
+        // Nothing is scheduled for an archived commitment, so reporting it as
+        // having missed its weekly hours would be a notification about a
+        // commitment the user has finished with.
+        .is("archived_at", null),
       queryScheduleRows(supabase, p.id, now),
     ]);
 

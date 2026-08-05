@@ -24,6 +24,9 @@ export async function GET() {
 
   const [{ data: notes }, { data: projects }, { data: tasks }] = await Promise.all([
     supabase.from("notes").select("*").eq("user_id", user.id).order("updated_at", { ascending: false }),
+    // Archived commitments ARE included here, unlike everywhere else: this is a
+    // take-everything-with-you export, and silently dropping the notes attached
+    // to finished work is the one thing a backup must not do.
     supabase.from("projects").select("id,title").eq("user_id", user.id),
     supabase.from("tasks").select("id,title").eq("user_id", user.id),
   ]);

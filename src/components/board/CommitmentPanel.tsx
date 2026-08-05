@@ -19,12 +19,14 @@
 // months behind (see lib/scheduling/pace.ts).
 
 import { useState } from "react";
-import { XIcon, PlusIcon, TrashIcon, StarIcon } from "@phosphor-icons/react";
+import { XIcon, PlusIcon, TrashIcon, StarIcon, ArchiveBoxIcon } from "@phosphor-icons/react";
 import {
   addTarget,
+  createCommitment,
   deleteTarget,
   saveCommitmentFields,
   saveTarget,
+  setCommitmentArchived,
   setTargetHit,
 } from "@/lib/planner/board-actions";
 import { hoursValue, parseHours, validateCommitmentForm, type TargetDraft } from "@/lib/planner/commitment-form";
@@ -59,17 +61,21 @@ export function CommitmentPanel({
   onClose,
   onSaved,
 }: {
-  project: Project;
+  /** Null while creating one — the panel then asks for a title and nothing else
+   * is required, since an estimate, hours and a date are all things you may not
+   * know yet and pace reports their absence rather than refusing to exist. */
+  project: Project | null;
   pace: CommitmentPace | null;
   targets: Target[];
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
-  const [estimateText, setEstimateText] = useState(hoursValue(project.effortEstimateMin));
-  const [weeklyText, setWeeklyText] = useState(hoursValue(project.weeklyMinMin));
-  const [deadlineDate, setDeadlineDate] = useState(dateValue(project.deadlineDate));
-  const [deadlineKind, setDeadlineKind] = useState<"hard" | "goal">(project.deadlineKind ?? "hard");
-  const [important, setImportant] = useState(!!project.important);
+  const [title, setTitle] = useState(project?.title ?? "");
+  const [estimateText, setEstimateText] = useState(hoursValue(project?.effortEstimateMin));
+  const [weeklyText, setWeeklyText] = useState(hoursValue(project?.weeklyMinMin));
+  const [deadlineDate, setDeadlineDate] = useState(dateValue(project?.deadlineDate));
+  const [deadlineKind, setDeadlineKind] = useState<"hard" | "goal">(project?.deadlineKind ?? "hard");
+  const [important, setImportant] = useState(!!project?.important);
   const [drafts, setDrafts] = useState<Draft[]>(() =>
     [...targets]
       .sort((a, b) => a.date.getTime() - b.date.getTime())
@@ -84,9 +90,16 @@ export function CommitmentPanel({
   );
   const [removedIds, setRemovedIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  const [confirmArchive, setConfirmArchive] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const { errors, warnings } = validateCommitmentForm({ estimateText, weeklyText, deadlineDate, targets: drafts });
+  const { errors: fieldErrors, warnings } = validateCommitmentForm({
+    estimateText,
+    weeklyText,
+    deadlineDate,
+    targets: drafts,
+  });
+  const errors = title.trim() ? fieldErrors : ["A commitment needs a name.", ...fieldErrors];
 
   function patchDraft(index: number, patch: Partial<Draft>) {
     setDrafts((prev) => prev.map((d, i) => (i === index ? { ...d, ...patch } : d)));
@@ -112,7 +125,18 @@ export function CommitmentPanel({
       setError(message);
     };
 
-    const commitmentError = await saveCommitmentFields(project.id, {
+    // Create first when there's nothing to attach to yet: the dates below need a
+    // commitment id, and a half-created one with orphan targets is worse than a
+    // failed save.
+    let projectId = project?.id ?? null;
+    if (!projectId) {
+      const created = await createCommitment(title);
+      if (created.error || !created.id) return fail(`Couldn't add that commitment: ${created.error ?? "unknown error"}`);
+      projectId = created.id;
+    }
+
+    const commitmentError = await saveCommitmentFields(projectId, {
+      title: title.trim(),
       deadlineDate: deadlineDate || null,
       deadlineKind,
       effortEstimateMin: parseHours(estimateText).minutes,
@@ -135,7 +159,7 @@ export function CommitmentPanel({
         dateKind: draft.dateKind,
         effortEstimateMin: parseHours(draft.hoursText).minutes,
       };
-      const message = draft.id ? await saveTarget(draft.id, fields) : await addTarget(project.id, fields);
+      const message = draft.id ? await saveTarget(draft.id, fields) : await addTarget(projectId, fields);
       if (message) return fail(`Couldn't save “${fields.title}”: ${message}`);
       // completed_at is a separate one-field write, and only when it changed —
       // re-stamping it on every save would rewrite the day a target was hit.
@@ -146,6 +170,24 @@ export function CommitmentPanel({
       }
     }
 
+    await onSaved();
+    setBusy(false);
+    onClose();
+  }
+
+  /** Put away, not deleted: the logged hours, the dates and the estimate all
+   * stay, and it can be brought back from the Archive tab. Confirmed first
+   * because it clears the commitment off every board at once. */
+  async function archive() {
+    if (!project) return;
+    setBusy(true);
+    setError(null);
+    const message = await setCommitmentArchived(project.id, true);
+    if (message) {
+      setBusy(false);
+      setError(`Couldn't archive that: ${message}`);
+      return;
+    }
     await onSaved();
     setBusy(false);
     onClose();
@@ -181,8 +223,13 @@ export function CommitmentPanel({
       <div className="relative w-full max-w-[400px] h-full overflow-y-auto border-l border-border bg-panel p-4 flex flex-col gap-4">
         <div className="flex items-start gap-2">
           <div className="flex-1 min-w-0">
-            <div className={legend}>Commitment</div>
-            <div className="text-[13px] text-text leading-snug">{project.title}</div>
+            <div className={legend}>{project ? "Commitment" : "New commitment"}</div>
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="what you've signed up for"
+              className="w-full bg-transparent text-[13px] text-text leading-snug outline-none border-b border-transparent focus-visible:border-accent"
+            />
           </div>
           <button onClick={() => setImportant(!important)} title={important ? "Not important" : "Mark important"}>
             <StarIcon size={14} weight={important ? "fill" : "regular"} className="text-muted-2 hover:text-accent-text" />
@@ -298,11 +345,34 @@ export function CommitmentPanel({
             disabled={busy || errors.length > 0}
             className="rounded-md border border-accent text-accent px-2.5 py-1 text-[11px] font-medium hover:bg-accent/10 disabled:opacity-50"
           >
-            {busy ? "Saving…" : "Save"}
+            {busy ? "Saving…" : project ? "Save" : "Add it"}
           </button>
           <button onClick={onClose} className="text-[10.5px] text-muted-2 hover:text-text">
             cancel
           </button>
+          {project && (
+            <div className="ml-auto">
+              {confirmArchive ? (
+                <span className="text-[10px] text-muted-2">
+                  Put it away?{" "}
+                  <button onClick={() => void archive()} disabled={busy} className="text-accent-text hover:underline">
+                    yes
+                  </button>{" "}
+                  <button onClick={() => setConfirmArchive(false)} className="hover:underline">
+                    no
+                  </button>
+                </span>
+              ) : (
+                <button
+                  onClick={() => setConfirmArchive(true)}
+                  title="Off the boards, hours and dates kept — restore it from Archive"
+                  className="flex items-center gap-1 text-[10px] text-muted-2 hover:text-text"
+                >
+                  <ArchiveBoxIcon size={11} /> finished with this
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -315,6 +385,9 @@ export function CommitmentPanel({
  * the Timeline — and each of them already holds `data` and the computed pace, so
  * this exists to stop the same six lines of lookup being written three times and
  * drifting. Renders nothing when nothing is open. */
+/** The id that opens the panel with nothing in it, ready to create one. */
+export const NEW_COMMITMENT = "new";
+
 export function CommitmentPanelHost({
   data,
   pace,
@@ -324,10 +397,14 @@ export function CommitmentPanelHost({
 }: {
   data: ScheduleData;
   pace: CommitmentPace[];
+  /** A commitment id, NEW_COMMITMENT, or null for closed. */
   openId: string | null;
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
+  if (openId === NEW_COMMITMENT) {
+    return <CommitmentPanel project={null} pace={null} targets={[]} onClose={onClose} onSaved={onSaved} />;
+  }
   const project = openId ? data.projects.find((p) => p.id === openId) : null;
   if (!project) return null;
   return (

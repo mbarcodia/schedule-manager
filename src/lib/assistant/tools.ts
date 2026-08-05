@@ -112,10 +112,15 @@ export type TrackableLookup =
  * goals folded in — there is only one place to look now, so a same-titled pair
  * can no longer be silently resolved by search order.) */
 export async function findTrackableId(ctx: ToolContext, needle: string): Promise<TrackableLookup> {
+  // Archived commitments are excluded on purpose: they are off the boards and out
+  // of the schedule, so attaching a task, a target or logged hours to one would
+  // write to something the user cannot see. Saying "no project matching that" is
+  // the honest answer — add_trackable is what brings one back.
   const { data: projects } = await ctx.supabase
     .from("projects")
     .select("id,title")
-    .eq("user_id", ctx.userId);
+    .eq("user_id", ctx.userId)
+    .is("archived_at", null);
   const { match, ambiguous } = findByTitle(projects ?? [], needle);
   if (ambiguous.length) return { status: "ambiguous", candidates: ambiguous.map((c) => c.title) };
   if (!match) return { status: "none" };
@@ -424,9 +429,20 @@ export function buildTools(ctx: ToolContext) {
   const remove_item = betaTool({
     name: "remove_item",
     description:
-      "Remove a task or a project by title. Removing a task clears its time blocks; removing a project also removes its weekly-hours blocks, and tasks linked to it stay but unlink.",
-    inputSchema: { type: "object", properties: { title: { type: "string" } }, required: ["title"] },
-    run: async ({ title }) => {
+      "Remove a task, project, target or event by title. Removing a PROJECT archives it: it comes off the boards and stops being scheduled, but its logged hours, its dates and its estimate are all kept and it can be restored from the Archive tab. That is almost always what is wanted for something finished or abandoned. Pass delete_permanently only if the user explicitly wants the record gone — that also destroys the hours logged against it, which nothing else in this app does.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: { type: "string" },
+        delete_permanently: {
+          type: "boolean",
+          description:
+            "Projects only. Destroys the row, its logged hours and its dates instead of archiving. Irreversible — ask first, and say what will be lost.",
+        },
+      },
+      required: ["title"],
+    },
+    run: async ({ title, delete_permanently }) => {
       const [{ data: tasks }, { data: projects }, { data: targets }, { data: events }] = await Promise.all([
         supabase.from("tasks").select("id,title").eq("user_id", userId),
         supabase.from("projects").select("id,title").eq("user_id", userId),
@@ -464,6 +480,20 @@ export function buildTools(ctx: ToolContext) {
       const c = cMatch.match;
       if (c) {
         console.log(`[assistant] remove_item resolved: needle=${JSON.stringify(title)} -> project id=${c.id} title=${JSON.stringify(c.title)}`);
+
+        // Archiving is the default because deleting a commitment took its
+        // progress_log rows and its targets with it — the one place in this app
+        // where finishing something destroyed the record of doing it.
+        if (!delete_permanently) {
+          const { error } = await supabase
+            .from("projects")
+            .update({ archived_at: new Date().toISOString() })
+            .eq("id", c.id);
+          if (error) return `Couldn't archive "${c.title}": ${error.message}`;
+          markMutated(ctx);
+          return `Archived "${c.title}" — it's off the boards and nothing more is scheduled for it, but its logged hours, dates and estimate are kept. Restore it from the Archive tab, or say so here.`;
+        }
+
         await Promise.all([
           supabase.from("progress_log").delete().match({ user_id: userId, subject_type: "research", subject_id: c.id }),
           supabase.from("pinned_chunks").delete().match({ user_id: userId, subject_type: "research", subject_id: c.id }),
@@ -478,9 +508,9 @@ export function buildTools(ctx: ToolContext) {
         if (error) return `Couldn't remove "${c.title}": ${error.message}`;
         if (!deleted || deleted.length === 0) return `Couldn't remove "${c.title}" — nothing was deleted, try again.`;
         markMutated(ctx);
-        return `Removed the project "${c.title}", its weekly-hours blocks${
+        return `Permanently deleted the project "${c.title}", its weekly-hours blocks, its logged hours${
           targetCount ? ` and its ${targetCount} target${targetCount > 1 ? "s" : ""}` : ""
-        }. Tasks that were linked to it stay, now unlinked.`;
+        }. Tasks that were linked to it stay, now unlinked. This cannot be undone.`;
       }
       const evMatch = findByTitle(events ?? [], title);
       if (evMatch.ambiguous.length) return ambiguousMsg("events", title, evMatch.ambiguous);
@@ -618,14 +648,25 @@ export function buildTools(ctx: ToolContext) {
       const summary = facets.length ? ` — ${facets.join(", ")}.${dateNote}` : `.${dateNote}`;
 
       // Dedupe on exact (normalized) title: re-declaring a project that
-      // already exists updates it rather than making a second one.
-      const { data: existing } = await supabase.from("projects").select("id,title").eq("user_id", userId);
+      // already exists updates it rather than making a second one. Archived ones
+      // are INCLUDED in this lookup — leaving them out would create a second
+      // commitment with the same name whose history lives on the first, and
+      // re-declaring one you had put away plainly means you are working on it
+      // again, so it comes back rather than being updated while still invisible.
+      const { data: existing } = await supabase.from("projects").select("id,title,archived_at").eq("user_id", userId);
       const dupe = (existing ?? []).find((p) => normTitle(p.title) === normTitle(inp.title));
       if (dupe) {
-        const { error } = await supabase.from("projects").update(patch).eq("id", dupe.id);
+        const wasArchived = dupe.archived_at != null;
+        const { error } = await supabase
+          .from("projects")
+          .update(wasArchived ? { ...patch, archived_at: null } : patch)
+          .eq("id", dupe.id);
         if (error) return `Couldn't update the project: ${error.message}`;
         markMutated(ctx);
-        console.log(`[assistant] add_trackable upsert: project id=${dupe.id} title=${JSON.stringify(dupe.title)}`);
+        console.log(`[assistant] add_trackable upsert: project id=${dupe.id} title=${JSON.stringify(dupe.title)} restored=${wasArchived}`);
+        if (wasArchived) {
+          return `"${dupe.title}" was archived — brought it back with its logged hours, dates and estimate intact${summary}`;
+        }
         return `"${dupe.title}" already existed — updated it instead of creating a duplicate${summary}`;
       }
       const { data: inserted, error } = await supabase

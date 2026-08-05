@@ -101,6 +101,7 @@ export async function setTaskArchived(taskId: string, archived: boolean): Promis
 
 /** null clears the field. Hours are stored as minutes throughout. */
 export interface CommitmentFields {
+  title: string;
   deadlineDate: string | null;
   deadlineKind: "hard" | "goal";
   effortEstimateMin: number | null;
@@ -113,12 +114,46 @@ export async function saveCommitmentFields(projectId: string, fields: Commitment
   const { error } = await supabase
     .from("projects")
     .update({
+      title: fields.title,
       deadline_date: fields.deadlineDate,
       deadline_kind: fields.deadlineKind,
       effort_estimate_min: fields.effortEstimateMin,
       weekly_min_min: fields.weeklyMinMin,
       important: fields.important,
     })
+    .eq("id", projectId);
+  return error?.message ?? null;
+}
+
+/** A commitment starts as a title and nothing else — an estimate, hours and a
+ * date are all things you may not know yet, and pace says so rather than being
+ * blocked on them. Returns the new id so the panel can go on to write its dates.
+ *
+ * chunk_min is left to the column default: it's the block length the engine
+ * prefers, which a label's minimum chunk already governs, and asking for it at
+ * creation time would be a number with no meaning yet. */
+export async function createCommitment(title: string): Promise<{ id: string | null; error: string | null }> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { id: null, error: "You appear to be signed out — reload and try again." };
+  const { data, error } = await supabase
+    .from("projects")
+    .insert({ user_id: user.id, title: title.trim() })
+    .select("id")
+    .single();
+  return { id: data?.id ?? null, error: error?.message ?? null };
+}
+
+/** Put a commitment away, or bring it back. Not a delete: its logged hours, its
+ * targets and its estimate all stay, which is the same promise the board already
+ * makes for tasks. See migration 0037. */
+export async function setCommitmentArchived(projectId: string, archived: boolean): Promise<string | null> {
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("projects")
+    .update({ archived_at: archived ? new Date().toISOString() : null })
     .eq("id", projectId);
   return error?.message ?? null;
 }

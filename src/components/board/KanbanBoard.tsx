@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { DndContext, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
+import { PlusIcon } from "@phosphor-icons/react";
 import { KanbanCard, type TaskRow } from "./KanbanCard";
 import { fetchTodoLinks, type TodoLink } from "@/lib/planner/todo-links";
 import { KanbanColumn } from "./KanbanColumn";
@@ -9,7 +10,7 @@ import { deriveBoardStatuses, boardStatusFor, type BoardStatus } from "@/lib/pla
 import { DEFAULT_WIP_LIMIT } from "@/lib/planner/board-constants";
 import { moveTaskToColumn, setTaskImportant, setCommitmentImportant, setTaskArchived, type DroppableColumn } from "@/lib/planner/board-actions";
 import { CommitmentCard } from "./CommitmentCard";
-import { CommitmentPanelHost } from "./CommitmentPanel";
+import { CommitmentPanelHost, NEW_COMMITMENT } from "./CommitmentPanel";
 import { computePace, type CommitmentPace, type PaceStatus } from "@/lib/scheduling/pace";
 import { computeStreaks, type CommitmentStreak } from "@/lib/scheduling/streaks";
 import { projectTotalMin } from "@/lib/scheduling/calibration";
@@ -180,6 +181,15 @@ export function KanbanBoard({ scheduleData, onMutated }: KanbanBoardProps) {
       )}
       {/* Commitments first: the thing being kept up with. Tasks are pieces of one,
          and sit under it — or in the task columns below when they belong to none. */}
+      <div className="flex-none flex items-baseline justify-between px-3 py-1.5 border-b border-border">
+        <span className="text-[10px] tracking-wide uppercase text-muted-2 font-medium">Commitments</span>
+        <button
+          onClick={() => setOpenCommitment(NEW_COMMITMENT)}
+          className="flex items-center gap-1 text-[10.5px] text-muted-2 hover:text-text"
+        >
+          <PlusIcon size={11} /> new commitment
+        </button>
+      </div>
       <div className="flex-none flex min-h-0 max-h-[46%] overflow-y-auto divide-x divide-border border-b border-border">
         {PACE_COLUMNS.map(({ status, title, subtitle }) => {
           const here = pace.filter((p) => paceColumn(p) === status);

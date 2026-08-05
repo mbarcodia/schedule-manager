@@ -4,6 +4,7 @@
 // between the important/not-important rows; "urgent" follows deadlines).
 
 import { useEffect, useMemo, useState } from "react";
+import { PlusIcon } from "@phosphor-icons/react";
 import { KanbanCard, type TaskRow } from "./KanbanCard";
 import { fetchTodoLinks, type TodoLink } from "@/lib/planner/todo-links";
 import { setTaskImportant, setCommitmentImportant, setTaskArchived } from "@/lib/planner/board-actions";
@@ -12,7 +13,7 @@ import { computePace, type CommitmentPace } from "@/lib/scheduling/pace";
 import { computeStreaks, type CommitmentStreak } from "@/lib/scheduling/streaks";
 import { projectTotalMin } from "@/lib/scheduling/calibration";
 import { CommitmentCard } from "./CommitmentCard";
-import { CommitmentPanelHost } from "./CommitmentPanel";
+import { CommitmentPanelHost, NEW_COMMITMENT } from "./CommitmentPanel";
 import { URGENT_THRESHOLD_DAYS } from "@/lib/planner/board-constants";
 import type { UseScheduleDataResult } from "@/hooks/useScheduleData";
 import type { Category } from "@/lib/scheduling/types";
@@ -130,9 +131,17 @@ export function EisenhowerBoard({ scheduleData, onMutated }: EisenhowerBoardProp
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto p-3">
-      <div className="text-[10.5px] text-muted-2 px-1 pb-2">
-        ★ marks something important — commitments and tasks alike. Urgent = a date within{" "}
-        {URGENT_THRESHOLD_DAYS} days, so anything undated is never urgent.
+      <div className="flex items-baseline justify-between px-1 pb-2 gap-3">
+        <div className="text-[10.5px] text-muted-2">
+          ★ marks something important — commitments and tasks alike. Urgent = a date within{" "}
+          {URGENT_THRESHOLD_DAYS} days, so anything undated is never urgent.
+        </div>
+        <button
+          onClick={() => setOpenCommitment(NEW_COMMITMENT)}
+          className="flex-none flex items-center gap-1 text-[10.5px] text-muted-2 hover:text-text"
+        >
+          <PlusIcon size={11} /> new commitment
+        </button>
       </div>
       <div className="grid grid-cols-2 gap-3" style={{ minHeight: "70%" }}>
         {QUADRANTS.map((q) => (

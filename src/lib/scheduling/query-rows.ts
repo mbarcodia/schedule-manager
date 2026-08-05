@@ -47,7 +47,10 @@ export async function queryScheduleRows(
   ] = await Promise.all([
     supabase.from("profiles").select("*").eq("id", userId).single(),
     supabase.from("categories").select("*").eq("user_id", userId),
-    supabase.from("projects").select("*").eq("user_id", userId),
+    // Same treatment as archived tasks below: the row, its progress_log history
+    // and its targets are all kept, and it is invisible to scheduling, pace and
+    // the boards until restored.
+    supabase.from("projects").select("*").eq("user_id", userId).is("archived_at", null),
     supabase.from("targets").select("*").eq("user_id", userId),
     // Archived tasks keep their rows + progress_log history forever, but are
     // invisible to scheduling and the board (the archive view queries them

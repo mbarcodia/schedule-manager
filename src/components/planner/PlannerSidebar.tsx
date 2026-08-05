@@ -43,7 +43,10 @@ export function PlannerSidebar({ refreshKey }: PlannerSidebarProps) {
     } = await supabase.auth.getUser();
     if (!user) return;
     const [{ data: rows }, { data: noteRows }] = await Promise.all([
-      supabase.from("projects").select("id,title").eq("user_id", user.id),
+      // Archived commitments drop out of this list: they are off every board, so
+      // a heading for one here would be the only place it still appeared. Its
+      // notes stay in the database and come back with it.
+      supabase.from("projects").select("id,title").eq("user_id", user.id).is("archived_at", null),
       supabase.from("notes").select("*").eq("user_id", user.id).order("updated_at", { ascending: false }),
     ]);
     setProjects(rows ?? []);

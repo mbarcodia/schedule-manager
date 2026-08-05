@@ -129,6 +129,15 @@ export interface Project {
   researchOrd?: number;
   /** Colors this project's auto-generated weekly blocks. */
   categoryId?: string | null;
+  /** Total expected effort in minutes. Null = unestimated, which makes pace
+   * unmeasurable rather than optimistic — see pace.ts. */
+  effortEstimateMin?: number | null;
+  /** The importance half of importance-vs-urgency, as tasks have. */
+  important?: boolean;
+  /** Whether deadlineDate is externally imposed ("hard") or self-set ("goal").
+   * Both are scheduled toward identically; only the consequence of missing one
+   * differs. */
+  deadlineKind?: "hard" | "goal";
 }
 
 /** A date inside a project that consumes no calendar time. Deliberately
@@ -140,6 +149,8 @@ export interface Target {
   title: string;
   date: Date;
   completedAt: Date | null;
+  /** Interim dates default to "goal" — a checkpoint is an aim by nature. */
+  dateKind?: "hard" | "goal";
 }
 
 /** A fixed calendar event (meeting) — immovable; tasks flow around it. */

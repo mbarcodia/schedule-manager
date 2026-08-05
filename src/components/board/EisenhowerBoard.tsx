@@ -6,8 +6,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { KanbanCard, type TaskRow } from "./KanbanCard";
 import { fetchTodoLinks, type TodoLink } from "@/lib/planner/todo-links";
-import { setTaskImportant, setTaskArchived } from "@/lib/planner/board-actions";
-import { quadrantFor, type Quadrant } from "@/lib/planner/eisenhower";
+import { setTaskImportant, setCommitmentImportant, setTaskArchived } from "@/lib/planner/board-actions";
+import { quadrantFor, commitmentQuadrant, type Quadrant } from "@/lib/planner/eisenhower";
+import { computePace, type CommitmentPace } from "@/lib/scheduling/pace";
+import { CommitmentCard } from "./CommitmentCard";
 import { URGENT_THRESHOLD_DAYS } from "@/lib/planner/board-constants";
 import type { UseScheduleDataResult } from "@/hooks/useScheduleData";
 import type { Category } from "@/lib/scheduling/types";
@@ -36,9 +38,44 @@ export function EisenhowerBoard({ scheduleData, onMutated }: EisenhowerBoardProp
   const grouped = useMemo(() => {
     const groups: Record<Quadrant, TaskRow[]> = { do: [], schedule: [], delegate: [], eliminate: [] };
     if (!data) return groups;
-    for (const t of data.rawTasks) groups[quadrantFor(t, data.inputs.timezone)].push(t);
+    // Linked tasks show under their commitment, so listing them here as well
+    // would put the same work in two places.
+    for (const t of data.rawTasks) {
+      if (t.project_id) continue;
+      groups[quadrantFor(t, data.inputs.timezone)].push(t);
+    }
     return groups;
   }, [data]);
+
+  // Stable per mount, as Timeline does it — `new Date()` inside a data memo is
+  // impure, never recomputes, and stops the React Compiler optimising the file.
+  const now = useMemo(() => new Date(), []);
+
+  // Commitments sit on the same two axes: importance is the star, urgency comes
+  // from the soonest date still to be met.
+  const commitments = useMemo(() => {
+    const groups: Record<Quadrant, CommitmentPace[]> = { do: [], schedule: [], delegate: [], eliminate: [] };
+    if (!data) return groups;
+    const pace = computePace({
+      projects: data.projects,
+      targets: data.targets,
+      loggedByProject: data.loggedByProject,
+      weeklyHours: data.inputs.weeklyHours,
+      now,
+    });
+    for (const p of pace) {
+      const project = data.projects.find((x) => x.id === p.projectId);
+      groups[
+        commitmentQuadrant(
+          { important: p.important, deadlineDate: project?.deadlineDate ?? null },
+          p.nextDate,
+          data.inputs.timezone,
+          now,
+        )
+      ].push(p);
+    }
+    return groups;
+  }, [data, now]);
 
   const categoriesById = useMemo(() => {
     const map: Record<string, Category> = {};
@@ -60,10 +97,17 @@ export function EisenhowerBoard({ scheduleData, onMutated }: EisenhowerBoardProp
     onMutated?.();
   }
 
+  async function handleToggleCommitmentImportant(projectId: string, next: boolean) {
+    await setCommitmentImportant(projectId, next);
+    await refresh();
+    onMutated?.();
+  }
+
   return (
     <div className="flex-1 min-h-0 overflow-y-auto p-3">
       <div className="text-[10.5px] text-muted-2 px-1 pb-2">
-        ★ marks a task important. Urgent = deadline within {URGENT_THRESHOLD_DAYS} days.
+        ★ marks something important — commitments and tasks alike. Urgent = a date within{" "}
+        {URGENT_THRESHOLD_DAYS} days, so anything undated is never urgent.
       </div>
       <div className="grid grid-cols-2 gap-3" style={{ minHeight: "70%" }}>
         {QUADRANTS.map((q) => (
@@ -73,6 +117,30 @@ export function EisenhowerBoard({ scheduleData, onMutated }: EisenhowerBoardProp
               <span className="text-[9px] text-muted-2">{q.hint}</span>
             </div>
             <div className="flex-1 p-2 flex flex-col gap-1.5">
+              {commitments[q.id].map((p) => (
+                <CommitmentCard
+                  key={p.projectId}
+                  pace={p}
+                  color={(() => {
+                    const labelId = data.projects.find((x) => x.id === p.projectId)?.categoryId;
+                    return labelId ? (categoriesById[labelId]?.color ?? null) : null;
+                  })()}
+                  onToggleImportant={() => void handleToggleCommitmentImportant(p.projectId, !p.important)}
+                >
+                  {data.rawTasks
+                    .filter((t) => t.project_id === p.projectId)
+                    .map((t) => (
+                      <KanbanCard
+                        key={t.id}
+                        task={t}
+                        category={t.category_id ? (categoriesById[t.category_id] ?? null) : null}
+                        todoLink={todoLinks.get(t.id) ?? null}
+                        onToggleImportant={handleToggleImportant}
+                        onArchive={handleArchive}
+                      />
+                    ))}
+                </CommitmentCard>
+              ))}
               {grouped[q.id].map((t) => (
                 <KanbanCard
                   key={t.id}
@@ -83,7 +151,9 @@ export function EisenhowerBoard({ scheduleData, onMutated }: EisenhowerBoardProp
                   onArchive={handleArchive}
                 />
               ))}
-              {grouped[q.id].length === 0 && <div className="px-1 text-[10.5px] text-muted-2">empty</div>}
+              {grouped[q.id].length === 0 && commitments[q.id].length === 0 && (
+                <div className="px-1 text-[10.5px] text-muted-2">empty</div>
+              )}
             </div>
           </div>
         ))}

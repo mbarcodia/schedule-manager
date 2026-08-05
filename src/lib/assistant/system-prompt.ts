@@ -12,6 +12,7 @@
 import { dateForGday, minToLabel, MONTH_NAMES, WEEKDAY_LABELS } from "@/lib/scheduling/time";
 import { resolveDayWindow } from "@/lib/scheduling/day-window";
 import { allDayDueDate } from "@/lib/scheduling/all-day-due";
+import { computePace, loggedMinutesByCommitment, paceSentence } from "@/lib/scheduling/pace";
 import { deriveBoardStatuses, boardStatusFor } from "@/lib/planner/board-status";
 import { DEFAULT_WIP_LIMIT } from "@/lib/planner/board-constants";
 import type { ComputeScheduleResult, DayOverrides } from "@/lib/scheduling/types";
@@ -110,6 +111,24 @@ export function buildPromptContext(rows: RawScheduleRows, inputs: ScheduleInputs
   const boardIndex = deriveBoardStatuses(schedule);
   const wipInProgressCount = rows.tasks.filter((t) => boardStatusFor(boardIndex, t.id) === "in_progress").length;
 
+  // Targets are deliberately absent from ScheduleInputs (the engine must never
+  // schedule hours for them), so they're mapped from the raw rows here.
+  const pace = computePace({
+    projects: inputs.projects,
+    targets: rows.targets.map((t) => ({
+      id: t.id,
+      projectId: t.commitment_id,
+      title: t.title,
+      date: new Date(t.target_date),
+      completedAt: t.completed_at ? new Date(t.completed_at) : null,
+      dateKind: t.date_kind,
+    })),
+    loggedByProject: loggedMinutesByCommitment(rows.progressLog, rows.tasks),
+    weeklyHours: inputs.weeklyHours,
+    now: new Date(),
+  });
+  const paceById = new Map(pace.map((p) => [p.projectId, p]));
+
   const snapshot = {
     wip: {
       inProgressCount: wipInProgressCount,
@@ -166,10 +185,13 @@ export function buildPromptContext(rows: RawScheduleRows, inputs: ScheduleInputs
     // row full of nulls.
     projects: rows.projects.map((p) => ({
       title: p.title,
+      important: p.important || undefined,
+      totalEffortHrs: p.effort_estimate_min ? p.effort_estimate_min / 60 : null,
+      pace: paceById.get(p.id) ? paceSentence(paceById.get(p.id)!) : null,
       weeklyHrs: p.weekly_min_min ? p.weekly_min_min / 60 : null,
       scheduledThisWeekHrs: +((schedByProject[p.id] || 0) / 60).toFixed(1),
       label: p.category_id ? (labelById.get(p.category_id) ?? null) : null,
-      due: p.deadline_date ?? null,
+      due: p.deadline_date ? { date: p.deadline_date, kind: p.deadline_kind } : null,
       cadence: p.cadence ?? null,
       hoursPlacedIn: p.time_of_day ?? (p.prefer_morning ? "mornings preferred" : null),
       weeklyHoursActiveFrom: p.active_from ?? null,
@@ -233,6 +255,39 @@ export function buildPromptContext(rows: RawScheduleRows, inputs: ScheduleInputs
      * that didn't fit. */
     startsBeyondThePlannedHorizon: schedule.beyondHorizon,
     dayOverrides: formatDayOverrides(inputs.dayOverrides),
+    /** What the board cannot answer yet, and why.
+     *
+     * The boards are only as informative as what has been filled in, and an
+     * under-specified one looks identical to a quiet week: Priorities puts
+     * everything in one quadrant when nothing is marked important, the Progress
+     * board can't judge a commitment with no effort estimate, and the Timeline
+     * has nothing to plot for a commitment with no date. Reporting the gaps
+     * here means raising them in a planning session instead of describing the
+     * board as complete. Ask about these; don't fill them in by guessing. */
+    whatIsThin: (() => {
+      const gaps: string[] = [];
+      const hourly = rows.projects.filter((p) => p.weekly_min_min);
+      const noEstimate = hourly.filter((p) => !p.effort_estimate_min);
+      const noDate = rows.projects.filter(
+        (p) => !p.deadline_date && !rows.targets.some((t) => t.commitment_id === p.id),
+      );
+      const noTasks = hourly.filter((p) => !rows.tasks.some((t) => t.project_id === p.id));
+      if (noEstimate.length)
+        gaps.push(
+          `${noEstimate.length} commitment(s) carry weekly hours but no total-effort estimate, so their pace cannot be computed: ${noEstimate.map((p) => p.title).join(", ")}`,
+        );
+      if (noDate.length)
+        gaps.push(
+          `${noDate.length} commitment(s) have no date of any kind, so nothing counts down and they cannot appear on the timeline: ${noDate.map((p) => p.title).join(", ")}`,
+        );
+      if (!rows.projects.some((p) => p.important) && !rows.tasks.some((t) => t.important))
+        gaps.push("nothing is marked important, so the Priorities board puts everything in one quadrant");
+      if (noTasks.length)
+        gaps.push(
+          `${noTasks.length} commitment(s) have weekly hours but no concrete tasks under them, so there is nothing to check off: ${noTasks.map((p) => p.title).join(", ")}`,
+        );
+      return gaps.length ? gaps : null;
+    })(),
   };
 
   // Order only — NOT "first claim on mornings", which was true when the engine

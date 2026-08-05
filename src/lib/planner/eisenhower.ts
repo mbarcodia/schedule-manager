@@ -24,3 +24,22 @@ export function quadrantFor(task: TaskRow, timezone: string, at: Date = new Date
   if (task.important) return urgent ? "do" : "schedule";
   return urgent ? "delegate" : "eliminate";
 }
+
+/** The same two axes for a commitment. Urgency comes from the soonest date still
+ * to be met — its own deadline or an unmet target — so a commitment with no
+ * dates is never urgent, exactly as a task with no deadline isn't.
+ *
+ * Commitments needed their own entry point because they carry dates in two
+ * places (a deadline and any number of targets) where a task carries one. */
+export function commitmentQuadrant(
+  commitment: { important?: boolean; deadlineDate?: Date | null },
+  nextDate: Date | null,
+  timezone: string,
+  at: Date = new Date(),
+): Quadrant {
+  const dates = [nextDate, commitment.deadlineDate ?? null].filter((d): d is Date => d != null);
+  const soonest = dates.length ? new Date(Math.min(...dates.map((d) => d.getTime()))) : null;
+  const urgent = soonest ? isUrgent({ deadline_at: soonest.toISOString() } as TaskRow, timezone, at) : false;
+  if (commitment.important) return urgent ? "do" : "schedule";
+  return urgent ? "delegate" : "eliminate";
+}

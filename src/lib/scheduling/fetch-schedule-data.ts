@@ -17,6 +17,9 @@ export interface ScheduleData {
    * transformed Task drops (important, archived_at, raw deadline_at,
    * project/proposal links). */
   rawTasks: RawScheduleRows["tasks"];
+  /** Lifetime minutes worked per commitment — the input the Progress board and
+   * the timeline need to judge pace. See logged-hours.ts. */
+  loggedByProject: Record<string, number>;
 }
 
 export async function fetchScheduleData(): Promise<ScheduleData> {
@@ -49,5 +52,6 @@ export async function fetchScheduleData(): Promise<ScheduleData> {
     categories,
     preferredModel: rows.profile.preferred_model,
     rawTasks: rows.tasks,
+    loggedByProject: rows.loggedByProject ?? {},
   };
 }

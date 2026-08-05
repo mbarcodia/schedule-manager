@@ -2,6 +2,7 @@
 // trackables mapping (Schedule Manager.dc.html ~1211-1247).
 
 import { availableCapacity } from "@/lib/assistant/status";
+import { paceSentence, type CommitmentPace } from "./pace";
 import type { ComputeScheduleResult, Project, Task, WeeklyHours } from "@/lib/scheduling/types";
 
 export interface TrackableChip {
@@ -28,7 +29,12 @@ export function computeTrackableChips(
   schedule: ComputeScheduleResult,
   today: Date,
   weeklyHours: WeeklyHours,
+  /** Pace per commitment, when the caller has it. Omitted by callers that only
+   * want the weekly-hours chips; the deadline chip then says pace is unknown
+   * rather than inventing "on track". */
+  pace: CommitmentPace[] = [],
 ): TrackableChip[] {
+  const paceById = new Map(pace.map((p) => [p.projectId, p]));
   const schedByProject: Record<string, number> = {};
   schedule.blocks.forEach((b) => {
     if (b.projectId && b.status !== "missed" && Math.floor(b.gday / 7) === 0) {
@@ -81,7 +87,7 @@ export function computeTrackableChips(
       });
     }
     if (c.deadlineDate) {
-      chips.push(deadlineChip(c.id, c.title, c.deadlineDate, tasks, today, weeklyHours));
+      chips.push(deadlineChip(c.id, c.title, c.deadlineDate, paceById.get(c.id), today, weeklyHours));
     }
     // Nothing scheduled and no date: a project that exists to be tracked
     // rather than solved. Cadence describes its rhythm if it has one.
@@ -104,29 +110,50 @@ export function computeTrackableChips(
 }
 
 /** Callers only reach this with a deadline in hand, so there is no null branch
- * — a project without a date produces a cadence chip instead. */
+ * — a project without a date produces a cadence chip instead.
+ *
+ * This used to decide "on track" by summing the tasks linked to the commitment
+ * against the working time before the date. A commitment with no linked tasks
+ * therefore needed zero minutes and could never be at risk, so every one of
+ * them reported "On track" unconditionally — the most confident-looking part of
+ * the screen was measuring nothing at all.
+ *
+ * It now reports the pace computed in pace.ts, which is honest about being
+ * unmeasurable when the effort estimate is missing rather than defaulting to
+ * reassurance. */
 function deadlineChip(
   projectId: string,
   title: string,
   deadlineDate: Date,
-  tasks: Task[],
+  pace: CommitmentPace | undefined,
   today: Date,
   weeklyHours: WeeklyHours,
 ): TrackableChip {
-  const capacity = availableCapacity(today, deadlineDate, weeklyHours);
-  const days = capacity?.days ?? 0;
-  const neededMin = tasks.filter((t) => t.projectId === projectId).reduce((s, t) => s + t.duration, 0);
-  const availableMin = capacity?.minutes ?? 0;
-  const atRisk = neededMin > availableMin * 0.85;
+  const days = availableCapacity(today, deadlineDate, weeklyHours)?.days ?? 0;
+  const kind = pace?.nextDateKind ?? "hard";
+  const status = pace?.status ?? "unmeasurable";
+  const flag = status === "slipping" || (status === "on_pace" && kind === "hard");
+  const label =
+    status === "unmeasurable"
+      ? `Pace unknown · ${days}d left`
+      : status === "slipping"
+        ? `Slipping · ${days}d left`
+        : status === "not_started"
+          ? `Not started · ${days}d left`
+          : status === "ahead"
+            ? `Ahead · ${days}d left`
+            : `On pace · ${days}d left`;
   return {
     projectId,
     facet: "deadline",
     title,
-    statusText: atRisk ? `At risk · ${days}d left` : `On track · ${days}d left`,
-    statusColor: atRisk ? "#d2cefd" : "#9397ab",
-    statusWeight: atRisk ? "600" : "500",
-    border: atRisk ? "#9184d9" : "rgba(233,233,237,0.16)",
-    bg: atRisk ? "rgba(145,132,217,0.12)" : "#1d1f2b",
-    tooltip: `Due ${deadlineDate.toLocaleDateString()}`,
+    statusText: label,
+    statusColor: flag ? "#d2cefd" : "#9397ab",
+    statusWeight: flag ? "600" : "500",
+    border: flag ? "#9184d9" : "rgba(233,233,237,0.16)",
+    bg: flag ? "rgba(145,132,217,0.12)" : "#1d1f2b",
+    tooltip: pace
+      ? `${kind === "hard" ? "Hard deadline" : "Goal date"} ${deadlineDate.toLocaleDateString()} — ${paceSentence(pace)}`
+      : `Due ${deadlineDate.toLocaleDateString()}`,
   };
 }

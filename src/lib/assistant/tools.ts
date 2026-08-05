@@ -521,6 +521,21 @@ export function buildTools(ctx: ToolContext) {
             'Where this project\'s weekly hours must go. "morning"/"afternoon" is a HARD restriction: the engine refuses the other half of the day even when that means the hours do not fit, which caps a big weekly minimum at whatever one half-day holds. "any" removes that restriction (mornings are still tried first, then afternoons as needed) and is how you undo it. OMITTING this leaves whatever is already set — it does NOT reset it, so pass "any" explicitly to unlock a project.',
         },
         cadence: { type: "string", description: 'rhythm for a project with no deadline, e.g. "Weekly", "Ongoing". Descriptive only — nothing is scheduled from it. Pass "none" to remove it.' },
+        total_effort_hrs: {
+          type: "number",
+          description:
+            "TOTAL expected effort for the whole project, in hours — not per week. This is what makes pace measurable: without it the app cannot say whether the project is keeping up, because it knows the weekly rate and the date but not how much work is left. Ask for a rough figure rather than leaving it unset; it is meant to be revised as logged hours show how wrong it was.",
+        },
+        deadline_kind: {
+          type: "string",
+          enum: ["hard", "goal"],
+          description:
+            'Whether `due` is externally imposed ("hard" — a submission or funder date that cannot move) or self-set ("goal" — a date you are aiming for). Both are scheduled toward identically; the difference is what happens when one will be missed. Ask which it is rather than assuming, and default to "goal" for anything the user chose themselves.',
+        },
+        important: {
+          type: "boolean",
+          description: "Mark this project important — the importance axis of the Priorities board. Urgency is read from its dates; importance is only ever the user's call, so ask rather than inferring it.",
+        },
         category: { type: "string", description: "name of the label for this project's weekly-hours blocks" },
       },
       required: ["title"],
@@ -566,6 +581,9 @@ export function buildTools(ctx: ToolContext) {
       if (until.value) patch.active_until = until.value;
       else if (until.clear) patch.active_until = null;
       if (inp.cadence) patch.cadence = CLEAR.has(inp.cadence.trim().toLowerCase()) ? null : inp.cadence;
+      if (inp.total_effort_hrs != null) patch.effort_estimate_min = Math.round(inp.total_effort_hrs * 60);
+      if (inp.deadline_kind) patch.deadline_kind = inp.deadline_kind;
+      if (inp.important != null) patch.important = inp.important;
       if (categoryId) patch.category_id = categoryId;
       // "any" erases the hard restriction. Previously only "morning" and
       // "afternoon" existed and an omitted field meant "leave it", so a project
@@ -593,6 +611,9 @@ export function buildTools(ctx: ToolContext) {
             ? `${inp.hours_time_of_day}s only`
             : null,
         inp.cadence ? inp.cadence.toLowerCase() : null,
+        inp.total_effort_hrs != null ? `${inp.total_effort_hrs}h total effort` : null,
+        inp.deadline_kind ? `${inp.deadline_kind} date` : null,
+        inp.important ? "important" : null,
       ].filter(Boolean);
       const summary = facets.length ? ` — ${facets.join(", ")}.${dateNote}` : `.${dateNote}`;
 
@@ -619,6 +640,9 @@ export function buildTools(ctx: ToolContext) {
           active_from: from.value,
           active_until: until.value,
           cadence: inp.cadence ?? null,
+          effort_estimate_min: inp.total_effort_hrs != null ? Math.round(inp.total_effort_hrs * 60) : null,
+          deadline_kind: inp.deadline_kind ?? (inp.due ? "hard" : "goal"),
+          important: inp.important ?? false,
           chunk_min: 120,
           research_ord: 5,
           category_id: categoryId,
@@ -642,6 +666,12 @@ export function buildTools(ctx: ToolContext) {
         title: { type: "string" },
         project: { type: "string", description: "fuzzy title of the project this target belongs to" },
         date: { type: "string", description: 'natural language, e.g. "end of august", "october 31"' },
+        date_kind: {
+          type: "string",
+          enum: ["hard", "goal"],
+          description:
+            'Whether this checkpoint is externally imposed ("hard") or one the user set for themselves ("goal", the default and the usual case for an interim date). Pace is measured against the soonest unmet target either way; the difference is whether missing it is a problem to solve or a date to move.',
+        },
       },
       required: ["title", "project", "date"],
     },
@@ -662,17 +692,26 @@ export function buildTools(ctx: ToolContext) {
         .eq("commitment_id", lookup.projectId);
       const dupe = (existing ?? []).find((t) => normTitle(t.title) === normTitle(inp.title));
       if (dupe) {
-        const { error } = await supabase.from("targets").update({ target_date }).eq("id", dupe.id);
+        const { error } = await supabase
+          .from("targets")
+          .update({ target_date, ...(inp.date_kind ? { date_kind: inp.date_kind } : {}) })
+          .eq("id", dupe.id);
         if (error) return `Couldn't move that target: ${error.message}`;
         markMutated(ctx);
         return `Moved "${dupe.title}" to ${target_date} (${lookup.title}).`;
       }
       const { error } = await supabase
         .from("targets")
-        .insert({ user_id: userId, commitment_id: lookup.projectId, title: inp.title, target_date });
+        .insert({
+          user_id: userId,
+          commitment_id: lookup.projectId,
+          title: inp.title,
+          target_date,
+          date_kind: inp.date_kind ?? "goal",
+        });
       if (error) return `Couldn't add that target: ${error.message}`;
       markMutated(ctx);
-      return `Target "${inp.title}" set for ${target_date} under ${lookup.title}. It takes no calendar time.`;
+      return `Target "${inp.title}" set for ${target_date} under ${lookup.title} (${inp.date_kind ?? "goal"} date). It takes no calendar time, and pace is now measured against it.`;
     },
   });
 

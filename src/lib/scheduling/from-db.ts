@@ -39,6 +39,11 @@ export interface RawScheduleRows {
   pinnedChunks: Row<"pinned_chunks">[];
   researchPins: Row<"research_pins">[];
   calendarConnections: Row<"calendar_connections">[];
+  /** The one derived field here: LIFETIME minutes worked per commitment, which
+   * progressLog above cannot give because it is windowed to a fortnight back for
+   * done/missed resolution. Optional so callers that don't need pace (and the
+   * engine, which never does) can leave it out. See logged-hours.ts. */
+  loggedByProject?: Record<string, number>;
 }
 
 function dateParts(iso: string): { year: number; month: number; day: number } {
@@ -136,6 +141,9 @@ export function buildScheduleInputs(
     minChunk: minChunkFor(p.category_id),
     researchOrd: p.research_ord ?? undefined,
     categoryId: p.category_id,
+    effortEstimateMin: p.effort_estimate_min,
+    important: p.important,
+    deadlineKind: p.deadline_kind,
   }));
 
   const targets: Target[] = rows.targets.map((t) => ({
@@ -144,6 +152,7 @@ export function buildScheduleInputs(
     title: t.title,
     date: new Date(t.target_date),
     completedAt: t.completed_at ? new Date(t.completed_at) : null,
+    dateKind: t.date_kind,
   }));
 
   // Needed before the tasks below, not just by the engine: a date-only

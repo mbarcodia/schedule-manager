@@ -70,6 +70,13 @@ export async function setTaskImportant(taskId: string, important: boolean): Prom
   await supabase.from("tasks").update({ important }).eq("id", taskId);
 }
 
+/** Importance on a commitment, mirroring setTaskImportant. Both axes of the
+ * Priorities board are per-row flags the user sets; urgency is derived. */
+export async function setCommitmentImportant(projectId: string, important: boolean): Promise<void> {
+  const supabase = createClient();
+  await supabase.from("projects").update({ important }).eq("id", projectId);
+}
+
 export async function setTaskArchived(taskId: string, archived: boolean): Promise<void> {
   const supabase = createClient();
   await supabase

@@ -8,6 +8,9 @@ export type PlannerCredentialProvider = "api_key" | "oauth_token";
 export type NoteKind = "idea" | "todo" | "paper" | "update" | "other";
 export type Priority = "high" | "medium" | "low";
 export type TaskTimeOfDay = "morning" | "afternoon";
+/** Whether a date is externally imposed or self-set. Scheduling treats them
+ * identically; the consequence of missing one differs. */
+export type DateKind = "hard" | "goal";
 /** Where in the day a label's work belongs (categories.time_pref). The pair of
  * directions times the pair of strictnesses the engine can enforce: "*_only"
  * refuses the other half of the day outright, "prefer_*" tries it first and
@@ -147,6 +150,9 @@ export interface Database {
           active_from: string | null;
           active_until: string | null;
           time_of_day: TaskTimeOfDay | null;
+          effort_estimate_min: number | null;
+          important: boolean;
+          deadline_kind: DateKind;
           created_at: string;
         },
         {
@@ -163,6 +169,9 @@ export interface Database {
           active_from?: string | null;
           active_until?: string | null;
           time_of_day?: TaskTimeOfDay | null;
+          effort_estimate_min?: number | null;
+          important?: boolean;
+          deadline_kind?: DateKind;
         },
         Partial<{
           title: string;
@@ -176,6 +185,9 @@ export interface Database {
           active_from: string | null;
           active_until: string | null;
           time_of_day: TaskTimeOfDay | null;
+          effort_estimate_min: number | null;
+          important: boolean;
+          deadline_kind: DateKind;
         }>
       >;
       /** A dated checkpoint inside a project that consumes no hours. */
@@ -187,6 +199,7 @@ export interface Database {
           title: string;
           target_date: string;
           completed_at: string | null;
+          date_kind: DateKind;
           created_at: string;
         },
         {
@@ -196,8 +209,9 @@ export interface Database {
           title: string;
           target_date: string;
           completed_at?: string | null;
+          date_kind?: DateKind;
         },
-        Partial<{ title: string; target_date: string; completed_at: string | null }>
+        Partial<{ title: string; target_date: string; completed_at: string | null; date_kind: DateKind }>
       >;
       tasks: Table<
         {

@@ -206,14 +206,18 @@ export function computePace(inputs: PaceInputs): CommitmentPace[] {
   });
 }
 
+/** The gaps as a readable list. Shared with the card that offers to fill them,
+ * so "estimate, date and weekly hours" doesn't become "estimate and date and
+ * weekly hours" in one of the two places. */
+export const missingList = (missing: CommitmentPace["missing"]): string =>
+  missing.length > 1 ? `${missing.slice(0, -1).join(", ")} and ${missing[missing.length - 1]}` : (missing[0] ?? "");
+
 /** One line a person can act on. Kept here so the board, the chat snapshot and
  * the timeline all say the same thing about the same commitment. */
 export function paceSentence(p: CommitmentPace): string {
   const hrs = (min: number) => `${+(min / 60).toFixed(1)}h`;
   if (p.status === "unmeasurable") {
-    const list =
-      p.missing.length > 1 ? `${p.missing.slice(0, -1).join(", ")} and ${p.missing[p.missing.length - 1]}` : p.missing[0];
-    return `Pace unknown — needs ${list} to be measurable.`;
+    return `Pace unknown — needs ${missingList(p.missing)} to be measurable.`;
   }
   const on = p.nextDate!.toLocaleDateString(undefined, { month: "short", day: "numeric" });
   const date = p.nextDateLabel === "deadline" ? `the ${p.nextDateKind} deadline, ${on}` : `“${p.nextDateLabel}” on ${on}`;

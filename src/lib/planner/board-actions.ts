@@ -84,3 +84,101 @@ export async function setTaskArchived(taskId: string, archived: boolean): Promis
     .update({ archived_at: archived ? new Date().toISOString() : null })
     .eq("id", taskId);
 }
+
+// ---------------------------------------------------------------------------
+// Commitments and their dates.
+//
+// These carry the three inputs pace needs — a total estimate, weekly hours and a
+// date — and until now every one of them could only be set by talking to the
+// chat. A card that says "needs estimate and weekly hours to be measurable" with
+// no way to supply either is a dead end, so the panel writes them directly and
+// the chat tools keep doing the same job from a word dump. Both paths write the
+// same columns; neither is the source of truth.
+//
+// Errors are RETURNED rather than swallowed: a panel that closes on a failed
+// write reads as a saved change, which is how two earlier "Save does nothing"
+// bugs presented.
+
+/** null clears the field. Hours are stored as minutes throughout. */
+export interface CommitmentFields {
+  deadlineDate: string | null;
+  deadlineKind: "hard" | "goal";
+  effortEstimateMin: number | null;
+  weeklyMinMin: number | null;
+  important: boolean;
+}
+
+export async function saveCommitmentFields(projectId: string, fields: CommitmentFields): Promise<string | null> {
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("projects")
+    .update({
+      deadline_date: fields.deadlineDate,
+      deadline_kind: fields.deadlineKind,
+      effort_estimate_min: fields.effortEstimateMin,
+      weekly_min_min: fields.weeklyMinMin,
+      important: fields.important,
+    })
+    .eq("id", projectId);
+  return error?.message ?? null;
+}
+
+export interface TargetFields {
+  title: string;
+  /** YYYY-MM-DD. A target is a day, never a moment. */
+  date: string;
+  dateKind: "hard" | "goal";
+  /** Effort due by this date, for this phase alone. null = undimensioned, and
+   * pace then measures the whole commitment's remaining effort against it. */
+  effortEstimateMin: number | null;
+}
+
+export async function saveTarget(targetId: string, fields: TargetFields): Promise<string | null> {
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("targets")
+    .update({
+      title: fields.title,
+      target_date: fields.date,
+      date_kind: fields.dateKind,
+      effort_estimate_min: fields.effortEstimateMin,
+    })
+    .eq("id", targetId);
+  return error?.message ?? null;
+}
+
+export async function addTarget(projectId: string, fields: TargetFields): Promise<string | null> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return "You appear to be signed out — reload and try again.";
+  const { error } = await supabase.from("targets").insert({
+    user_id: user.id,
+    commitment_id: projectId,
+    title: fields.title,
+    target_date: fields.date,
+    date_kind: fields.dateKind,
+    effort_estimate_min: fields.effortEstimateMin,
+  });
+  return error?.message ?? null;
+}
+
+/** Hit or un-hit. Kept rather than deleted, so a commitment reads as a sequence
+ * of dates made or missed — same one-field write the Timeline marker does. */
+export async function setTargetHit(targetId: string, hit: boolean): Promise<string | null> {
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("targets")
+    .update({ completed_at: hit ? new Date().toISOString() : null })
+    .eq("id", targetId);
+  return error?.message ?? null;
+}
+
+/** Deleting is for a checkpoint that shouldn't exist. Hitting one that has been
+ * met is setTargetHit — that's a record, and pace still counts its hours. */
+export async function deleteTarget(targetId: string): Promise<string | null> {
+  const supabase = createClient();
+  const { error } = await supabase.from("targets").delete().eq("id", targetId);
+  return error?.message ?? null;
+}

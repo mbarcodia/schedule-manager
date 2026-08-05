@@ -12,7 +12,7 @@ const INTROS: Record<BoardViewId, { title: string; body: string }> = {
   kanban: {
     title: "Progress — commitments by whether they are keeping up",
     body:
-      "Each commitment sits in a column read from reality, not a status you maintain: whether it can be judged at all, whether anything has been logged, and whether the work left fits the time left at its current weekly hours. Judging it needs an effort estimate and a date — without those a commitment sits in Needs setup, because “on pace” would otherwise be a guess. Tasks appear under the commitment they belong to. Drag a task to change the schedule: In progress pins it to today, This week moves it up the queue, Backlog unpins it.",
+      "Each commitment sits in a column read from reality, not a status you maintain: whether it can be judged at all, whether anything has been logged, and whether the work left fits the time left at its current weekly hours. Judging it needs an effort estimate and a date — without those a commitment sits in Needs setup, because “on pace” would otherwise be a guess, and its card names which figure is missing. Click that line on any card to set the total work, the weekly hours, the finish-by date and the dates along the way; describing the same thing to the chat does the identical job. Tasks appear under the commitment they belong to. Drag a task to change the schedule: In progress pins it to today, This week moves it up the queue, Backlog unpins it.",
   },
   eisenhower: {
     title: "Priorities — importance against urgency",
@@ -22,7 +22,7 @@ const INTROS: Record<BoardViewId, { title: string; body: string }> = {
   timeline: {
     title: "Timeline — six months of dates",
     body:
-      "One bar per commitment with a date, from today to the furthest one. Targets are the dots along it: hollow while pending, filled once you click them. A date is either hard, meaning externally imposed, or a goal you set yourself — both are scheduled toward the same way, but only a goal is yours to move when it slips. Commitments with no dates sit in their own lane. This is the view for spotting two deadlines landing in the same fortnight while there is still time to move one.",
+      "One bar per commitment with a date, from today to the furthest one. Targets are the dots along it: hollow while pending, filled once you click them. Each one can carry the hours due by it, which is what stops a checkpoint two weeks away being measured against the whole project — click a commitment's name to set that, its dates and its hours. A date is either hard, meaning externally imposed, or a goal you set yourself — both are scheduled toward the same way, but only a goal is yours to move when it slips. Commitments with no dates sit in their own lane. This is the view for spotting two deadlines landing in the same fortnight while there is still time to move one.",
   },
   todos: {
     title: "To-Do — things to do, with as much structure as each one needs",

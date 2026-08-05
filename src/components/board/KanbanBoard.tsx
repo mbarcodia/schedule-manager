@@ -9,6 +9,7 @@ import { deriveBoardStatuses, boardStatusFor, type BoardStatus } from "@/lib/pla
 import { DEFAULT_WIP_LIMIT } from "@/lib/planner/board-constants";
 import { moveTaskToColumn, setTaskImportant, setCommitmentImportant, setTaskArchived, type DroppableColumn } from "@/lib/planner/board-actions";
 import { CommitmentCard } from "./CommitmentCard";
+import { CommitmentPanelHost } from "./CommitmentPanel";
 import { computePace, type CommitmentPace, type PaceStatus } from "@/lib/scheduling/pace";
 import { computeStreaks, type CommitmentStreak } from "@/lib/scheduling/streaks";
 import { projectTotalMin } from "@/lib/scheduling/calibration";
@@ -20,9 +21,9 @@ import type { Category } from "@/lib/scheduling/types";
  * time left at the current weekly rate.
  *
  * "Needs setup" is first deliberately. A commitment with no effort estimate or
- * no date cannot be judged, and the fix is one sentence to the chat — putting it
- * in the leftmost column makes the gap the first thing seen rather than
- * something inferred from an oddly empty board. */
+ * no date cannot be judged, and its card names which input is missing and opens
+ * the panel that sets it — putting it in the leftmost column makes the gap the
+ * first thing seen rather than something inferred from an oddly empty board. */
 const PACE_COLUMNS: { status: PaceStatus; title: string; subtitle?: string }[] = [
   { status: "unmeasurable", title: "Needs setup", subtitle: "no estimate or no date" },
   { status: "not_started", title: "Not started", subtitle: "nothing logged yet" },
@@ -54,6 +55,7 @@ export function KanbanBoard({ scheduleData, onMutated }: KanbanBoardProps) {
 
   const { data, schedule, refresh } = scheduleData;
   const [notice, setNotice] = useState<string | null>(null);
+  const [openCommitment, setOpenCommitment] = useState<string | null>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
   // Stable per mount, as Timeline does it — `new Date()` inside a data memo is
@@ -197,7 +199,9 @@ export function KanbanBoard({ scheduleData, onMutated }: KanbanBoardProps) {
                   streak={extras.streaks.get(p.projectId) ?? null}
                   projectedTotalMin={extras.projected.get(p.projectId) ?? null}
                   color={commitmentColor(p.projectId)}
+                  targetCount={data.targets.filter((t) => t.projectId === p.projectId).length}
                   onToggleImportant={() => void handleToggleCommitmentImportant(p.projectId, !p.important)}
+                  onOpen={() => setOpenCommitment(p.projectId)}
                 >
                   {data.rawTasks
                     .filter((t) => t.project_id === p.projectId)
@@ -247,6 +251,17 @@ export function KanbanBoard({ scheduleData, onMutated }: KanbanBoardProps) {
           ))}
         </div>
       </DndContext>
+
+      <CommitmentPanelHost
+        data={data}
+        pace={pace}
+        openId={openCommitment}
+        onClose={() => setOpenCommitment(null)}
+        onSaved={async () => {
+          await refresh();
+          onMutated?.();
+        }}
+      />
     </div>
   );
 }

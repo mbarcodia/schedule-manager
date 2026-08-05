@@ -12,7 +12,7 @@
 
 import { StarIcon } from "@phosphor-icons/react";
 import type { CommitmentPace } from "@/lib/scheduling/pace";
-import { paceSentence } from "@/lib/scheduling/pace";
+import { missingList, paceSentence } from "@/lib/scheduling/pace";
 import type { CommitmentStreak } from "@/lib/scheduling/streaks";
 import type { ReactNode } from "react";
 
@@ -21,7 +21,9 @@ export function CommitmentCard({
   streak,
   projectedTotalMin,
   color,
+  targetCount = 0,
   onToggleImportant,
+  onOpen,
   children,
 }: {
   pace: CommitmentPace;
@@ -32,7 +34,11 @@ export function CommitmentCard({
   projectedTotalMin?: number | null;
   /** The commitment's label colour, as a left edge — same treatment as a task. */
   color?: string | null;
+  /** How many dates the commitment carries, for the footer's own words. */
+  targetCount?: number;
   onToggleImportant: () => void;
+  /** Opens the panel holding the inputs pace names as missing. */
+  onOpen?: () => void;
   /** Task cards belonging to this commitment. */
   children?: ReactNode;
 }) {
@@ -98,6 +104,24 @@ export function CommitmentCard({
           Phases done so far imply ~{Math.round(projectedTotalMin / 60)}h in total, not{" "}
           {Math.round(pace.estimateMin / 60)}h.
         </div>
+      )}
+
+      {/* The sentence above names what's missing; this is where it gets fixed.
+          Worded as the thing it opens rather than as "edit", and it leads with
+          the gap when there is one — the card is the first place the gap is
+          seen, so it should be the first place it can be closed. */}
+      {onOpen && (
+        <button
+          onClick={onOpen}
+          className="self-start text-[9.5px] text-muted-2 hover:text-text"
+          style={pace.status === "unmeasurable" ? { color: "#e0a94e" } : undefined}
+        >
+          {pace.status === "unmeasurable"
+            ? `set ${missingList(pace.missing)} ▸`
+            : targetCount > 0
+              ? `${targetCount} date${targetCount > 1 ? "s" : ""} along the way ▸`
+              : "hours and dates ▸"}
+        </button>
       )}
 
       {children && <div className="flex flex-col gap-1 pt-0.5">{children}</div>}

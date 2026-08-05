@@ -12,6 +12,7 @@ import { computePace, type CommitmentPace } from "@/lib/scheduling/pace";
 import { computeStreaks, type CommitmentStreak } from "@/lib/scheduling/streaks";
 import { projectTotalMin } from "@/lib/scheduling/calibration";
 import { CommitmentCard } from "./CommitmentCard";
+import { CommitmentPanelHost } from "./CommitmentPanel";
 import { URGENT_THRESHOLD_DAYS } from "@/lib/planner/board-constants";
 import type { UseScheduleDataResult } from "@/hooks/useScheduleData";
 import type { Category } from "@/lib/scheduling/types";
@@ -36,6 +37,7 @@ export function EisenhowerBoard({ scheduleData, onMutated }: EisenhowerBoardProp
   }, []);
 
   const { data, refresh } = scheduleData;
+  const [openCommitment, setOpenCommitment] = useState<string | null>(null);
 
   const grouped = useMemo(() => {
     const groups: Record<Quadrant, TaskRow[]> = { do: [], schedule: [], delegate: [], eliminate: [] };
@@ -150,7 +152,9 @@ export function EisenhowerBoard({ scheduleData, onMutated }: EisenhowerBoardProp
                     const labelId = data.projects.find((x) => x.id === p.projectId)?.categoryId;
                     return labelId ? (categoriesById[labelId]?.color ?? null) : null;
                   })()}
+                  targetCount={data.targets.filter((t) => t.projectId === p.projectId).length}
                   onToggleImportant={() => void handleToggleCommitmentImportant(p.projectId, !p.important)}
+                  onOpen={() => setOpenCommitment(p.projectId)}
                 >
                   {data.rawTasks
                     .filter((t) => t.project_id === p.projectId)
@@ -183,6 +187,17 @@ export function EisenhowerBoard({ scheduleData, onMutated }: EisenhowerBoardProp
           </div>
         ))}
       </div>
+
+      <CommitmentPanelHost
+        data={data}
+        pace={Object.values(commitments).flat()}
+        openId={openCommitment}
+        onClose={() => setOpenCommitment(null)}
+        onSaved={async () => {
+          await refresh();
+          onMutated?.();
+        }}
+      />
     </div>
   );
 }

@@ -12,10 +12,11 @@
 // their own lane above it. Risk colouring reuses the same chip heuristic the
 // chat panel shows rather than reimplementing it.
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { CommitmentPanelHost } from "./CommitmentPanel";
 import { computeTrackableChips, type TrackableChip } from "@/lib/scheduling/trackables";
-import { paceFromData } from "@/lib/scheduling/pace";
+import { paceFromData, type CommitmentPace } from "@/lib/scheduling/pace";
 import type { UseScheduleDataResult } from "@/hooks/useScheduleData";
 import type { Target } from "@/lib/scheduling/types";
 
@@ -25,6 +26,7 @@ const DAY_MS = 86400000;
 export function Timeline({ scheduleData }: { scheduleData: UseScheduleDataResult }) {
   const { data, schedule, refresh } = scheduleData;
   const now = useMemo(() => new Date(), []);
+  const [openCommitment, setOpenCommitment] = useState<string | null>(null);
 
   /** Ticking a target off is a one-field write with no scheduling consequences
    * — nothing re-flows, because targets never occupied any time. */
@@ -37,15 +39,19 @@ export function Timeline({ scheduleData }: { scheduleData: UseScheduleDataResult
     await refresh();
   }
 
+  // Hoisted out of the chip memo below, which used to compute and discard it:
+  // the panel needs the same pace the chips are coloured from, and computing it
+  // twice is how two views come to disagree about one commitment.
+  const pace = useMemo<CommitmentPace[]>(() => (data ? paceFromData(data, now) : []), [data, now]);
+
   const chipsByProject = useMemo(() => {
     const map = new Map<string, TrackableChip[]>();
     if (!data || !schedule) return map;
-    const pace = paceFromData(data, now);
     for (const c of computeTrackableChips(data.projects, data.inputs.tasks, schedule, now, data.inputs.weeklyHours, pace)) {
       map.set(c.projectId, [...(map.get(c.projectId) ?? []), c]);
     }
     return map;
-  }, [data, schedule, now]);
+  }, [data, schedule, now, pace]);
 
   if (!data || !schedule) return <div className="px-5 py-4 text-[12px] text-muted">Loading…</div>;
 
@@ -77,16 +83,21 @@ export function Timeline({ scheduleData }: { scheduleData: UseScheduleDataResult
             No dates — nothing to count down to
           </div>
           <div className="flex flex-wrap gap-1.5">
+            {/* Clickable for the same reason this lane exists: these are the
+               commitments with no date, and a date is what moves one onto the
+               scale below. */}
             {undated.map(({ project: c }) => (
-              <div
+              <button
                 key={c.id}
-                className="rounded-md border border-border bg-surface px-2.5 py-1.5 flex items-baseline gap-2"
+                onClick={() => setOpenCommitment(c.id)}
+                title="Set its dates and hours"
+                className="rounded-md border border-border bg-surface px-2.5 py-1.5 flex items-baseline gap-2 hover:border-accent"
               >
                 <span className="text-[11.5px] text-text">{c.title}</span>
                 <span className="text-[9px] tracking-wide uppercase text-muted-2">
                   {c.weeklyMinMin ? `${c.weeklyMinMin / 60}h/wk` : c.cadence || "untracked"}
                 </span>
-              </div>
+              </button>
             ))}
           </div>
         </div>
@@ -120,9 +131,15 @@ export function Timeline({ scheduleData }: { scheduleData: UseScheduleDataResult
                       {c.weeklyMinMin / 60}h/wk
                     </span>
                   )}
-                  <span className="text-[11.5px] text-text truncate" title={c.title}>
+                  {/* The name opens the panel; the markers keep their one-click
+                     tick, which is the action you want most often here. */}
+                  <button
+                    onClick={() => setOpenCommitment(c.id)}
+                    title={`${c.title} — set its dates and hours`}
+                    className="text-[11.5px] text-text truncate hover:text-accent-text"
+                  >
                     {c.title}
-                  </span>
+                  </button>
                   {c.deadlineDate && (
                     <span
                       className="flex-none text-[8.5px] tracking-wide uppercase"
@@ -175,6 +192,14 @@ export function Timeline({ scheduleData }: { scheduleData: UseScheduleDataResult
           )}
         </div>
       </div>
+
+      <CommitmentPanelHost
+        data={data}
+        pace={pace}
+        openId={openCommitment}
+        onClose={() => setOpenCommitment(null)}
+        onSaved={refresh}
+      />
     </div>
   );
 }

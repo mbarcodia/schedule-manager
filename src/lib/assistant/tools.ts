@@ -675,7 +675,7 @@ export function buildTools(ctx: ToolContext) {
         hours: {
           type: "number",
           description:
-            "How much of the project's effort this phase alone is expected to take — not the running total. Give it whenever it's known: pace then measures the hours due by this date rather than the project's whole remaining effort against it, which otherwise reports a two-week checkpoint as months behind. Omit if the checkpoint isn't a slice of the work (a meeting, a decision).",
+            "How much of the project's effort this phase alone is expected to take — not the running total. Give it whenever it's known: pace then measures the hours due by this date rather than the project's whole remaining effort against it, which otherwise reports a two-week checkpoint as months behind. Omit if the checkpoint isn't a slice of the work (a meeting, a decision). Pass 0 to remove a figure already set — the panel's empty field means the same thing.",
         },
       },
       required: ["title", "project", "date"],
@@ -695,10 +695,12 @@ export function buildTools(ctx: ToolContext) {
         .from("targets")
         .select("id,title")
         .eq("commitment_id", lookup.projectId);
-      // `hours != null`, not `if (inp.hours)`: a 0 would be a bad figure to
-      // accept, but the check-constraint should be the one to say so rather than
-      // the value being silently dropped.
-      const effort = inp.hours != null ? { effort_estimate_min: Math.round(inp.hours * 60) } : {};
+      // `hours != null`, not `if (inp.hours)`: 0 is a real instruction here —
+      // erase the figure, which is what the panel's empty field stores. Testing
+      // truthiness would have made it a silent no-op, which is the shape of
+      // several bugs in this file's history.
+      const effort =
+        inp.hours == null ? {} : { effort_estimate_min: inp.hours > 0 ? Math.round(inp.hours * 60) : null };
       const dupe = (existing ?? []).find((t) => normTitle(t.title) === normTitle(inp.title));
       if (dupe) {
         const { error } = await supabase
@@ -707,7 +709,9 @@ export function buildTools(ctx: ToolContext) {
           .eq("id", dupe.id);
         if (error) return `Couldn't move that target: ${error.message}`;
         markMutated(ctx);
-        return `Moved "${dupe.title}" to ${target_date} (${lookup.title})${inp.hours != null ? `, ${inp.hours}h of work due by then` : ""}.`;
+        const hoursNote =
+          inp.hours == null ? "" : inp.hours > 0 ? `, ${inp.hours}h of work due by then` : ", and its hours figure removed";
+        return `Moved "${dupe.title}" to ${target_date} (${lookup.title})${hoursNote}.`;
       }
       const { error } = await supabase
         .from("targets")
@@ -724,7 +728,7 @@ export function buildTools(ctx: ToolContext) {
       return (
         `Target "${inp.title}" set for ${target_date} under ${lookup.title} (${inp.date_kind ?? "goal"} date). ` +
         `It takes no calendar time, and pace is now measured against it` +
-        (inp.hours != null
+        (inp.hours != null && inp.hours > 0
           ? ` — ${inp.hours}h of the project's effort is due by then.`
           : `. Only this phase's own hours are missing: without them pace compares the project's WHOLE remaining effort against this date, which reads as badly behind for any near checkpoint.`)
       );

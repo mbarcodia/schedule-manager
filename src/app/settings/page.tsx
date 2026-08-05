@@ -17,6 +17,7 @@ import type {
 import { getPushSubscriptionStatus, subscribeToPush, unsubscribeFromPush } from "@/lib/push/subscribe";
 import { BookingSection } from "@/components/settings/BookingSection";
 import { RoutinesSection } from "@/components/settings/RoutinesSection";
+import { RulesSection } from "@/components/settings/RulesSection";
 import {
   DEFAULT_VIEW_DAYS,
   VIEW_DAY_OPTIONS,
@@ -188,6 +189,7 @@ const SECTION_GROUPS: { group: string; items: { id: string; label: string }[] }[
     items: [
       { id: "standard-hours", label: "Standard hours" },
       { id: "routines", label: "Routines" },
+      { id: "rules", label: "Standing rules" },
       { id: "grace-window", label: "Un-ticked blocks" },
       { id: "categories", label: "Labels" },
       { id: "calendar-view", label: "Calendar view" },
@@ -1010,6 +1012,10 @@ export default function SettingsPage() {
         {/* Directly after the standard hours the routines sit inside — both
            answer "what does a normal week look like". */}
         <RoutinesSection />
+
+        {/* Then the rules, which are the same subject one step less literal:
+           what the planner should do that the scheduler can't be told. */}
+        <RulesSection />
 
         <div className="mt-8 pt-5 border-t border-border">
           <h2 id="categories" className="text-base font-medium mb-1 scroll-mt-4">Labels</h2>

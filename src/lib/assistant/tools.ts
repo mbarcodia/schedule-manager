@@ -1275,7 +1275,7 @@ export function buildTools(ctx: ToolContext) {
   const remember_rule = betaTool({
     name: "remember_rule",
     description:
-      'Save (or forget) a free-form standing preference you must always honour when scheduling and advising, e.g. "keep Friday afternoons free", "prefer 2h research chunks".',
+      'Save (or forget) a free-form standing rule you must always honour when scheduling and advising, e.g. "keep Friday afternoons free", "prefer 2h research chunks". These are instructions to YOU, not constraints on the engine — it never sees them. So if what the user wants can be enforced instead (standard hours, one day\'s hours, a routine, or a label\'s minimum chunk / time of day / share of the week), set that as well as, or instead of, saving a rule about it. The user can also read, reword and delete these in Settings → Standing rules, so expect them to have changed between turns.',
     inputSchema: {
       type: "object",
       properties: { note: { type: "string" }, forget: { type: "boolean" } },
@@ -1284,13 +1284,23 @@ export function buildTools(ctx: ToolContext) {
     run: async ({ note, forget }) => {
       if (forget) {
         const { data: notes } = await supabase.from("preference_notes").select("*").eq("user_id", userId);
-        const match = (notes ?? []).find(
-          (x) => x.note.toLowerCase().includes(note.toLowerCase()) || note.toLowerCase().includes(x.note.toLowerCase()),
+        const needle = note.toLowerCase();
+        const matches = (notes ?? []).filter(
+          (x) => x.note.toLowerCase().includes(needle) || needle.includes(x.note.toLowerCase()),
         );
-        if (!match) return "No saved preference matches that.";
-        await supabase.from("preference_notes").delete().eq("id", match.id);
+        if (!matches.length) return "No saved rule matches that.";
+        // Substring matching in either direction, over rules that are whole
+        // sentences: a phrase like "research" can easily hit several. Deleting
+        // the first one silently is how the wrong rule disappears.
+        if (matches.length > 1) {
+          return (
+            `That matches ${matches.length} saved rules, so I haven't deleted any. Say which one, using enough of its wording to be unambiguous:\n` +
+            matches.map((m) => `  - "${m.note}"`).join("\n")
+          );
+        }
+        await supabase.from("preference_notes").delete().eq("id", matches[0].id);
         markMutated(ctx);
-        return `Forgot: "${match.note}".`;
+        return `Forgot: "${matches[0].note}".`;
       }
       await supabase.from("preference_notes").insert({ user_id: userId, note });
       markMutated(ctx);

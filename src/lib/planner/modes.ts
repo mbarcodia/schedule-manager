@@ -3,6 +3,13 @@
 // want a tool call fired off the first sentence. The mode is chosen explicitly
 // in the UI so it's obvious which one you're in — and so the model choice and
 // the behavioural contract can differ.
+//
+// The ids are "quick" and "planning"; the LABELS are "Chat" and "Planning
+// session". The everyday mode was called "Quick change", which promised too
+// narrowly — it also answers questions and it's where most use lands, so a name
+// implying every message must be an edit made asking anything feel off-label.
+// The id is left alone: it's persisted per conversation and crosses the relay
+// contract, so renaming it would be churn for no gain.
 
 export type ChatMode = "quick" | "planning";
 
@@ -25,9 +32,9 @@ export interface ChatModeMeta {
 export const CHAT_MODES: Record<ChatMode, ChatModeMeta> = {
   quick: {
     id: "quick",
-    label: "Quick change",
-    blurb: "One change, done immediately — no questions asked.",
-    placeholder: 'e.g. "log 45 minutes on grading" or "move my gym routine to 6pm"',
+    label: "Chat",
+    blurb: "Anything from a question to one change, answered straight away.",
+    placeholder: 'e.g. "log 45 minutes on grading", "move my gym routine to 6pm", "how free is Thursday?"',
     starters: [],
   },
   planning: {

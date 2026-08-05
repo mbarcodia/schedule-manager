@@ -141,9 +141,12 @@ export function WeekGrid({
   }, [startGday, viewDays]);
 
   return (
-    <div ref={scrollRef} className="flex-1 flex flex-col min-w-0 overflow-y-auto">
+    <div
+      ref={scrollRef}
+      className="@container flex-1 flex flex-col min-w-0 overflow-y-auto [--cal-gutter:56px] @max-[720px]:[--cal-gutter:38px]"
+    >
       {/* Sticky day header row */}
-      <div className="flex-none grid sticky top-0 z-[5] bg-bg border-b border-border" style={{ gridTemplateColumns: `56px repeat(${viewDays},1fr)` }}>
+      <div className="flex-none grid sticky top-0 z-[5] bg-bg border-b border-border" style={{ gridTemplateColumns: `var(--cal-gutter,56px) repeat(${viewDays},1fr)` }}>
         <div />
         {Array.from({ length: viewDays }, (_, i) => {
           const gday = startGday + i;
@@ -154,9 +157,14 @@ export function WeekGrid({
           const banners = schedule.blocks.filter((b) => b.gday === gday && b.allDay);
           const away = allDayBlocks?.[gday] === "away";
           return (
-            <div key={i} className="py-2.5 pl-2.5 border-l border-border-grid min-w-0">
-              <div className="text-[10px] tracking-wider text-muted uppercase">{WEEKDAY_LABELS[((gday % 7) + 7) % 7]}</div>
-              <div className="mt-0.5 text-[15px] font-medium" style={{ color: isToday ? "var(--color-accent)" : "var(--color-text)" }}>
+            <div key={i} className="py-2.5 pl-2.5 @max-[720px]:pl-1.5 border-l border-border-grid min-w-0">
+              <div className="text-[10px] @max-[720px]:text-[9px] tracking-wider @max-[720px]:tracking-wide text-muted uppercase truncate">
+                {WEEKDAY_LABELS[((gday % 7) + 7) % 7]}
+              </div>
+              <div
+                className="mt-0.5 text-[15px] @max-[720px]:text-[13px] font-medium"
+                style={{ color: isToday ? "var(--color-accent)" : "var(--color-text)" }}
+              >
                 {date.day}
               </div>
               {banners.map((b) => (
@@ -180,7 +188,7 @@ export function WeekGrid({
       </div>
 
       {/* Grid body */}
-      <div className="flex-none grid relative" style={{ gridTemplateColumns: `56px repeat(${viewDays},1fr)` }}>
+      <div className="flex-none grid relative" style={{ gridTemplateColumns: `var(--cal-gutter,56px) repeat(${viewDays},1fr)` }}>
         <div className="relative" style={{ height: VIEW_HEIGHT }}>
           {hourLabels.map((hl) => (
             <div

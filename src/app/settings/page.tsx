@@ -936,8 +936,9 @@ export default function SettingsPage() {
           <div className="rounded-lg border border-border bg-panel p-3.5 text-xs text-muted leading-relaxed">
             <div className="text-sm font-medium text-text mb-1.5">Two modes in the chat</div>
             <p className="mb-2">
-              <span className="text-text">Quick change</span> — one edit, done immediately, no questions: &ldquo;log 45
-              minutes on grading&rdquo;, &ldquo;move my gym block to 6pm&rdquo;. Simple one-liners use a smaller model.
+              <span className="text-text">Chat</span> — a question or a single change, answered straight away:
+              &ldquo;log 45 minutes on grading&rdquo;, &ldquo;move my gym block to 6pm&rdquo;, &ldquo;how free is
+              Thursday?&rdquo;. Simple one-liners use a smaller model.
             </p>
             <p>
               <span className="text-text">Planning session</span> — a semester, a month, a new project. It interviews

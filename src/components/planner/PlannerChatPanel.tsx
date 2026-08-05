@@ -21,6 +21,20 @@ const MAX_WIDTH = 900;
 const DEFAULT_WIDTH = 400;
 const WIDTH_KEY = "planner-panel-width";
 
+/** The calendar's floor: below about this the hour gutter plus a few day columns
+ * stop being readable however much they scale. The chat gives width back rather
+ * than pushing the calendar under it. */
+const CALENDAR_MIN = 560;
+
+/** The panel is a fixed pixel width, so on a narrow window a width that was
+ * comfortable on a wide one would squeeze the calendar to nothing. Clamping
+ * against the viewport makes the two sides give way to each other instead: widen
+ * the window and the chat can grow again, narrow it and the chat yields first. */
+function clampWidth(want: number, viewportWidth: number): number {
+  const ceiling = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, viewportWidth - CALENDAR_MIN));
+  return Math.min(ceiling, Math.max(MIN_WIDTH, want));
+}
+
 export function PlannerChatPanel({ scheduleData }: PlannerChatPanelProps) {
   const { data, schedule, refresh } = scheduleData;
   const { messages, busy, send } = usePlannerChat(refresh);
@@ -31,10 +45,16 @@ export function PlannerChatPanel({ scheduleData }: PlannerChatPanelProps) {
 
   useEffect(() => {
     const stored = Number(window.localStorage.getItem(WIDTH_KEY));
-    if (stored >= MIN_WIDTH && stored <= MAX_WIDTH) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setWidth(stored);
-    }
+    const wanted = stored >= MIN_WIDTH && stored <= MAX_WIDTH ? stored : DEFAULT_WIDTH;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setWidth(clampWidth(wanted, window.innerWidth));
+
+    // Re-clamp as the window changes, so the pair stay in proportion rather than
+    // the calendar being crushed by a width chosen on a bigger screen. The
+    // stored preference is left alone — it's what to return to when there's room.
+    const onResize = () => setWidth((w) => clampWidth(w, window.innerWidth));
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
   }, []);
 
   /** Drag the panel's left edge to trade calendar width for chat width. */
@@ -44,7 +64,7 @@ export function PlannerChatPanel({ scheduleData }: PlannerChatPanelProps) {
     const startW = width;
     const move = (ev: PointerEvent) => {
       // Dragging left (smaller clientX) widens the panel.
-      setWidth(Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startW + (startX - ev.clientX))));
+      setWidth(clampWidth(startW + (startX - ev.clientX), window.innerWidth));
     };
     const up = () => {
       window.removeEventListener("pointermove", move);

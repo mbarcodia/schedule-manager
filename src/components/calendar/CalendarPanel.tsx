@@ -84,6 +84,18 @@ export function CalendarPanel({ scheduleData }: CalendarPanelProps) {
   const todayGday = zonedNow(timezone).weekdayIdx;
   const maxStart = Math.max(0, horizonDays - viewDays);
   const shift = (delta: number) => setStartGday((g) => Math.min(maxStart, Math.max(0, g + delta)));
+  /** A week at a time, keeping the weekday you're looking at.
+   *
+   * The double arrows used to move by viewDays, so in a 5-day view Monday–Friday
+   * jumped to Saturday–Wednesday and every press walked the weekday further
+   * round. Clamped in WHOLE weeks rather than to maxStart, because landing on
+   * maxStart would change the starting weekday — the one thing this button
+   * exists to preserve. */
+  const shiftWeek = (weeks: number) =>
+    setStartGday((g) => {
+      const next = g + weeks * 7;
+      return next < 0 || next > maxStart ? g : next;
+    });
 
   const first = dateForGday(timezone, startGday);
   const last = dateForGday(timezone, startGday + viewDays - 1);
@@ -108,23 +120,27 @@ export function CalendarPanel({ scheduleData }: CalendarPanelProps) {
   const hasWarnings = hasRisk || hasNearDeadline || hasOverflow || hasMissed || beyondHorizon.length > 0;
 
   return (
-    <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-      {/* Top bar */}
-      <div className="flex-none h-14 flex items-center justify-between px-[22px] border-b border-border">
-        <div className="flex items-center gap-2.5 min-w-[170px]">
+    <div className="@container flex-1 flex flex-col min-w-0 overflow-hidden">
+      {/* Top bar. Wraps rather than overflowing: it holds three groups, and at
+         narrow widths they used to collide into each other and push the
+         right-hand links out of view entirely. Sizing is by CONTAINER width,
+         since what makes this narrow is the chat panel taking room, which a
+         viewport breakpoint can't see. */}
+      <div className="flex-none min-h-14 flex items-center justify-between flex-wrap gap-x-5 gap-y-2 px-[22px] py-2 border-b border-border">
+        <div className="flex items-center gap-2.5">
           <svg width={16} height={16} viewBox="0 0 256 256" fill="none">
             <rect x="32" y="48" width="192" height="168" rx="16" stroke="#9184d9" strokeWidth="14" />
             <line x1="32" y1="96" x2="224" y2="96" stroke="#9184d9" strokeWidth="14" />
             <line x1="80" y1="24" x2="80" y2="64" stroke="#9184d9" strokeWidth="14" strokeLinecap="round" />
             <line x1="176" y1="24" x2="176" y2="64" stroke="#9184d9" strokeWidth="14" strokeLinecap="round" />
           </svg>
-          <span className="font-medium text-base tracking-tight">Schedule</span>
+          <span className="font-medium text-base tracking-tight @max-[820px]:hidden">Schedule</span>
         </div>
         <div className="flex items-center gap-3">
           <button
-            onClick={() => shift(-viewDays)}
-            title={`Back ${viewDays} day${viewDays > 1 ? "s" : ""}`}
-            disabled={startGday === 0}
+            onClick={() => shiftWeek(-1)}
+            title="Back one week (same weekday)"
+            disabled={startGday - 7 < 0}
             className="inline-flex items-center justify-center border border-border rounded-md w-[30px] h-[30px] hover:bg-white/5 disabled:opacity-40"
           >
             <CaretDoubleLeftIcon size={13} weight="bold" />
@@ -137,7 +153,10 @@ export function CalendarPanel({ scheduleData }: CalendarPanelProps) {
           >
             <CaretLeftIcon size={14} weight="bold" />
           </button>
-          <span className="text-[13px] text-neutral-300 min-w-[150px] text-center" style={{ fontVariantNumeric: "tabular-nums" }}>
+          <span
+            className="text-[13px] text-neutral-300 min-w-[150px] @max-[900px]:min-w-[104px] text-center whitespace-nowrap"
+            style={{ fontVariantNumeric: "tabular-nums" }}
+          >
             {weekLabel}
           </span>
           <button
@@ -149,9 +168,9 @@ export function CalendarPanel({ scheduleData }: CalendarPanelProps) {
             <CaretRightIcon size={14} weight="bold" />
           </button>
           <button
-            onClick={() => shift(viewDays)}
-            title={`Forward ${viewDays} day${viewDays > 1 ? "s" : ""}`}
-            disabled={startGday >= maxStart}
+            onClick={() => shiftWeek(1)}
+            title="Forward one week (same weekday)"
+            disabled={startGday + 7 > maxStart}
             className="inline-flex items-center justify-center border border-border rounded-md w-[30px] h-[30px] hover:bg-white/5 disabled:opacity-40"
           >
             <CaretDoubleRightIcon size={13} weight="bold" />
@@ -164,7 +183,7 @@ export function CalendarPanel({ scheduleData }: CalendarPanelProps) {
             Today
           </button>
           <div className="flex items-center gap-1 border-l border-border pl-3 ml-1">
-            <span className="text-[10px] tracking-wide uppercase text-muted-2 mr-0.5">Viewer</span>
+            <span className="text-[10px] tracking-wide uppercase text-muted-2 mr-0.5 @max-[1080px]:hidden">Viewer</span>
             {VIEW_DAY_OPTIONS.map((d) => (
               <button
                 key={d}
@@ -185,8 +204,8 @@ export function CalendarPanel({ scheduleData }: CalendarPanelProps) {
             ))}
           </div>
         </div>
-        <div className="flex items-center gap-2.5 justify-end">
-          <div className="flex items-center gap-1.5 text-[10.5px] text-muted">
+        <div className="flex items-center gap-3 justify-end flex-wrap">
+          <div className="flex items-center gap-1.5 text-[10.5px] text-muted @max-[1180px]:hidden">
             {data.categories.map((c) => (
               <span key={c.id} className="inline-flex items-center gap-1">
                 <span className="inline-block rounded-full" style={{ width: 7, height: 7, background: c.color, border: "1px solid rgba(233,233,237,0.3)" }} />
@@ -195,13 +214,13 @@ export function CalendarPanel({ scheduleData }: CalendarPanelProps) {
             ))}
           </div>
           <span
-            className="inline-flex items-center text-[10.5px] tracking-wide px-2 py-0.5 rounded-md border"
+            className="inline-flex items-center text-[10.5px] tracking-wide px-2 py-0.5 rounded-md border @max-[1000px]:hidden"
             style={{ borderColor: "#e0a94e", color: "#e0a94e" }}
           >
             At risk
           </span>
           <span
-            className="inline-flex items-center text-[10.5px] tracking-wide px-2 py-0.5 rounded-md border"
+            className="inline-flex items-center text-[10.5px] tracking-wide px-2 py-0.5 rounded-md border @max-[1000px]:hidden"
             style={{ borderColor: "#e5484d", color: "#e5484d" }}
           >
             Will miss

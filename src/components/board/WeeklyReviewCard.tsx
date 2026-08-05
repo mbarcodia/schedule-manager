@@ -9,6 +9,7 @@ import Link from "next/link";
 import { deriveBoardStatuses, boardStatusFor } from "@/lib/planner/board-status";
 import { DEFAULT_WIP_LIMIT } from "@/lib/planner/board-constants";
 import { computeTrackableChips } from "@/lib/scheduling/trackables";
+import { paceFromData } from "@/lib/scheduling/pace";
 import type { UseScheduleDataResult } from "@/hooks/useScheduleData";
 
 export function WeeklyReviewCard({ scheduleData }: { scheduleData: UseScheduleDataResult }) {
@@ -18,13 +19,15 @@ export function WeeklyReviewCard({ scheduleData }: { scheduleData: UseScheduleDa
     if (!data || !schedule) return null;
     const index = deriveBoardStatuses(schedule);
     const statuses = data.rawTasks.map((t) => boardStatusFor(index, t.id));
+    const now = new Date();
     const atRisk = computeTrackableChips(
       data.projects,
       data.inputs.tasks,
       schedule,
-      new Date(),
+      now,
       data.inputs.weeklyHours,
-    ).filter((c) => c.statusText.startsWith("At risk")).length;
+      paceFromData(data, now),
+    ).filter((c) => c.needsAttention).length;
     return {
       done: statuses.filter((s) => s === "done").length,
       total: data.rawTasks.length,

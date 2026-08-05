@@ -9,6 +9,7 @@ import { CaretLeftIcon, CaretRightIcon } from "@phosphor-icons/react";
 import { PlannerChat } from "@/components/planner/PlannerChat";
 import { usePlannerChat } from "@/hooks/usePlannerChat";
 import { computeTrackableChips } from "@/lib/scheduling/trackables";
+import { paceFromData } from "@/lib/scheduling/pace";
 import { DEFAULT_CHAT_MODE, type ChatMode } from "@/lib/planner/modes";
 import type { UseScheduleDataResult } from "@/hooks/useScheduleData";
 
@@ -100,13 +101,17 @@ export function PlannerChatPanel({ scheduleData }: PlannerChatPanelProps) {
 
   const chips =
     data && schedule
-      ? computeTrackableChips(
-          data.projects,
-          data.inputs.tasks,
-          schedule,
-          new Date(),
-          data.inputs.weeklyHours,
-        )
+      ? (() => {
+          const now = new Date();
+          return computeTrackableChips(
+            data.projects,
+            data.inputs.tasks,
+            schedule,
+            now,
+            data.inputs.weeklyHours,
+            paceFromData(data, now),
+          );
+        })()
       : [];
 
   if (collapsed) {

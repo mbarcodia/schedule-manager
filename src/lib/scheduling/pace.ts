@@ -197,3 +197,23 @@ export function paceSentence(p: CommitmentPace): string {
   if (p.status === "ahead") return `${progress} — comfortably ahead of ${by}.`;
   return `${progress} — on pace for ${by}, without much slack.`;
 }
+
+/** Pace from the shape the UI already holds, so the four places that need it
+ * don't each rebuild the argument list — and can't drift apart in what they pass. */
+export function paceFromData(
+  data: {
+    projects: Project[];
+    targets: Target[];
+    progressFacts: { byProject: Record<string, number> };
+    inputs: { weeklyHours: WeeklyHours };
+  },
+  now: Date,
+): CommitmentPace[] {
+  return computePace({
+    projects: data.projects,
+    targets: data.targets,
+    loggedByProject: data.progressFacts.byProject,
+    weeklyHours: data.inputs.weeklyHours,
+    now,
+  });
+}

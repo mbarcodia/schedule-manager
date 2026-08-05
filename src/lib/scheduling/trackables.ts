@@ -6,6 +6,10 @@ import { paceSentence, type CommitmentPace } from "./pace";
 import type { ComputeScheduleResult, Project, Task, WeeklyHours } from "@/lib/scheduling/types";
 
 export interface TrackableChip {
+  /** Whether this wants attention — a slipping commitment, or a tight one under a
+   * hard date. Read this rather than matching statusText: a caller doing the
+   * latter silently counted zero the moment the wording changed. */
+  needsAttention?: boolean;
   /** The project this describes. Lookups key on this rather than the title,
    * since one project can produce more than one chip and two projects
    * may share a name. */
@@ -148,6 +152,7 @@ function deadlineChip(
     facet: "deadline",
     title,
     statusText: label,
+    needsAttention: flag,
     statusColor: flag ? "#d2cefd" : "#9397ab",
     statusWeight: flag ? "600" : "500",
     border: flag ? "#9184d9" : "rgba(233,233,237,0.16)",

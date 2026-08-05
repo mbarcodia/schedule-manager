@@ -15,7 +15,7 @@
 import { useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { computeTrackableChips, type TrackableChip } from "@/lib/scheduling/trackables";
-import { computePace } from "@/lib/scheduling/pace";
+import { paceFromData } from "@/lib/scheduling/pace";
 import type { UseScheduleDataResult } from "@/hooks/useScheduleData";
 import type { Target } from "@/lib/scheduling/types";
 
@@ -40,13 +40,7 @@ export function Timeline({ scheduleData }: { scheduleData: UseScheduleDataResult
   const chipsByProject = useMemo(() => {
     const map = new Map<string, TrackableChip[]>();
     if (!data || !schedule) return map;
-    const pace = computePace({
-      projects: data.projects,
-      targets: data.targets,
-      loggedByProject: data.progressFacts.byProject,
-      weeklyHours: data.inputs.weeklyHours,
-      now,
-    });
+    const pace = paceFromData(data, now);
     for (const c of computeTrackableChips(data.projects, data.inputs.tasks, schedule, now, data.inputs.weeklyHours, pace)) {
       map.set(c.projectId, [...(map.get(c.projectId) ?? []), c]);
     }

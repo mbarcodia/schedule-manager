@@ -319,6 +319,19 @@ export interface LabelTargetReport {
   capacityMin: number;
   targetMin: number;
   plannedMin: number;
+  /** What the engine actually SET OUT to place: each commitment's share of the
+   * target, rounded to whole blocks no shorter than its minimum chunk, summed.
+   *
+   * Below targetMin whenever those roundings don't cancel out, which is most
+   * weeks. Reported because the difference between "the week had no room" and
+   * "the hours don't divide into usable blocks" is the difference between a
+   * problem you fix by clearing the week and one you fix by changing a number —
+   * and a shortfall with hours still free otherwise looks like a bug. */
+  askedMin: number;
+  /** Commitments whose share came out below their own minimum chunk, so they get
+   * NOTHING this week rather than an unusably short block. Titles, because the
+   * only useful form of this news is which project went quiet. */
+  belowFloor: string[];
 }
 
 export interface ScheduleInputs {

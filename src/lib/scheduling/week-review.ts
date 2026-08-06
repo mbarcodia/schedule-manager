@@ -37,6 +37,12 @@ export interface LabelWeek {
   color: string | null;
   /** Null when this label carries no share target — most of them. */
   targetMin: number | null;
+  /** What the engine set out to place, which is below the target whenever the
+   * per-commitment roundings don't cancel. Null without a target. */
+  askedMin: number | null;
+  /** Commitments that got nothing this week because their share fell below their
+   * own minimum chunk. */
+  belowFloor: string[];
   bookedMin: number;
   doneMin: number;
 }
@@ -188,7 +194,7 @@ export function buildWeekReview(inputs: WeekReviewInputs): WeekReview {
   // a percentage is a share OF is the engine's own figure for that week, and a
   // second implementation of it is how two views come to disagree.
   const targets: LabelTargetReport[] = offset >= 0 ? (schedule.labelTargetsByWeek[offset] ?? []) : [];
-  const targetByName = new Map(targets.map((t) => [t.label, t.targetMin]));
+  const targetByName = new Map(targets.map((t) => [t.label, t]));
 
   const labelIds = new Set<string | null>([...bookedByLabel.keys(), ...doneByLabel.keys()]);
   for (const c of categories) if (targetByName.has(c.name)) labelIds.add(c.id);
@@ -196,11 +202,14 @@ export function buildWeekReview(inputs: WeekReviewInputs): WeekReview {
   const byLabel: LabelWeek[] = [...labelIds]
     .map((labelId) => {
       const name = labelId ? (nameOf.get(labelId) ?? OTHER_LABEL) : OTHER_LABEL;
+      const report = targetByName.get(name);
       return {
         labelId,
         label: name,
         color: labelId ? (colorOf.get(labelId) ?? null) : null,
-        targetMin: targetByName.get(name) ?? null,
+        targetMin: report?.targetMin ?? null,
+        askedMin: report?.askedMin ?? null,
+        belowFloor: report?.belowFloor ?? [],
         bookedMin: bookedByLabel.get(labelId) ?? 0,
         doneMin: doneByLabel.get(labelId) ?? 0,
       };

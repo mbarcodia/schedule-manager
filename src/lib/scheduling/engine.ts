@@ -822,12 +822,30 @@ export function computeSchedule(
       const plannedMin = blocks
         .filter((b) => b.categoryId === labelId && Math.floor(b.gday / 7) === w && b.status !== "missed")
         .reduce((sum, b) => sum + (b.end - b.start), 0);
+
+      // What was actually asked for, alongside what the percentage comes to.
+      // These differ by the rounding each commitment's share goes through, and
+      // without both figures a week with hours to spare still reports a
+      // shortfall with nothing to explain it.
+      const scale = labelScaleByWeek[w]?.[labelId];
+      const mine = inputs.projects.filter((p) => p.categoryId === labelId && p.weeklyMinMin);
+      let askedMin = 0;
+      const belowFloor: string[] = [];
+      for (const p of mine) {
+        const asked =
+          scale == null ? p.weeklyMinMin! : scaledWeeklyMin(p.weeklyMinMin!, scale, p.chunk || 120, p.minChunk ?? 30);
+        askedMin += asked;
+        if (asked === 0) belowFloor.push(p.title);
+      }
+
       return {
         label: inputs.labelNames[labelId] ?? labelId,
         pct,
         capacityMin: weekCapacity[w] ?? 0,
         targetMin: Math.round(((weekCapacity[w] ?? 0) * pct) / 100),
         plannedMin,
+        askedMin,
+        belowFloor,
       };
     });
   const labelTargetsByWeek = Array.from({ length: inputs.horizonWeeks }, (_, w) => targetsForWeek(w));

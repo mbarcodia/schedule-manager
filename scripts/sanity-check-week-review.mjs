@@ -161,7 +161,7 @@ check(
 // ---------------------------------------------------------------- targets
 
 {
-  const targets = [[{ label: "Research", pct: 40, capacityMin: 2400, targetMin: 960, plannedMin: 600 }]];
+  const targets = [[{ label: "Research", pct: 40, capacityMin: 2400, targetMin: 960, plannedMin: 600, askedMin: 960, belowFloor: [] }]];
   const r = run({ blocks: [block({ start: 540, end: 1020 })], labelTargetsByWeek: targets });
   const research = r.byLabel.find((l) => l.label === "Research");
   check("the target comes from the engine, not recomputed here", research?.targetMin, 960);
@@ -198,11 +198,42 @@ check(
   5 * 480,
 );
 
+// ------------------------------------- a shortfall that isn't about capacity
+// The engine rounds each commitment's share to whole blocks no shorter than its
+// minimum chunk, and those roundings don't cancel. A week can therefore report a
+// shortfall with hours to spare — which reads as a bug unless the two figures
+// are kept apart.
+
+{
+  const r = run({
+    labelTargetsByWeek: [
+      [
+        {
+          label: "Research",
+          pct: 40,
+          capacityMin: 2220,
+          targetMin: 888,
+          plannedMin: 810,
+          askedMin: 810,
+          belowFloor: ["NSF Smoke"],
+        },
+      ],
+    ],
+    blocks: [block({ start: 540, end: 900 })],
+  });
+  const research = r.byLabel.find((l) => l.label === "Research");
+  check("the share and what was asked for are both reported", [research?.targetMin, research?.askedMin], [888, 810]);
+  check("and so is the commitment that got nothing", research?.belowFloor, ["NSF Smoke"]);
+  check("a shortfall can coexist with free time", r.freeMin > 0 && research.bookedMin < research.targetMin, true);
+}
+
 check(
   "A PAST WEEK HAS NO TARGET — it is a record, never re-planned",
   run({
     offset: -1,
-    labelTargetsByWeek: [[{ label: "Research", pct: 40, capacityMin: 2400, targetMin: 960, plannedMin: 0 }]],
+    labelTargetsByWeek: [
+      [{ label: "Research", pct: 40, capacityMin: 2400, targetMin: 960, plannedMin: 0, askedMin: 960, belowFloor: [] }],
+    ],
     logged: [{ occurredDate: day(-3), projectId: "p1", minutes: 90 }],
   }).byLabel[0].targetMin,
   null,

@@ -300,6 +300,10 @@ export interface ComputeScheduleResult {
   /** THIS week's share targets: what each label with weekly_target_pct set
    * should get, against what actually landed. Empty when no label has one. */
   labelTargets: LabelTargetReport[];
+  /** The same, for every week in the horizon (index = weeks from this one).
+   * A travel week has a smaller capacity and so a smaller target, which is the
+   * point: the figure is a share of the week you actually have. */
+  labelTargetsByWeek: LabelTargetReport[][];
   /** THIS week's scaled goal in minutes, keyed by commitment id, for those whose
    * label carries a share target. Absent for everything else, where the declared
    * weekly minimum is still the goal as stated. 0 means the week has no room for

@@ -6,9 +6,14 @@
 
 import { useEffect, useState } from "react";
 
-export type BoardViewId = "kanban" | "eisenhower" | "timeline" | "todos" | "lists" | "archive";
+export type BoardViewId = "week" | "kanban" | "eisenhower" | "timeline" | "todos" | "lists" | "archive";
 
 const INTROS: Record<BoardViewId, { title: string; body: string }> = {
+  week: {
+    title: "Week — where the time actually went",
+    body:
+      "Three numbers per label, because they fail differently. A label with a share of the week set gets a TARGET; BOOKED is what the scheduler managed to place for it; DONE is what you ticked off. Target against booked is a capacity problem — the week couldn't hold what you asked of it, and the fix is a smaller ask or a clearer week. Booked against done is a follow-through problem — the time was there. A single \u201chours this week\u201d figure hides which one you have. A travel week has less capacity, so its target is smaller: the percentage is a share of the week you actually have, not of an ideal one. Past weeks are a record and carry no targets.",
+  },
   kanban: {
     title: "Progress — commitments by whether they are keeping up",
     body:

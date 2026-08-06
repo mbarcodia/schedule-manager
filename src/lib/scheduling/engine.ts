@@ -808,22 +808,30 @@ export function computeSchedule(
     else if (Math.floor(finishedAbs / 1440) === Math.floor(t.deadline / 1440)) nearDeadline.push(t.title);
   });
 
-  // Reported for THIS week only: it exists so the chat and the board can state
-  // the target against reality ("Research 4.7h of a 4.7h target") instead of
-  // the user having to work out from five per-project numbers whether a rule
-  // they stated in percentages is being met.
-  const labelTargets = Object.entries(inputs.labelTargetPct).map(([labelId, pct]) => {
-    const plannedMin = blocks
-      .filter((b) => b.categoryId === labelId && Math.floor(b.gday / 7) === 0 && b.status !== "missed")
-      .reduce((sum, b) => sum + (b.end - b.start), 0);
-    return {
-      label: inputs.labelNames[labelId] ?? labelId,
-      pct,
-      capacityMin: weekCapacity[0] ?? 0,
-      targetMin: Math.round(((weekCapacity[0] ?? 0) * pct) / 100),
-      plannedMin,
-    };
-  });
+  // The target against reality ("Research 4.7h of a 4.7h target"), so the chat
+  // and the board can state it instead of the user working out from five
+  // per-project numbers whether a rule they gave in percentages is being met.
+  //
+  // Reported per week, not just this one. The scaling that produces it already
+  // runs for every week in the horizon (labelScaleForWeek), so a week broken up
+  // by travel has a smaller target and always did — only the reporting stopped
+  // at week 0. Next week's figure is what makes it a plan rather than a
+  // scorecard. Nothing here affects placement; it reads what was placed.
+  const targetsForWeek = (w: number) =>
+    Object.entries(inputs.labelTargetPct).map(([labelId, pct]) => {
+      const plannedMin = blocks
+        .filter((b) => b.categoryId === labelId && Math.floor(b.gday / 7) === w && b.status !== "missed")
+        .reduce((sum, b) => sum + (b.end - b.start), 0);
+      return {
+        label: inputs.labelNames[labelId] ?? labelId,
+        pct,
+        capacityMin: weekCapacity[w] ?? 0,
+        targetMin: Math.round(((weekCapacity[w] ?? 0) * pct) / 100),
+        plannedMin,
+      };
+    });
+  const labelTargetsByWeek = Array.from({ length: inputs.horizonWeeks }, (_, w) => targetsForWeek(w));
+  const labelTargets = labelTargetsByWeek[0] ?? [];
 
   // This week's scaled goal per commitment, for anything under a share target.
   // The chips used to print the DECLARED weekly minimum, which stopped being a
@@ -852,6 +860,7 @@ export function computeSchedule(
     nearDeadline,
     missed,
     labelTargets,
+    labelTargetsByWeek,
     weeklyTargetMinByProject,
   };
 }

@@ -164,3 +164,15 @@ export function localDateKey(d: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
+
+/** Monday of the week `at` falls in, at local midnight — the Date form of gday 0.
+ *
+ * `getDay()` counts from Sunday, so the shift is `(day + 6) % 7`: Monday moves
+ * back 0 days and Sunday moves back 6, which is what puts Sunday at the END of
+ * its week rather than the start of the next one. Named because the expression
+ * is easy to write off by one and the whole gday grid hangs off it. */
+export function startOfWeekMonday(at: Date = new Date()): Date {
+  const d = new Date(at.getFullYear(), at.getMonth(), at.getDate());
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return d;
+}

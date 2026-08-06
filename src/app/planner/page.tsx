@@ -15,12 +15,14 @@ import { WeeklyReviewCard } from "@/components/board/WeeklyReviewCard";
 import { BoardViewIntro } from "@/components/board/BoardViewIntro";
 import { TodoView } from "@/components/board/TodoView";
 import { ListsView } from "@/components/board/ListsView";
+import { WeekView } from "@/components/board/WeekView";
 import { PlannerSidebar } from "@/components/planner/PlannerSidebar";
 import { useScheduleData } from "@/hooks/useScheduleData";
 
-type BoardView = "kanban" | "eisenhower" | "timeline" | "todos" | "lists" | "archive";
+type BoardView = "week" | "kanban" | "eisenhower" | "timeline" | "todos" | "lists" | "archive";
 
 const VIEWS: { id: BoardView; label: string }[] = [
+  { id: "week", label: "Week" },
   { id: "kanban", label: "Progress" },
   { id: "eisenhower", label: "Priorities" },
   { id: "timeline", label: "Timeline" },
@@ -84,6 +86,7 @@ export default function PlannerPage() {
       <BoardViewIntro view={view} />
       <WeeklyReviewCard scheduleData={scheduleData} />
       <div className="flex-1 flex min-h-0">
+        {view === "week" && <WeekView scheduleData={scheduleData} />}
         {view === "kanban" && <KanbanBoard scheduleData={scheduleData} onMutated={onMutated} />}
         {view === "eisenhower" && <EisenhowerBoard scheduleData={scheduleData} onMutated={onMutated} />}
         {view === "timeline" && <Timeline scheduleData={scheduleData} />}

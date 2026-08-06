@@ -29,6 +29,7 @@ import type {
   ScheduleBlock,
   ScheduleInputs,
   Task,
+  UnplacedWork,
 } from "./types";
 
 function priorityRank(p: Priority): number {
@@ -386,6 +387,7 @@ interface RunSchedulerResult {
   chunks: ScheduleBlock[];
   overflow: string[];
   beyondHorizon: string[];
+  unplaced: UnplacedWork[];
   risk: string[];
   nearDeadline: string[];
 }
@@ -401,7 +403,7 @@ function runScheduler(
   preDone: string[] | null,
 ): RunSchedulerResult {
   const chunks: ScheduleBlock[] = [];
-  const remaining = taskList.map((t) => ({
+  const remaining: (TaskDef & { remaining: number; stuckAt?: number; finishedAbs?: number | null })[] = taskList.map((t) => ({
     ...t,
     remaining: t.duration,
     finishedAbs: null as number | null,
@@ -482,6 +484,11 @@ function runScheduler(
     // schedule it late rather than not at all, and let the risk report say so.
     if (!placed) placed = placeUnder(t.ceilAbs);
     if (!placed) {
+      // -1 is loop control: it takes the task out of the ready set so the
+      // scheduler stops retrying a chunk that has nowhere to go. It also
+      // overwrote how much was left, which is the one number an explanation
+      // needs — so remember it before the sentinel lands.
+      t.stuckAt = t.remaining;
       t.remaining = -1;
       continue;
     }
@@ -526,6 +533,17 @@ function runScheduler(
       ),
     ],
     beyondHorizon: [...new Set(unplaced.filter(startsAfterHorizon).map((t) => t.title))],
+    // The same facts keyed by id and carrying the shortfall, because a title
+    // can't be matched back to a row (two tasks may share one) and "didn't fit"
+    // is not actionable without knowing how much and from when. Feeds why-not.ts.
+    unplaced: unplaced.map((t) => ({
+      id: t.id,
+      title: t.title,
+      remainingMin: t.remaining === -1 ? (t.stuckAt ?? 0) : t.remaining,
+      floorAbs: t.floor ?? 0,
+      deadlineAbs: t.deadline ?? null,
+      startsAfterHorizon: startsAfterHorizon(t),
+    })),
     risk: remaining
       .filter(
         (t) =>
@@ -941,6 +959,7 @@ export function computeSchedule(
     blocks,
     overflow: res.overflow,
     beyondHorizon: res.beyondHorizon,
+    unplaced: res.unplaced,
     risk,
     nearDeadline,
     missed,

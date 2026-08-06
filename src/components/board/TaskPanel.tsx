@@ -23,7 +23,9 @@ import {
   validateTask,
   type TaskDraft,
 } from "@/lib/planner/task-form";
+import { WhyNotLine } from "./WhyNotLine";
 import type { Database } from "@/lib/supabase/database.types";
+import type { Reason } from "@/lib/scheduling/why-not";
 import type { Category, Project } from "@/lib/scheduling/types";
 
 type TaskRow = Database["public"]["Tables"]["tasks"]["Row"];
@@ -32,6 +34,7 @@ export function TaskPanel({
   task,
   projects,
   categories,
+  whyNot = null,
   onClose,
   onSaved,
 }: {
@@ -39,6 +42,9 @@ export function TaskPanel({
   task: TaskRow | null;
   projects: Project[];
   categories: Category[];
+  /** Why its hours aren't all on the calendar — shown at the top, since it names
+   * which of the fields below is the one to change. */
+  whyNot?: Reason | null;
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
@@ -140,6 +146,8 @@ export function TaskPanel({
             <XIcon size={14} />
           </button>
         </div>
+
+        <WhyNotLine reason={whyNot} size={10.5} />
 
         <section className="flex flex-col gap-1.5">
           <div className={legend}>How long</div>

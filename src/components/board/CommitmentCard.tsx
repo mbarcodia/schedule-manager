@@ -14,6 +14,8 @@ import { StarIcon } from "@phosphor-icons/react";
 import type { CommitmentPace } from "@/lib/scheduling/pace";
 import { missingList, paceSentence } from "@/lib/scheduling/pace";
 import type { CommitmentStreak } from "@/lib/scheduling/streaks";
+import { WhyNotLine } from "./WhyNotLine";
+import type { Reason } from "@/lib/scheduling/why-not";
 import type { ReactNode } from "react";
 
 export function CommitmentCard({
@@ -22,6 +24,7 @@ export function CommitmentCard({
   projectedTotalMin,
   color,
   targetCount = 0,
+  whyNot = null,
   onToggleImportant,
   onOpen,
   children,
@@ -36,6 +39,8 @@ export function CommitmentCard({
   color?: string | null;
   /** How many dates the commitment carries, for the footer's own words. */
   targetCount?: number;
+  /** Why this week's hours didn't all land, when they didn't. */
+  whyNot?: Reason | null;
   onToggleImportant: () => void;
   /** Opens the panel holding the inputs pace names as missing. */
   onOpen?: () => void;
@@ -105,6 +110,8 @@ export function CommitmentCard({
           {Math.round(pace.estimateMin / 60)}h.
         </div>
       )}
+
+      <WhyNotLine reason={whyNot} size={9.5} />
 
       {/* The sentence above names what's missing; this is where it gets fixed.
           Worded as the thing it opens rather than as "edit", and it leads with

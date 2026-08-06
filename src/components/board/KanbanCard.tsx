@@ -7,6 +7,8 @@ import Link from "next/link";
 import { useDraggable } from "@dnd-kit/core";
 import { categoryPalette } from "@/lib/scheduling/render";
 import { todoItemHref, type TodoLink } from "@/lib/planner/todo-links";
+import { WhyNotLine } from "./WhyNotLine";
+import type { Reason } from "@/lib/scheduling/why-not";
 import type { Category } from "@/lib/scheduling/types";
 import type { RawScheduleRows } from "@/lib/scheduling/from-db";
 
@@ -25,6 +27,8 @@ interface KanbanCardProps {
    * below instead — its date, reminders and notes live there, and two editors for
    * one thing is how they drift. */
   onOpen?: (task: TaskRow) => void;
+  /** Why its hours aren't all on the calendar, when they aren't. */
+  whyNot?: Reason | null;
 }
 
 export function KanbanCard({
@@ -35,6 +39,7 @@ export function KanbanCard({
   onToggleImportant,
   onArchive,
   onOpen,
+  whyNot = null,
 }: KanbanCardProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: task.id,
@@ -118,6 +123,8 @@ export function KanbanCard({
         {(task.duration_min / 60).toFixed(task.duration_min % 60 === 0 ? 0 : 1)}h
         {deadline && <> · due {deadline.toLocaleDateString(undefined, { month: "short", day: "numeric" })}</>}
       </div>
+      <WhyNotLine reason={whyNot} size={9.5} />
+
       {todoLink && (
         // Its date, reminders and notes live on the to-do, not here — so say
         // where they are rather than duplicating them onto the card.

@@ -13,6 +13,8 @@ import { CommitmentCard } from "./CommitmentCard";
 import { CommitmentPanelHost, NEW_COMMITMENT } from "./CommitmentPanel";
 import { TaskPanel } from "./TaskPanel";
 import { computePace, type CommitmentPace, type PaceStatus } from "@/lib/scheduling/pace";
+import { whyNotCommitment, whyNotTask } from "@/lib/scheduling/why-not";
+import { nowAbsMinute, startOfWeekMonday } from "@/lib/scheduling/time";
 import { computeStreaks, type CommitmentStreak } from "@/lib/scheduling/streaks";
 import { projectTotalMin } from "@/lib/scheduling/calibration";
 import type { UseScheduleDataResult } from "@/hooks/useScheduleData";
@@ -101,6 +103,24 @@ export function KanbanBoard({ scheduleData, onMutated }: KanbanBoardProps) {
   }, [data, now]);
 
   const paceColumn = (p: CommitmentPace): PaceStatus => (p.status === "ahead" ? "on_pace" : p.status);
+
+  // Why something isn't scheduled, computed once for the whole board: each
+  // answer reads the same inputs, and half-day room is a scan over every block.
+  const whyNot = useMemo(() => {
+    const byProject = new Map<string, ReturnType<typeof whyNotCommitment>>();
+    const byTask = new Map<string, ReturnType<typeof whyNotTask>>();
+    if (!data || !schedule) return { byProject, byTask };
+    const ctx = {
+      inputs: data.inputs,
+      schedule,
+      categories: data.categories,
+      weekStart: startOfWeekMonday(now),
+      nowAbs: nowAbsMinute(data.inputs.timezone, now),
+    };
+    for (const p of data.projects) byProject.set(p.id, whyNotCommitment(p, ctx));
+    for (const t of data.inputs.tasks) byTask.set(t.id, whyNotTask(t, ctx));
+    return { byProject, byTask };
+  }, [data, schedule, now]);
 
 
   const grouped = useMemo(() => {
@@ -213,6 +233,7 @@ export function KanbanBoard({ scheduleData, onMutated }: KanbanBoardProps) {
                   projectedTotalMin={extras.projected.get(p.projectId) ?? null}
                   color={commitmentColor(p.projectId)}
                   targetCount={data.targets.filter((t) => t.projectId === p.projectId).length}
+                  whyNot={whyNot.byProject.get(p.projectId) ?? null}
                   onToggleImportant={() => void handleToggleCommitmentImportant(p.projectId, !p.important)}
                   onOpen={() => setOpenCommitment(p.projectId)}
                 >
@@ -227,6 +248,7 @@ export function KanbanBoard({ scheduleData, onMutated }: KanbanBoardProps) {
                         onToggleImportant={handleToggleImportant}
                         onArchive={handleArchive}
                         onOpen={(task) => setOpenTask(task.id)}
+                        whyNot={whyNot.byTask.get(t.id) ?? null}
                       />
                     ))}
                 </CommitmentCard>
@@ -267,6 +289,7 @@ export function KanbanBoard({ scheduleData, onMutated }: KanbanBoardProps) {
                   onToggleImportant={handleToggleImportant}
                   onArchive={handleArchive}
                   onOpen={(task) => setOpenTask(task.id)}
+                  whyNot={whyNot.byTask.get(t.id) ?? null}
                 />
               ))}
               {grouped[status].length === 0 && <div className="px-1 text-[10.5px] text-muted-2">empty</div>}
@@ -291,6 +314,7 @@ export function KanbanBoard({ scheduleData, onMutated }: KanbanBoardProps) {
           task={openTask === "new" ? null : (data.rawTasks.find((t) => t.id === openTask) ?? null)}
           projects={data.projects}
           categories={data.categories}
+          whyNot={openTask ? (whyNot.byTask.get(openTask) ?? null) : null}
           onClose={() => setOpenTask(null)}
           onSaved={async () => {
             await refresh();

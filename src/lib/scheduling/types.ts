@@ -299,6 +299,10 @@ export interface ComputeScheduleResult {
   /** Task titles whose earliest start is past the end of the horizon, so there
    * is nothing to decide about them yet. */
   beyondHorizon: string[];
+  /** Everything that didn't fully fit, keyed by id and carrying how much is
+   * left. The title arrays above can't be matched back to a row and don't say
+   * how short the work fell, which is what an explanation needs. */
+  unplaced: UnplacedWork[];
   /** Task titles scheduled to finish strictly after their deadline — red. */
   risk: string[];
   /** Task titles scheduled to finish on the same day as their deadline —
@@ -318,6 +322,20 @@ export interface ComputeScheduleResult {
    * weekly minimum is still the goal as stated. 0 means the week has no room for
    * it (travel), which is a real answer rather than a shortfall. */
   weeklyTargetMinByProject: Record<string, number>;
+}
+
+export interface UnplacedWork {
+  /** A task id, or `research-<projectId>-w<n>` for a week's generated hours. */
+  id: string;
+  title: string;
+  /** Minutes the scheduler could not place. */
+  remainingMin: number;
+  /** Earliest it may start, in absolute minutes from the horizon start. */
+  floorAbs: number;
+  deadlineAbs: number | null;
+  /** True when it cannot begin until after the horizon — not a capacity problem
+   * at all, and worded differently wherever it surfaces. */
+  startsAfterHorizon: boolean;
 }
 
 export interface LabelTargetReport {

@@ -31,6 +31,11 @@ export interface Category {
    * proportionally to sum to the target, so those minutes act as a RATIO
    * between projects rather than a total anyone maintains by hand. */
   weeklyTargetPct?: number | null;
+  /** What weeklyTargetPct is a share OF. "week" (the default) is the whole
+   * working window with meetings still in it — "40% of my 40-hour week is 16
+   * hours, whatever else is on it". "after_meetings" takes meetings out first,
+   * which shrinks the goal in a busy week so it always fits. See migration 0038. */
+  targetBasis?: "week" | "after_meetings";
 }
 
 /** See Database's LabelTimePref: "*_only" is a hard constraint the engine
@@ -191,6 +196,10 @@ export interface RecurringRule {
    * fixed. */
   winStart: number | null;
   winEnd: number | null;
+  /** Optional label. A labelled routine's minutes count toward that label's
+   * weekly share and reduce what its commitments are asked for — a weekly
+   * literature scan IS research, a standing email slot is not. Null for most. */
+  categoryId?: string | null;
 }
 
 export interface DayOverride {
@@ -314,6 +323,8 @@ export interface ComputeScheduleResult {
 export interface LabelTargetReport {
   label: string;
   pct: number;
+  /** Which reading of "% of week" this label uses — see migration 0038. */
+  basis: "week" | "after_meetings";
   /** Working minutes this week that weren't already taken by meetings, away
    * days or routines — what the percentage is a share OF. */
   capacityMin: number;
@@ -328,6 +339,10 @@ export interface LabelTargetReport {
    * problem you fix by clearing the week and one you fix by changing a number —
    * and a shortfall with hours still free otherwise looks like a bug. */
   askedMin: number;
+  /** Of the above, the part met by ROUTINES wearing this label — a weekly
+   * literature scan is research. Included in both targetMin's competitors, so
+   * the commitments are asked only for the remainder. */
+  routineMin: number;
   /** Commitments whose share came out below their own minimum chunk, so they get
    * NOTHING this week rather than an unusably short block. Titles, because the
    * only useful form of this news is which project went quiet. */
@@ -364,9 +379,9 @@ export interface ScheduleInputs {
   /** Label id -> label name, for the word in a block's corner. A block with no
    * label simply has no tag (there is no default word to fall back to — the
    * four built-in kind names this replaced were the problem, not the fix).
-   * Routines are the one exception: they carry no label and always show
-   * "Routine", because "this repeats on its own" is worth seeing at a glance
-   * and there is nothing else to say about them. */
+   * A routine may carry a label too, but its block still says "Routine" in the
+   * corner and only takes the colour: "this repeats on its own" is worth seeing
+   * at a glance, and which share it counts toward is a separate fact. */
   labelNames: Record<string, string>;
   /** Days BEFORE this week, as they actually happened: the blocks that were
    * ticked off or part-logged, drawn at the length really worked. Passed straight
@@ -378,6 +393,11 @@ export interface ScheduleInputs {
    * See labelScaleForWeek in engine.ts for what it does to the commitments
    * wearing that label. */
   labelTargetPct: Record<string, number>;
+  /** Label id -> what its percentage is a share OF. Absent behaves as "week".
+   * See migration 0038: "after_meetings" shrinks the goal in a busy week so it
+   * still fits, "week" leaves it at 40% of the whole window and reports the
+   * shortfall instead. */
+  labelTargetBasis: Record<string, "week" | "after_meetings">;
 }
 
 export interface ResearchPin {

@@ -32,6 +32,11 @@ export interface RoutineDraft {
   /** "HH:MM" as an <input type="time"> gives it. */
   startText: string;
   endText: string;
+  /** Optional label. Empty string = none, which is right for most routines —
+   * a standing email slot belongs to no share. A labelled one counts toward
+   * that label's weekly percentage and reduces what its commitments are asked
+   * for, which is what makes a weekly literature scan count as research. */
+  categoryId: string;
 }
 
 /** "13:00" -> 780. Null for empty or malformed. */
@@ -134,17 +139,33 @@ export function routineRow(draft: RoutineDraft): {
   length_min: number;
   win_start_min: number | null;
   win_end_min: number | null;
+  category_id: string | null;
 } | null {
   if (validateRoutine(draft).errors.length) return null;
   const length_min = Math.round(Number(draft.lengthText.trim()));
+  const category_id = draft.categoryId || null;
   if (draft.placement === "anywhere") {
-    return { title: draft.title.trim(), days: [...draft.days].sort(), length_min, win_start_min: null, win_end_min: null };
+    return {
+      title: draft.title.trim(),
+      days: [...draft.days].sort(),
+      length_min,
+      win_start_min: null,
+      win_end_min: null,
+      category_id,
+    };
   }
   const start = parseTimeOfDay(draft.startText)!;
   // A fixed time is stored as a window exactly one length wide — the same thing
   // update_recurring does, so the two paths produce identical rows.
   const end = draft.placement === "window" ? parseTimeOfDay(draft.endText)! : start + length_min;
-  return { title: draft.title.trim(), days: [...draft.days].sort(), length_min, win_start_min: start, win_end_min: end };
+  return {
+    title: draft.title.trim(),
+    days: [...draft.days].sort(),
+    length_min,
+    win_start_min: start,
+    win_end_min: end,
+    category_id,
+  };
 }
 
 /** Existing row back into a draft, inferring which of the three shapes it is. */
@@ -155,6 +176,7 @@ export function routineDraft(row: {
   length_min: number;
   win_start_min: number | null;
   win_end_min: number | null;
+  category_id?: string | null;
 }): RoutineDraft {
   const placement: RoutinePlacement =
     row.win_start_min == null
@@ -170,5 +192,6 @@ export function routineDraft(row: {
     placement,
     startText: timeOfDayValue(row.win_start_min),
     endText: timeOfDayValue(row.win_end_min),
+    categoryId: row.category_id ?? "",
   };
 }

@@ -177,6 +177,12 @@ export function buildWeekReview(inputs: WeekReviewInputs): WeekReview {
   const nameOf = new Map(categories.map((c) => [c.id, c.name]));
 
   const doneByLabel = new Map<string | null, number>();
+  // A ticked-off labelled routine is done time for that label too. Its minutes
+  // aren't in progress_log against a commitment, so they come from the block.
+  for (const b of live) {
+    if (b.type !== "anchor" || !b.categoryId || b.status !== "done") continue;
+    doneByLabel.set(b.categoryId, (doneByLabel.get(b.categoryId) ?? 0) + inHours(b));
+  }
   for (const entry of logged) {
     const gday = gdayOf(entry.occurredDate, weekStart);
     if (!inWeek(gday)) continue;
@@ -184,8 +190,14 @@ export function buildWeekReview(inputs: WeekReviewInputs): WeekReview {
     doneByLabel.set(labelId, (doneByLabel.get(labelId) ?? 0) + entry.minutes);
   }
 
+  // Labelled ROUTINES count toward their label alongside flexible work: a weekly
+  // literature scan wearing Research is research time, and the engine already
+  // reduces what the commitments are asked for by exactly this much. Leaving it
+  // out here would report the share as missed while the engine considered it met.
+  // Unlabelled routines belong to no share and are only in the routines tile.
   const bookedByLabel = new Map<string | null, number>();
-  for (const b of workBlocks) {
+  const towardLabels = [...workBlocks, ...live.filter((b) => b.type === "anchor" && b.categoryId)];
+  for (const b of towardLabels) {
     const labelId = b.categoryId ?? null;
     bookedByLabel.set(labelId, (bookedByLabel.get(labelId) ?? 0) + inHours(b));
   }

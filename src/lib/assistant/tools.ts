@@ -1218,7 +1218,7 @@ export function buildTools(ctx: ToolContext) {
   const update_recurring = betaTool({
     name: "update_recurring",
     description:
-      'Create, update, or remove a routine — a standing weekly slot (email, lunch, gym, lit scan...). Routines persist across sessions. Give a window for flexible placement, anytime=true for "wherever it fits", or window_start with no window_end for a fixed time.',
+      'Create, update, or remove a routine — a standing weekly slot (email, lunch, gym, lit scan...). Routines persist across sessions. Give a window for flexible placement, anytime=true for "wherever it fits", or window_start with no window_end for a fixed time. A routine may carry a label, and most should not: a labelled one counts toward that label\'s weekly share and reduces what its commitments are asked for, which is right for a weekly literature scan and wrong for a standing email slot.',
     inputSchema: {
       type: "object",
       properties: {
@@ -1228,6 +1228,11 @@ export function buildTools(ctx: ToolContext) {
         window_start: { type: "string", description: '"12pm", "9:00"' },
         window_end: { type: "string" },
         anytime: { type: "boolean", description: "place wherever it fits in the day" },
+        category: {
+          type: "string",
+          description:
+            "name of the label this routine's time counts toward — use only when the routine IS that kind of work (a lit scan is research; email time is not). Pass \"none\" to remove a label already set.",
+        },
         remove: { type: "boolean" },
       },
       required: ["title"],
@@ -1262,13 +1267,25 @@ export function buildTools(ctx: ToolContext) {
       }
       if (win_start_min != null && win_end_min == null) win_end_min = win_start_min + length_min;
 
-      const payload = { title: inp.title, tag: match?.tag ?? "anchor", days, length_min, win_start_min, win_end_min };
+      // "none" erases, an omitted field leaves whatever is set — the same
+      // three-way distinction add_trackable draws for its own facets.
+      let category_id = match?.category_id ?? null;
+      if (inp.category) {
+        category_id = ["none", "no label", "clear", "remove", "unset"].includes(inp.category.trim().toLowerCase())
+          ? null
+          : ((await findCategoryId(ctx, inp.category)) ?? category_id);
+      }
+
+      const payload = { title: inp.title, tag: match?.tag ?? "anchor", days, length_min, win_start_min, win_end_min, category_id };
       if (match) await supabase.from("recurring_rules").update(payload).eq("id", match.id);
       else await supabase.from("recurring_rules").insert({ user_id: userId, ...payload });
       markMutated(ctx);
 
       const win = win_start_min == null ? "wherever it fits" : `${win_start_min}-${win_end_min}`;
-      return `${match ? "Updated" : "Added"} standing rule — "${inp.title}": ${length_min}m, ${win}. Saved permanently.`;
+      const labelNote = category_id
+        ? " Its minutes count toward that label's weekly share, so the commitments wearing it are asked for the rest."
+        : "";
+      return `${match ? "Updated" : "Added"} standing rule — "${inp.title}": ${length_min}m, ${win}. Saved permanently.${labelNote}`;
     },
   });
 

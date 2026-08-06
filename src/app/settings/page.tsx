@@ -11,6 +11,7 @@ import type {
   Database,
   LabelTimePref,
   PlannerCredentialProvider,
+  LabelTargetBasis,
   PlannerModel,
   WeeklyHoursJson,
 } from "@/lib/supabase/database.types";
@@ -420,6 +421,12 @@ export default function SettingsPage() {
     setCategories((prev) => prev.map((c) => (c.id === id ? { ...c, name } : c)));
     const supabase = createClient();
     await supabase.from("categories").update({ name }).eq("id", id);
+  }
+
+  async function setCategoryBasis(id: string, basis: LabelTargetBasis) {
+    setCategories((prev) => prev.map((c) => (c.id === id ? { ...c, target_basis: basis } : c)));
+    const supabase = createClient();
+    await supabase.from("categories").update({ target_basis: basis }).eq("id", id);
   }
 
   async function recolorCategory(id: string, color: string) {
@@ -1011,7 +1018,7 @@ export default function SettingsPage() {
 
         {/* Directly after the standard hours the routines sit inside — both
            answer "what does a normal week look like". */}
-        <RoutinesSection />
+        <RoutinesSection categories={categories} />
 
         {/* Then the rules, which are the same subject one step less literal:
            what the planner should do that the scheduler can't be told. */}
@@ -1037,11 +1044,24 @@ export default function SettingsPage() {
               first and takes the other rather than leaving the work unbooked.
             </div>
             <div>
-              <span className="text-text font-medium">% of week</span> — optional. The share of each week&apos;s
-              available time this label should get, where available means what&apos;s left after meetings, away days
-              and routines. Set Research to 40 and it targets 16h in a normal 40h week and scales itself down in a
-              conference week. The weekly hours on the commitments wearing the label then act as a{" "}
+              <span className="text-text font-medium">% of week</span> — optional. The share of each week this label
+              should get. The weekly hours on the commitments wearing it then act as a{" "}
               <span className="text-text">ratio</span> between them rather than a total you keep in sync by hand.
+            </div>
+            <div>
+              <span className="text-text font-medium">Of what</span> — which week that percentage is a share of, and
+              the two readings behave very differently in a busy week.{" "}
+              <span className="text-text">Of the whole week</span> means your working hours with the meetings still in
+              them: 40% of a 40-hour week is 16 hours no matter what else is on it, and a week too full to hold that
+              says so instead of moving the goal. Days off and away days do come out — block off a day and the week is
+              32 hours, so the target is 12.8.{" "}
+              <span className="text-text">Of time left after meetings</span> takes them out first, so the target
+              shrinks to fit and is nearly always met — the right reading for work that only happens in the gaps.
+            </div>
+            <div className="text-muted-2">
+              Routines are never subtracted from either — some of them are the work. Give a routine this label instead
+              (in <a href="#routines" className="text-accent-text hover:underline">Routines</a>) and its minutes count
+              toward the share, so the commitments are asked for the rest.
             </div>
             <div className="text-muted-2">
               Anything you set on one task or one commitment wins over its label — a label says where this kind of
@@ -1053,10 +1073,11 @@ export default function SettingsPage() {
             {categories.length > 0 && (
               <div className="flex items-center gap-2.5 px-3 text-[11px] text-muted-2">
                 <span className="w-7 flex-none" />
-                <span className="flex-1">Name</span>
+                <span className="flex-1 min-w-[120px]">Name</span>
                 <span className="w-16 flex-none">Min chunk</span>
-                <span className="w-36 flex-none">Time of day</span>
+                <span className="w-32 flex-none">Time of day</span>
                 <span className="w-20 flex-none">% of week</span>
+                <span className="w-[118px] flex-none">of what</span>
                 <span className="w-12 flex-none" />
               </div>
             )}
@@ -1074,7 +1095,7 @@ export default function SettingsPage() {
                   onBlur={(e) => {
                     if (e.target.value.trim() && e.target.value !== cat.name) renameCategory(cat.id, e.target.value.trim());
                   }}
-                  className="flex-1 min-w-0 bg-transparent text-sm text-text outline-none border-b border-transparent focus-visible:border-accent"
+                  className="flex-1 min-w-[120px] bg-transparent text-sm text-text outline-none border-b border-transparent focus-visible:border-accent"
                 />
                 <input
                   type="number"
@@ -1094,7 +1115,7 @@ export default function SettingsPage() {
                   value={cat.time_pref ?? ""}
                   onChange={(e) => setCategoryTimePref(cat.id, (e.target.value || null) as LabelTimePref | null)}
                   title="Where in the day this label's work belongs"
-                  className="w-36 flex-none rounded-md border border-border bg-surface px-2 py-1 text-xs text-text outline-none focus-visible:border-accent"
+                  className="w-32 flex-none rounded-md border border-border bg-surface px-2 py-1 text-xs text-text outline-none focus-visible:border-accent"
                 >
                   {TIME_PREF_OPTIONS.map(([value, label]) => (
                     <option key={value} value={value}>
@@ -1118,6 +1139,23 @@ export default function SettingsPage() {
                     className="w-12 rounded-md border border-border bg-surface px-2 py-1 text-xs text-text outline-none focus-visible:border-accent"
                   />
                   <span className="text-[10px] text-muted-2">%</span>
+                </div>
+                {/* Only meaningful with a target set — "a share of what" is not a
+                   question until there is a share. */}
+                <div className="w-[118px] flex-none">
+                  {cat.weekly_target_pct ? (
+                    <select
+                      value={cat.target_basis ?? "week"}
+                      onChange={(e) => setCategoryBasis(cat.id, e.target.value as LabelTargetBasis)}
+                      title="What that percentage is a share of"
+                      className="w-full rounded-md border border-border bg-surface px-1.5 py-1 text-[11px] text-text outline-none focus-visible:border-accent"
+                    >
+                      <option value="week">of the whole week</option>
+                      <option value="after_meetings">of time left after meetings</option>
+                    </select>
+                  ) : (
+                    <span className="text-[10px] text-muted-2">—</span>
+                  )}
                 </div>
                 <button
                   onClick={() => deleteCategory(cat.id)}

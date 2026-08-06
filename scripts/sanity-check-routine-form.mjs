@@ -88,6 +88,7 @@ const draft = (over = {}) => ({
   placement: "anywhere",
   startText: "",
   endText: "",
+  categoryId: "",
   ...over,
 });
 
@@ -143,16 +144,22 @@ check("anywhere writes both columns null", routineRow(draft()), {
   length_min: 30,
   win_start_min: null,
   win_end_min: null,
+  category_id: null,
 });
+
+// A label is optional and NO LABEL is the common answer — a standing email slot
+// belongs to no weekly share. An empty string must become null rather than "".
+check("no label is stored as null, not an empty string", routineRow(draft()).category_id, null);
+check("a label is stored as given", routineRow(draft({ categoryId: "research-id" })).category_id, "research-id");
 check(
   "a fixed time is stored as a window one length wide, as update_recurring does",
   routineRow(draft({ placement: "fixed", lengthText: "60", startText: "12:00" })),
-  { title: "Emails", days: [0, 1, 2, 3, 4], length_min: 60, win_start_min: 720, win_end_min: 780 },
+  { title: "Emails", days: [0, 1, 2, 3, 4], length_min: 60, win_start_min: 720, win_end_min: 780, category_id: null },
 );
 check(
   "a window keeps both ends",
   routineRow(draft({ days: [0], placement: "window", startText: "13:00", endText: "17:00" })),
-  { title: "Emails", days: [0], length_min: 30, win_start_min: 780, win_end_min: 1020 },
+  { title: "Emails", days: [0], length_min: 30, win_start_min: 780, win_end_min: 1020, category_id: null },
 );
 check("a draft that doesn't validate writes nothing at all", routineRow(draft({ title: "" })), null);
 check("the title is trimmed on the way in", routineRow(draft({ title: "  Emails  " }))?.title, "Emails");
@@ -160,9 +167,9 @@ check("the title is trimmed on the way in", routineRow(draft({ title: "  Emails 
 // --------------------------------------------------------------- the round trip
 
 const rows = [
-  { id: "a", title: "Emails", days: [0, 1, 2, 3, 4], length_min: 30, win_start_min: null, win_end_min: null },
-  { id: "b", title: "Lunch", days: [0, 1, 2, 3, 4], length_min: 60, win_start_min: 720, win_end_min: 780 },
-  { id: "c", title: "Lit scan", days: [0], length_min: 30, win_start_min: 780, win_end_min: 1020 },
+  { id: "a", title: "Emails", days: [0, 1, 2, 3, 4], length_min: 30, win_start_min: null, win_end_min: null, category_id: null },
+  { id: "b", title: "Lunch", days: [0, 1, 2, 3, 4], length_min: 60, win_start_min: 720, win_end_min: 780, category_id: null },
+  { id: "c", title: "Lit scan", days: [0], length_min: 30, win_start_min: 780, win_end_min: 1020, category_id: "research-id" },
 ];
 for (const row of rows) {
   const columns = { ...row };
@@ -174,6 +181,11 @@ check(
   "a row the engine would ignore loses its weekend days on the way in",
   routineDraft({ id: "d", title: "x", days: [0, 6], length_min: 30, win_start_min: null, win_end_min: null }).days,
   [0],
+);
+check(
+  "a row with no label round-trips to no label",
+  routineDraft({ id: "e", title: "x", days: [0], length_min: 30, win_start_min: null, win_end_min: null }).categoryId,
+  "",
 );
 
 console.log(`\n${checks - failures}/${checks} checks passed`);

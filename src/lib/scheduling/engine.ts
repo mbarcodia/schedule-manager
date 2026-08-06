@@ -82,33 +82,72 @@ interface TaskDef extends Task {
   ord: number;
 }
 
-/** Working minutes in a week that are available to allocate — the week's
- * standard hours minus what makes a week ABNORMAL: meetings, and days an
- * all-day entry marks "away".
+/** The working minutes a label's percentage is a share OF, on one of two
+ * readings the user picks per label (categories.target_basis, migration 0038).
  *
- * Deliberately does NOT subtract routines, even though `busy` would let it.
- * "40% of the time I have each week — 16 hours when I have 40 hours available"
- * is the stated meaning, and a normal week's standard hours ARE 40h; netting
- * out ~11h of standing routines first turns that 40% into 11.4h and the rule
- * stops matching its own worked example. Routines are also a poor thing to
- * subtract here specifically, since some of them (a literature scan, a proposal
- * search) are the very work the target is about — taking them off the top and
- * then asking for 40% of the rest charges for them twice.
+ * "week" — the week's whole working window. Days off and away days are out of
+ * it, because those hours don't exist; MEETINGS ARE STILL IN. "40% of my
+ * 40-hour week is 16 hours" is the stated meaning, and it stays 16 in a week
+ * with six meetings in it. The consequence is deliberate: a week too full to
+ * hold the target reports a shortfall rather than quietly lowering the bar,
+ * which is the thing worth knowing about such a week.
  *
- * So `busy` must be a snapshot taken after events and pins are marked but
- * BEFORE anchors, and long before any auto-placed work.
+ * "after_meetings" — what is left once meetings are removed, so the goal shrinks
+ * to fit and is almost always met. The right reading for work that only ever
+ * happens in the gaps.
+ *
+ * NEITHER subtracts routines, on both readings. Some routines (a literature
+ * scan, a proposal search) are the very work the target is about — taking them
+ * off the top and then asking for 40% of the rest charges for them twice. A
+ * labelled routine instead COUNTS TOWARD its share; see labelScaleForWeek.
+ *
+ * `busy` must be a snapshot taken after events and pins are marked but BEFORE
+ * anchors, and long before any auto-placed work.
  *
  * Mon-Fri only, matching the fence weekly hours are generated inside. */
-function weekCapacityMin(inputs: ScheduleInputs, busy: Set<AbsMinute>, w: number): number {
+function weekCapacityMin(
+  inputs: ScheduleInputs,
+  busy: Set<AbsMinute>,
+  w: number,
+  basis: "week" | "after_meetings" = "week",
+): number {
   let free = 0;
   for (let d = 0; d < 5; d++) {
     const gday = w * 7 + d;
     const win = resolveDayWindow(gday, inputs.weeklyHours, inputs.dayOverrides, inputs.allDayBlocks);
     if (!win) continue;
     const base = gday * 1440;
+    if (basis === "week") {
+      free += win.end - win.start;
+      continue;
+    }
     for (let m = win.start; m < win.end; m++) if (!busy.has(base + m)) free++;
   }
   return free;
+}
+
+/** Minutes of labelled ROUTINE time that land in week w, per label.
+ *
+ * A weekly literature scan wearing the Research label is research: it counts
+ * toward the share, and so reduces what the commitments wearing that label are
+ * asked to supply. Without this, "projects, proposals and literature reading
+ * combined should get 40%" overshoots by however much the routines add.
+ *
+ * Counted from the rule rather than from placed blocks, because this feeds the
+ * scaling that decides what to place. A routine that turns out not to fit is a
+ * separate matter, and one the week view reports. */
+function labelledRoutineMinForWeek(inputs: ScheduleInputs, w: number): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const r of inputs.recurringRules) {
+    if (!r.categoryId) continue;
+    for (const d of r.days) {
+      if (d < 0 || d > 4) continue;
+      const gday = w * 7 + d;
+      if (!resolveDayWindow(gday, inputs.weeklyHours, inputs.dayOverrides, inputs.allDayBlocks)) continue;
+      out[r.categoryId] = (out[r.categoryId] ?? 0) + r.length;
+    }
+  }
+  return out;
 }
 
 /** How much a label's weekly hours should be multiplied by this week to hit its
@@ -126,7 +165,7 @@ function labelScaleForWeek(
 ): Record<string, number> {
   const targets = inputs.labelTargetPct ?? {};
   if (!Object.keys(targets).length) return {};
-  const capacity = weekCapacityMin(inputs, busy, w);
+  const routineMin = labelledRoutineMinForWeek(inputs, w);
   const scale: Record<string, number> = {};
   for (const [labelId, pct] of Object.entries(targets)) {
     const declared = inputs.projects
@@ -135,7 +174,12 @@ function labelScaleForWeek(
     // Nothing wearing the label carries hours, so there is nothing to scale —
     // a target can't invent a project to spend the time on.
     if (!declared) continue;
-    scale[labelId] = ((capacity * pct) / 100) / declared;
+    const capacity = weekCapacityMin(inputs, busy, w, inputs.labelTargetBasis?.[labelId] ?? "week");
+    // Routines wearing this label have already met part of the share, so the
+    // commitments are asked for the rest. Floored at zero: routines alone can
+    // exceed a small target, and asking for negative hours is not a thing.
+    const remaining = Math.max(0, (capacity * pct) / 100 - (routineMin[labelId] ?? 0));
+    scale[labelId] = remaining / declared;
   }
   return scale;
 }
@@ -646,6 +690,7 @@ export function computeSchedule(
     // feeds tasks from — see from-db.ts's "anchor-" subjectId prefix.
     const abs = a.gday * 1440 + placed;
     const absEnd = abs + a.length;
+    const rule = inputs.recurringRules.find((r) => r.id === a.ruleId);
     const taskId = `anchor-${a.ruleId}`;
     const key = `${taskId}@${a.gday}-${placed}`;
     let status: ScheduleBlock["status"];
@@ -658,7 +703,11 @@ export function computeSchedule(
       key,
       abs,
       status,
+      // Still "Routine" in the corner even when it carries a label: "this
+      // repeats on its own" is worth seeing at a glance, and which share it
+      // counts toward is a separate fact the colour carries.
       tagLabel: ROUTINE_TAG_LABEL,
+      categoryId: rule?.categoryId ?? null,
       title: a.title,
       gday: a.gday,
       start: placed,
@@ -670,8 +719,13 @@ export function computeSchedule(
   const labelScaleByWeek = Array.from({ length: inputs.horizonWeeks }, (_, w) =>
     labelScaleForWeek(inputs, busyBeforeAnchors, w),
   );
+  // Two capacities per week, since a label's percentage is a share of whichever
+  // its basis names. Both are cheap and reporting needs the one that matches.
   const weekCapacity = Array.from({ length: inputs.horizonWeeks }, (_, w) =>
-    weekCapacityMin(inputs, busyBeforeAnchors, w),
+    weekCapacityMin(inputs, busyBeforeAnchors, w, "week"),
+  );
+  const weekCapacityAfterMeetings = Array.from({ length: inputs.horizonWeeks }, (_, w) =>
+    weekCapacityMin(inputs, busyBeforeAnchors, w, "after_meetings"),
   );
 
   const defs = taskDefs(inputs, labelScaleByWeek).map((t) =>
@@ -817,8 +871,12 @@ export function computeSchedule(
   // by travel has a smaller target and always did — only the reporting stopped
   // at week 0. Next week's figure is what makes it a plan rather than a
   // scorecard. Nothing here affects placement; it reads what was placed.
+  // `?? {}` for the same reason labelScaleForWeek has it: an account with no
+  // share target set has no such field, and reading it unguarded threw for every
+  // caller that builds ScheduleInputs by hand. That crashed seven sanity checks
+  // silently from the commit that introduced share targets until this one.
   const targetsForWeek = (w: number) =>
-    Object.entries(inputs.labelTargetPct).map(([labelId, pct]) => {
+    Object.entries(inputs.labelTargetPct ?? {}).map(([labelId, pct]) => {
       const plannedMin = blocks
         .filter((b) => b.categoryId === labelId && Math.floor(b.gday / 7) === w && b.status !== "missed")
         .reduce((sum, b) => sum + (b.end - b.start), 0);
@@ -838,13 +896,22 @@ export function computeSchedule(
         if (asked === 0) belowFloor.push(p.title);
       }
 
+      // Routines wearing this label are part of the share, so they belong in
+      // both figures — otherwise a week met entirely by a literature scan reads
+      // as a total failure.
+      const routineMin = labelledRoutineMinForWeek(inputs, w)[labelId] ?? 0;
+      const basis = inputs.labelTargetBasis?.[labelId] ?? "week";
+      const capacityMin = (basis === "week" ? weekCapacity[w] : weekCapacityAfterMeetings[w]) ?? 0;
+
       return {
         label: inputs.labelNames[labelId] ?? labelId,
         pct,
-        capacityMin: weekCapacity[w] ?? 0,
-        targetMin: Math.round(((weekCapacity[w] ?? 0) * pct) / 100),
-        plannedMin,
-        askedMin,
+        basis,
+        capacityMin,
+        targetMin: Math.round((capacityMin * pct) / 100),
+        plannedMin: plannedMin + routineMin,
+        askedMin: askedMin + routineMin,
+        routineMin,
         belowFloor,
       };
     });
@@ -868,7 +935,7 @@ export function computeSchedule(
   // Past days, exactly as they happened. Appended rather than computed: nothing
   // in the scheduler ever looks at a gday below 0, which is what keeps a past
   // week a record instead of a re-derivation.
-  blocks.push(...inputs.historyBlocks);
+  blocks.push(...(inputs.historyBlocks ?? []));
 
   return {
     blocks,

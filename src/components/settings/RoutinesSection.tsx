@@ -23,6 +23,7 @@ import {
 import type { Database } from "@/lib/supabase/database.types";
 
 type RoutineRow = Database["public"]["Tables"]["recurring_rules"]["Row"];
+type CategoryRow = Database["public"]["Tables"]["categories"]["Row"];
 
 const PLACEMENTS: { id: RoutinePlacement; label: string; hint: string }[] = [
   { id: "fixed", label: "At a set time", hint: "it holds that slot" },
@@ -37,9 +38,10 @@ const blankDraft = (): RoutineDraft => ({
   placement: "anywhere",
   startText: "",
   endText: "",
+  categoryId: "",
 });
 
-export function RoutinesSection() {
+export function RoutinesSection({ categories }: { categories: CategoryRow[] }) {
   const [rows, setRows] = useState<RoutineRow[] | null>(null);
   const [draft, setDraft] = useState<RoutineDraft | null>(null);
   const [busy, setBusy] = useState(false);
@@ -140,6 +142,7 @@ export function RoutinesSection() {
                 busy={busy}
                 problems={problems}
                 field={field}
+                categories={categories}
               />
             ) : (
               <div
@@ -151,7 +154,17 @@ export function RoutinesSection() {
                   className="flex-1 min-w-0 text-left"
                   title="Change this routine"
                 >
-                  <div className="text-xs text-text">{row.title}</div>
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-xs text-text">{row.title}</span>
+                    {(() => {
+                      const cat = categories.find((c) => c.id === row.category_id);
+                      return cat ? (
+                        <span className="text-[9.5px] tracking-wide uppercase" style={{ color: cat.color }}>
+                          {cat.name}
+                        </span>
+                      ) : null;
+                    })()}
+                  </div>
                   <div className="text-[11px] text-muted">{describeRoutine(row)}</div>
                 </button>
                 <button
@@ -177,6 +190,7 @@ export function RoutinesSection() {
               busy={busy}
               problems={problems}
               field={field}
+              categories={categories}
             />
           )}
 
@@ -208,6 +222,7 @@ function RoutineEditor({
   busy,
   problems,
   field,
+  categories,
 }: {
   draft: RoutineDraft;
   setDraft: (draft: RoutineDraft) => void;
@@ -216,6 +231,7 @@ function RoutineEditor({
   busy: boolean;
   problems: { errors: string[]; warnings: string[] };
   field: string;
+  categories: CategoryRow[];
 }) {
   const toggleDay = (day: number) =>
     setDraft({
@@ -293,6 +309,29 @@ function RoutineEditor({
           )}
         </div>
       )}
+
+      {/* Optional, and "no label" is the right answer for most: a standing email
+         slot belongs to no weekly share. Giving one a label is how a weekly
+         literature scan comes to count as research. */}
+      <div className="flex items-center gap-2">
+        <select
+          value={draft.categoryId}
+          onChange={(e) => setDraft({ ...draft, categoryId: e.target.value })}
+          className={field}
+        >
+          <option value="">no label</option>
+          {categories.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
+        <span className="text-[11px] text-muted">
+          {draft.categoryId
+            ? "counts toward this label's share of the week"
+            : "counts toward no weekly share"}
+        </span>
+      </div>
 
       {problems.warnings.map((w) => (
         <div key={w} className="text-[11px]" style={{ color: "#e0a94e" }}>

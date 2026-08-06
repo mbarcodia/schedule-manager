@@ -16,6 +16,12 @@ export type DateKind = "hard" | "goal";
  * refuses the other half of the day outright, "prefer_*" tries it first and
  * falls back rather than leaving the work unscheduled. Null = any time. */
 export type LabelTimePref = "prefer_morning" | "morning_only" | "prefer_afternoon" | "afternoon_only";
+
+/** What a label's weekly_target_pct is a share OF. "week" = the whole working
+ * window (days off and away days out, meetings IN); "after_meetings" = what is
+ * left once meetings are removed, which shrinks the goal in a busy week so it
+ * still fits. See migration 0038. */
+export type LabelTargetBasis = "week" | "after_meetings";
 export type EventSource = "manual" | "google" | "icloud" | "outlook";
 export type SubjectType = "task" | "research" | "anchor";
 export type ChatRole = "user" | "assistant";
@@ -112,6 +118,7 @@ export interface Database {
           min_chunk_min: number | null;
           time_pref: LabelTimePref | null;
           weekly_target_pct: number | null;
+          target_basis: LabelTargetBasis;
         },
         {
           id?: string;
@@ -122,6 +129,7 @@ export interface Database {
           min_chunk_min?: number | null;
           time_pref?: LabelTimePref | null;
           weekly_target_pct?: number | null;
+          target_basis?: LabelTargetBasis;
         },
         Partial<{
           name: string;
@@ -130,6 +138,7 @@ export interface Database {
           min_chunk_min: number | null;
           time_pref: LabelTimePref | null;
           weekly_target_pct: number | null;
+          target_basis: LabelTargetBasis;
         }>
       >;
       /** Projects. Still named `projects` in the database so that every
@@ -301,6 +310,7 @@ export interface Database {
           length_min: number;
           win_start_min: number | null;
           win_end_min: number | null;
+          category_id: string | null;
           created_at: string;
         },
         {
@@ -312,6 +322,7 @@ export interface Database {
           length_min: number;
           win_start_min?: number | null;
           win_end_min?: number | null;
+          category_id?: string | null;
         },
         Partial<{
           title: string;
@@ -320,6 +331,7 @@ export interface Database {
           length_min: number;
           win_start_min: number | null;
           win_end_min: number | null;
+          category_id: string | null;
         }>
       >;
       preference_notes: Table<

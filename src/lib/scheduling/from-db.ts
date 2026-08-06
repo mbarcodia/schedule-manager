@@ -112,6 +112,7 @@ export function buildScheduleInputs(
       minChunkMin: c.min_chunk_min,
       timePref: c.time_pref,
       weeklyTargetPct: c.weekly_target_pct,
+      targetBasis: c.target_basis,
     }))
     .sort((a, b) => a.sortOrder - b.sortOrder);
 
@@ -121,9 +122,11 @@ export function buildScheduleInputs(
 
   const labelNames: Record<string, string> = {};
   const labelTargetPct: Record<string, number> = {};
+  const labelTargetBasis: Record<string, "week" | "after_meetings"> = {};
   categories.forEach((c) => {
     labelNames[c.id] = c.name;
     if (c.weeklyTargetPct) labelTargetPct[c.id] = c.weeklyTargetPct;
+    labelTargetBasis[c.id] = c.targetBasis ?? "week";
   });
 
   /** A label's time preference, split into the two things the engine reads:
@@ -242,6 +245,7 @@ export function buildScheduleInputs(
     length: r.length_min,
     winStart: r.win_start_min,
     winEnd: r.win_end_min,
+    categoryId: r.category_id,
   }));
 
   const dayOverrides: DayOverrides = {};
@@ -415,6 +419,7 @@ export function buildScheduleInputs(
     historyBlocks,
     labelNames,
     labelTargetPct,
+    labelTargetBasis,
   };
 
   return { inputs, projects, targets, categories };

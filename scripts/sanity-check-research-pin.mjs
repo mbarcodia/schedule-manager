@@ -7,6 +7,7 @@
 import { computeSchedule } from "../src/lib/scheduling/engine.ts";
 
 const PROJECT_ID = "11111111-1111-1111-1111-111111111111";
+const RESEARCH_LABEL = "22222222-2222-2222-2222-222222222222";
 const WEEKLY_MIN = 360; // 6h weekly research floor
 
 function inputs(researchPins) {
@@ -25,7 +26,7 @@ function inputs(researchPins) {
         chunk: 120,
         preferMorning: true,
         researchOrd: 1,
-        categoryId: null,
+        categoryId: RESEARCH_LABEL,
         deadlineDate: null,
       },
     ],
@@ -36,7 +37,13 @@ function inputs(researchPins) {
     completed: {},
     partial: {},
     pinned: {},
-    tagLabels: { task: "Task", research: "Research", deepFocus: "Deep focus", block: "Block" },
+    // The word in a block's corner is its LABEL's name now. The four block-kind
+    // names this fixture used to set (task/research/deepFocus/block) were dropped
+    // when labels absorbed them — migrations 0030 and 0031.
+    labelNames: { [RESEARCH_LABEL]: "Research" },
+    historyBlocks: [],
+    labelTargetPct: {},
+    labelTargetBasis: {},
   };
 }
 

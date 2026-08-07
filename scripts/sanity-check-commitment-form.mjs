@@ -165,5 +165,38 @@ check(
   [],
 );
 
+// ------------------------------------------------- the active window
+//
+// The one thing a commitment could say only through the chat: when its weekly
+// hours apply. An inverted window is refused rather than warned about, because
+// its symptom is a commitment that quietly generates nothing at all.
+
+const win = (over) =>
+  validateCommitmentForm({ estimateText: "", weeklyText: "4", deadlineDate: "", targets: [], ...over });
+
+check("a window in the right order is fine", win({ activeFrom: "2026-09-01", activeUntil: "2026-12-15" }).errors, []);
+check("one open end is fine", win({ activeFrom: "2026-09-01" }).errors, []);
+check("no window at all is fine", win({}).errors, []);
+check(
+  "an inverted window is refused",
+  win({ activeFrom: "2026-12-15", activeUntil: "2026-09-01" }).errors.length,
+  1,
+);
+check(
+  "the same day at both ends is a legal one-day window",
+  win({ activeFrom: "2026-09-01", activeUntil: "2026-09-01" }).errors,
+  [],
+);
+check(
+  "hours running out before the finish-by date is a warning, not a refusal",
+  win({ activeUntil: "2026-10-01", deadlineDate: "2026-12-01" }).warnings.length,
+  1,
+);
+check(
+  "a window on a commitment with no weekly hours says it does nothing",
+  win({ weeklyText: "", activeFrom: "2026-09-01" }).warnings.length,
+  1,
+);
+
 console.log(`\n${checks - failures}/${checks} checks passed`);
 if (failures) process.exit(1);

@@ -4,8 +4,12 @@
 //
 // Column-drop semantics (V1, user-confirmed):
 // - Backlog: soft — clear any pin and send to the back of the queue. The
-//   engine may still place it this week if capacity allows (a guaranteed
-//   "not before next week" would set floor_at; deliberate fast-follow).
+//   engine may still place it this week if capacity allows. A guaranteed
+//   "not before next week" is a SEPARATE, explicit act: the board offers it on
+//   the card right after the drop (see holdUntilNextWeek), because the two
+//   meanings of "backlog" — "less important than the rest" and "not yet" — are
+//   worth keeping apart, and a gesture that silently rewrote a date would be
+//   the wrong default for the commoner of the two.
 // - This Week: clear any pin, jump the queue — priority-based placement
 //   pulls it into this week's free capacity.
 // - In Progress: the one hard action — pin the task's next chunk to today,
@@ -65,6 +69,24 @@ export async function moveTaskToColumn(task: TaskRow, target: DroppableColumn, a
     .eq("id", task.id);
 }
 
+/** Next Monday, local, at midnight — the first moment of the next working week.
+ * Exported for the sanity check: "next week" is the kind of date that is quietly
+ * wrong by a day, and on a Monday it must mean seven days out, not today. */
+export function nextMondayISO(now: Date = new Date()): string {
+  const days = (8 - ((now.getDay() + 6) % 7) - 1) % 7 || 7;
+  const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + days);
+  return d.toISOString();
+}
+
+/** The hard half of a backlog drop: this may not be scheduled before next week.
+ * Writes the same floor_at column the task panel's "don't start before" field
+ * and the chat's not_before both write — one meaning, one column, three ways in. */
+export async function holdUntilNextWeek(taskId: string, now: Date = new Date()): Promise<string | null> {
+  const supabase = createClient();
+  const { error } = await supabase.from("tasks").update({ floor_at: nextMondayISO(now) }).eq("id", taskId);
+  return error?.message ?? null;
+}
+
 export async function setTaskImportant(taskId: string, important: boolean): Promise<void> {
   const supabase = createClient();
   await supabase.from("tasks").update({ important }).eq("id", taskId);
@@ -107,6 +129,12 @@ export interface CommitmentFields {
   effortEstimateMin: number | null;
   weeklyMinMin: number | null;
   important: boolean;
+  /** YYYY-MM-DD, or null for unbounded on that side. The window the weekly hours
+   * apply INSIDE — the commitment-level answer to "not yet": a course starting
+   * next term exists now and books nothing until it does. Both ends are
+   * inclusive. Was reachable only through the chat until now. */
+  activeFrom: string | null;
+  activeUntil: string | null;
 }
 
 export async function saveCommitmentFields(projectId: string, fields: CommitmentFields): Promise<string | null> {
@@ -120,6 +148,8 @@ export async function saveCommitmentFields(projectId: string, fields: Commitment
       effort_estimate_min: fields.effortEstimateMin,
       weekly_min_min: fields.weeklyMinMin,
       important: fields.important,
+      active_from: fields.activeFrom,
+      active_until: fields.activeUntil,
     })
     .eq("id", projectId);
   return error?.message ?? null;

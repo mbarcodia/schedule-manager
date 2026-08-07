@@ -52,6 +52,9 @@ export function validateCommitmentForm(input: {
   estimateText: string;
   weeklyText: string;
   deadlineDate: string;
+  /** The window the weekly hours apply inside. Either end may be empty. */
+  activeFrom?: string;
+  activeUntil?: string;
   targets: TargetDraft[];
 }): FormProblems {
   const errors: string[] = [];
@@ -61,6 +64,25 @@ export function validateCommitmentForm(input: {
   if (estimate.error) errors.push(`Total work: ${estimate.error}`);
   const weekly = parseHours(input.weeklyText);
   if (weekly.error) errors.push(`Hours a week: ${weekly.error}`);
+
+  // An inverted window is silently nothing: the engine asks for hours inside it
+  // and no day qualifies, so the commitment simply stops generating time with no
+  // sign of why. Refused rather than warned about for that reason.
+  const from = input.activeFrom ?? "";
+  const until = input.activeUntil ?? "";
+  if (from && until && from > until) {
+    errors.push("The hours stop applying before they start — swap those two dates.");
+  }
+  // Legal, and almost always a mistake worth seeing: hours that run out before
+  // the date they were meant to reach.
+  if (until && input.deadlineDate && until < input.deadlineDate) {
+    warnings.push(
+      "The weekly hours stop before the finish-by date, so nothing is booked for the last stretch of it.",
+    );
+  }
+  if ((from || until) && !parseHours(input.weeklyText).minutes) {
+    warnings.push("An active window only bounds weekly hours, and this commitment carries none — it changes nothing.");
+  }
 
   const seen = new Map<string, number>();
   let phaseSum = 0;

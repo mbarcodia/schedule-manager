@@ -122,6 +122,11 @@ export interface Project {
    * begins next semester exist now without booking hours today. */
   activeFromAbs?: number | null;
   activeUntilAbs?: number | null;
+  /** The same window as the two above, as the civil dates it is stored as. The
+   * engine reads the absolute minutes; anything that has to SHOW or EDIT the
+   * window needs the dates back, and re-deriving them from minutes is lossy. */
+  activeFrom?: Date | null;
+  activeUntil?: Date | null;
   /** An ongoing rhythm ("Weekly", "Ongoing") for a project with no
    * deadline. Descriptive only — nothing is scheduled from it. */
   cadence?: string | null;

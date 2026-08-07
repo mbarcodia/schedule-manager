@@ -8,7 +8,14 @@ import { fetchTodoLinks, type TodoLink } from "@/lib/planner/todo-links";
 import { KanbanColumn } from "./KanbanColumn";
 import { deriveBoardStatuses, boardStatusFor, type BoardStatus } from "@/lib/planner/board-status";
 import { DEFAULT_WIP_LIMIT } from "@/lib/planner/board-constants";
-import { moveTaskToColumn, setTaskImportant, setCommitmentImportant, setTaskArchived, type DroppableColumn } from "@/lib/planner/board-actions";
+import {
+  moveTaskToColumn,
+  holdUntilNextWeek,
+  setTaskImportant,
+  setCommitmentImportant,
+  setTaskArchived,
+  type DroppableColumn,
+} from "@/lib/planner/board-actions";
 import { CommitmentCard } from "./CommitmentCard";
 import { CommitmentPanelHost, NEW_COMMITMENT } from "./CommitmentPanel";
 import { TaskPanel } from "./TaskPanel";
@@ -62,6 +69,10 @@ export function KanbanBoard({ scheduleData, onMutated }: KanbanBoardProps) {
   const [openCommitment, setOpenCommitment] = useState<string | null>(null);
   /** A task id being edited, "new" for a fresh one, null for closed. */
   const [openTask, setOpenTask] = useState<string | null>(null);
+  /** The task just dropped into Backlog, if it is still being asked whether that
+   * meant "later" or merely "less important". Cleared by either answer, and by
+   * the next drop — a stale prompt on a card you've moved on from is noise. */
+  const [justBacklogged, setJustBacklogged] = useState<string | null>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
   // Stable per mount, as Timeline does it — `new Date()` inside a data memo is
@@ -166,6 +177,7 @@ export function KanbanBoard({ scheduleData, onMutated }: KanbanBoardProps) {
     }
     if (!DROPPABLE.has(targetCol)) return;
     setNotice(null);
+    setJustBacklogged(targetCol === "backlog" ? String(task.id) : null);
     if (targetCol === "in_progress" && wipCount >= DEFAULT_WIP_LIMIT) {
       setNotice(`Heads up: ${wipCount + 1} tasks in progress exceeds your WIP limit of ${DEFAULT_WIP_LIMIT} — consider parking something first.`);
     }
@@ -182,6 +194,17 @@ export function KanbanBoard({ scheduleData, onMutated }: KanbanBoardProps) {
 
   async function handleToggleCommitmentImportant(projectId: string, next: boolean) {
     await setCommitmentImportant(projectId, next);
+    await refresh();
+    onMutated?.();
+  }
+
+  async function handleHoldUntilNextWeek(taskId: string) {
+    setJustBacklogged(null);
+    const error = await holdUntilNextWeek(taskId);
+    if (error) {
+      setNotice(`Couldn't hold that back: ${error}`);
+      return;
+    }
     await refresh();
     onMutated?.();
   }
@@ -280,17 +303,43 @@ export function KanbanBoard({ scheduleData, onMutated }: KanbanBoardProps) {
                 </button>
               )}
               {grouped[status].map((t) => (
-                <KanbanCard
-                  key={t.id}
-                  task={t}
-                  category={t.category_id ? (categoriesById[t.category_id] ?? null) : null}
-                  todoLink={todoLinks.get(t.id) ?? null}
-                  draggable
-                  onToggleImportant={handleToggleImportant}
-                  onArchive={handleArchive}
-                  onOpen={(task) => setOpenTask(task.id)}
-                  whyNot={whyNot.byTask.get(t.id) ?? null}
-                />
+                <div key={t.id} className="flex flex-col">
+                  <KanbanCard
+                    task={t}
+                    category={t.category_id ? (categoriesById[t.category_id] ?? null) : null}
+                    todoLink={todoLinks.get(t.id) ?? null}
+                    draggable
+                    onToggleImportant={handleToggleImportant}
+                    onArchive={handleArchive}
+                    onOpen={(task) => setOpenTask(task.id)}
+                    whyNot={whyNot.byTask.get(t.id) ?? null}
+                  />
+                  {/* Backlog means two different things and the drop can't tell
+                     them apart: "below the rest" leaves the engine free to place
+                     this if the week has room, which is usually right and is
+                     sometimes exactly what you were trying to prevent. */}
+                  {justBacklogged === t.id && (
+                    <div className="mt-1 rounded-md border border-accent bg-panel px-2 py-1.5 flex flex-col gap-1">
+                      <div className="text-[10.5px] text-muted leading-snug">
+                        Sent to the back — it can still be scheduled this week if there&apos;s room.
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => void handleHoldUntilNextWeek(t.id)}
+                          className="rounded border border-accent text-accent px-1.5 py-0.5 text-[10.5px] hover:bg-accent/10"
+                        >
+                          not before next week
+                        </button>
+                        <button
+                          onClick={() => setJustBacklogged(null)}
+                          className="text-[10.5px] text-muted-2 hover:text-text"
+                        >
+                          that&apos;s fine
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               ))}
               {grouped[status].length === 0 && <div className="px-1 text-[10.5px] text-muted-2">empty</div>}
             </KanbanColumn>

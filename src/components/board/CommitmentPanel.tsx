@@ -75,6 +75,8 @@ export function CommitmentPanel({
   const [weeklyText, setWeeklyText] = useState(hoursValue(project?.weeklyMinMin));
   const [deadlineDate, setDeadlineDate] = useState(dateValue(project?.deadlineDate));
   const [deadlineKind, setDeadlineKind] = useState<"hard" | "goal">(project?.deadlineKind ?? "hard");
+  const [activeFrom, setActiveFrom] = useState(dateValue(project?.activeFrom));
+  const [activeUntil, setActiveUntil] = useState(dateValue(project?.activeUntil));
   const [important, setImportant] = useState(!!project?.important);
   const [drafts, setDrafts] = useState<Draft[]>(() =>
     [...targets]
@@ -97,6 +99,8 @@ export function CommitmentPanel({
     estimateText,
     weeklyText,
     deadlineDate,
+    activeFrom,
+    activeUntil,
     targets: drafts,
   });
   const errors = title.trim() ? fieldErrors : ["A commitment needs a name.", ...fieldErrors];
@@ -142,6 +146,8 @@ export function CommitmentPanel({
       effortEstimateMin: parseHours(estimateText).minutes,
       weeklyMinMin: parseHours(weeklyText).minutes,
       important,
+      activeFrom: activeFrom || null,
+      activeUntil: activeUntil || null,
     });
     if (commitmentError) return fail(`Couldn't save the commitment: ${commitmentError}`);
 
@@ -267,6 +273,33 @@ export function CommitmentPanel({
             className={`${field} w-36`}
           />
           {deadlineDate ? kindPicker(deadlineKind, setDeadlineKind) : <div className={hint}>No date of its own.</div>}
+        </section>
+
+        {/* Sits under "finish by" because it is the other half of when this
+           commitment exists in time — and it is the only way to say "not yet"
+           about a commitment, as a task's start date is for a task. */}
+        <section className="flex flex-col gap-1.5">
+          <div className={legend}>When its hours apply</div>
+          <div className="flex items-center gap-1.5">
+            <input
+              type="date"
+              value={activeFrom}
+              onChange={(e) => setActiveFrom(e.target.value)}
+              className={`${field} w-36`}
+            />
+            <span className="text-[11px] text-muted">to</span>
+            <input
+              type="date"
+              value={activeUntil}
+              onChange={(e) => setActiveUntil(e.target.value)}
+              className={`${field} w-36`}
+            />
+          </div>
+          <div className={hint}>
+            {activeFrom || activeUntil
+              ? "Weekly hours are only booked inside this window; both ends count as inside it. Leave an end empty for no bound."
+              : "Empty both ends and its weekly hours are booked from today onwards. Set a start for something that hasn't begun yet — a course next term, a project waiting on someone else."}
+          </div>
         </section>
 
         <section className="flex flex-col gap-2">

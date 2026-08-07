@@ -171,6 +171,8 @@ export function buildScheduleInputs(
     ...timePrefFor(p.category_id, p.time_of_day, p.prefer_morning),
     activeFromAbs: p.active_from ? dateToAbs(p.active_from, false) : null,
     activeUntilAbs: p.active_until ? dateToAbs(p.active_until, true) : null,
+    activeFrom: p.active_from ? localDate(p.active_from) : null,
+    activeUntil: p.active_until ? localDate(p.active_until) : null,
     cadence: p.cadence,
     chunk: p.chunk_min,
     minChunk: minChunkFor(p.category_id),

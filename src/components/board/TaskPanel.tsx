@@ -18,6 +18,8 @@ import { setTaskArchived } from "@/lib/planner/board-actions";
 import {
   PRIORITIES,
   blankTaskDraft,
+  chunkFor,
+  describeChunking,
   taskDraft,
   taskRowFields,
   validateTask,
@@ -226,6 +228,56 @@ export function TaskPanel({
             Priority decides what gets the good slots when the week is full; the label decides how its time is
             scheduled.
           </div>
+        </section>
+
+        {/* The three placement levers, last because the defaults are right for
+           almost everything — and each one can make a task harder to schedule,
+           so the hints say what each costs rather than only what it does. */}
+        <section className="flex flex-col gap-1.5">
+          <div className={legend}>How it gets placed</div>
+          <select
+            value={draft.timeOfDay}
+            onChange={(e) => patch({ timeOfDay: e.target.value as TaskDraft["timeOfDay"] })}
+            className={field}
+          >
+            <option value="">any time of day</option>
+            <option value="morning">mornings only</option>
+            <option value="afternoon">afternoons only</option>
+          </select>
+          <div className={hint}>
+            {draft.timeOfDay
+              ? "A hard rule: it won't be placed in the other half of the day even if that means not fitting this week."
+              : "Its label's own time-of-day rule still applies underneath, if it has one."}
+          </div>
+
+          <div className="flex items-center gap-1.5 pt-1">
+            <input
+              value={draft.maxPerDayText}
+              onChange={(e) => patch({ maxPerDayText: e.target.value })}
+              placeholder="—"
+              className={`${field} w-14`}
+            />
+            <span className="text-[11px] text-muted">minutes a day at most</span>
+          </div>
+          <div className={hint}>Spreads it out instead of taking it in as few sittings as fit. Empty means no cap.</div>
+
+          <div className="flex items-center gap-1.5 pt-1">
+            <input
+              value={draft.chunkText}
+              onChange={(e) => patch({ chunkText: e.target.value })}
+              placeholder={String(chunkFor(Math.round((Number(draft.hoursText) || 0) * 60)) || 30)}
+              className={`${field} w-14`}
+            />
+            <span className="text-[11px] text-muted">minutes per block</span>
+          </div>
+          <div className={hint}>
+            Empty uses the default shown — an hour for anything over 90 minutes, otherwise the whole task in one
+            sitting. A label&apos;s minimum chunk still overrides a shorter one.
+          </div>
+          {/* Neither of these combinations is refused, because the scheduler
+             resolves both. It just doesn't resolve them the way the numbers as
+             typed suggest, so it says which one wins. */}
+          {describeChunking(draft) && <div className={hint}>{describeChunking(draft)}</div>}
         </section>
 
         {(error || errors.length > 0) && (

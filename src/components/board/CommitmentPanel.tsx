@@ -32,7 +32,7 @@ import {
 import { hoursValue, parseHours, validateCommitmentForm, type TargetDraft } from "@/lib/planner/commitment-form";
 import { paceSentence, type CommitmentPace } from "@/lib/scheduling/pace";
 import type { ScheduleData } from "@/lib/scheduling/fetch-schedule-data";
-import type { Project, Target } from "@/lib/scheduling/types";
+import type { Category, Project, Target } from "@/lib/scheduling/types";
 
 /** A date column holds a day. Built from local parts — toISOString() would shift
  * it a day west of Greenwich, which is how date-only fields have gone wrong here
@@ -58,6 +58,7 @@ export function CommitmentPanel({
   project,
   pace,
   targets,
+  categories,
   onClose,
   onSaved,
 }: {
@@ -67,6 +68,9 @@ export function CommitmentPanel({
   project: Project | null;
   pace: CommitmentPace | null;
   targets: Target[];
+  /** For the label picker. A commitment's label is not decoration — it decides
+   * which weekly share its hours count toward. */
+  categories: Category[];
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
@@ -77,6 +81,8 @@ export function CommitmentPanel({
   const [deadlineKind, setDeadlineKind] = useState<"hard" | "goal">(project?.deadlineKind ?? "hard");
   const [activeFrom, setActiveFrom] = useState(dateValue(project?.activeFrom));
   const [activeUntil, setActiveUntil] = useState(dateValue(project?.activeUntil));
+  const [categoryId, setCategoryId] = useState(project?.categoryId ?? "");
+  const [hoursTimeOfDay, setHoursTimeOfDay] = useState<"" | "morning" | "afternoon">(project?.timeOfDay ?? "");
   const [important, setImportant] = useState(!!project?.important);
   const [drafts, setDrafts] = useState<Draft[]>(() =>
     [...targets]
@@ -148,6 +154,8 @@ export function CommitmentPanel({
       important,
       activeFrom: activeFrom || null,
       activeUntil: activeUntil || null,
+      categoryId: categoryId || null,
+      hoursTimeOfDay: hoursTimeOfDay || null,
     });
     if (commitmentError) return fail(`Couldn't save the commitment: ${commitmentError}`);
 
@@ -262,6 +270,45 @@ export function CommitmentPanel({
             <span className="text-[11px] text-muted">hours a week, defended</span>
           </div>
           <div className={hint}>These get found and protected on the calendar. Empty books nothing.</div>
+
+          <div className="flex items-center gap-1.5 pt-1">
+            <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className={field}>
+              <option value="">no label</option>
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+            <span className="text-[11px] text-muted">label</span>
+          </div>
+          {/* Not decoration. The share target is the part that can't be guessed
+             from a colour swatch, and an unlabelled commitment is outside every
+             share — which is invisible until a weekly total comes up short. */}
+          <div className={hint}>
+            {categoryId
+              ? "Colours its blocks, and applies that label's minimum chunk, time-of-day rule and share of the week."
+              : "Unlabelled: its hours count toward no weekly share, and no label's minimum chunk or time-of-day rule applies."}
+          </div>
+
+          <div className="flex items-center gap-1.5 pt-1">
+            <select
+              value={hoursTimeOfDay}
+              onChange={(e) => setHoursTimeOfDay(e.target.value as "" | "morning" | "afternoon")}
+              className={field}
+            >
+              <option value="">any time of day</option>
+              <option value="morning">mornings only</option>
+              <option value="afternoon">afternoons only</option>
+            </select>
+            <span className="text-[11px] text-muted">where those hours go</span>
+          </div>
+          {/* The trap, stated where the trap is set. */}
+          <div className={hint}>
+            {hoursTimeOfDay
+              ? "A hard restriction: the engine refuses the other half of the day even when that means the hours don't fit. One morning holds only a few hours after routines, so several restricted commitments can starve each other."
+              : "Mornings are tried first and afternoons taken as needed, rather than losing the hours. This is the right setting unless the work genuinely cannot happen in the other half."}
+          </div>
         </section>
 
         <section className="flex flex-col gap-1.5">
@@ -436,7 +483,16 @@ export function CommitmentPanelHost({
   onSaved: () => Promise<void>;
 }) {
   if (openId === NEW_COMMITMENT) {
-    return <CommitmentPanel project={null} pace={null} targets={[]} onClose={onClose} onSaved={onSaved} />;
+    return (
+      <CommitmentPanel
+        project={null}
+        pace={null}
+        targets={[]}
+        categories={data.categories}
+        onClose={onClose}
+        onSaved={onSaved}
+      />
+    );
   }
   const project = openId ? data.projects.find((p) => p.id === openId) : null;
   if (!project) return null;
@@ -445,6 +501,7 @@ export function CommitmentPanelHost({
       project={project}
       pace={pace.find((p) => p.projectId === project.id) ?? null}
       targets={data.targets.filter((t) => t.projectId === project.id)}
+      categories={data.categories}
       onClose={onClose}
       onSaved={onSaved}
     />

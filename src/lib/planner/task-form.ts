@@ -31,6 +31,17 @@ export interface TaskDraft {
   projectId: string;
   categoryId: string;
   important: boolean;
+  /** A HARD half-of-day restriction: the engine refuses the other half even when
+   * that means not fitting. Empty = unrestricted, which is not the same as
+   * "anywhere" — a label's own time preference still applies underneath. */
+  timeOfDay: "" | "morning" | "afternoon";
+  /** "Spread it out": at most this many minutes of it on any one day. Empty =
+   * no cap. Paired with the chunk floor in the engine, which takes the TIGHTER
+   * of the two rather than making the pair unschedulable. */
+  maxPerDayText: string;
+  /** Overrides the derived chunk length. Empty keeps the derivation, which is
+   * the right answer almost always and is why this is the last field. */
+  chunkText: string;
 }
 
 export const blankTaskDraft = (): TaskDraft => ({
@@ -43,6 +54,9 @@ export const blankTaskDraft = (): TaskDraft => ({
   projectId: "",
   categoryId: "",
   important: false,
+  timeOfDay: "",
+  maxPerDayText: "",
+  chunkText: "",
 });
 
 /** Same rule as add_task: an hour-long chunk for anything over 90 minutes, the
@@ -66,6 +80,26 @@ export function validateTask(draft: TaskDraft): string[] {
   if (draft.deadlineDate && draft.startDate && draft.startDate > draft.deadlineDate) {
     errors.push("It can't start after the day it's due.");
   }
+
+  const positive = (text: string, name: string): number | null => {
+    const trimmed = text.trim();
+    if (!trimmed) return null;
+    const value = Number(trimmed);
+    if (!Number.isFinite(value) || value <= 0) {
+      errors.push(`${name} has to be a number of minutes above zero — leave it empty for none.`);
+      return null;
+    }
+    return Math.round(value);
+  };
+  positive(draft.maxPerDayText, "The daily cap");
+  positive(draft.chunkText, "The block length");
+
+  // NEITHER of the two obvious-looking conflicts is an error, and both were
+  // refused here until the engine was read properly. A cap below the block
+  // length shortens the blocks (chunkLengthsToTry walks down from the preferred
+  // size, and maxPerDayMin is folded into the floor); a block longer than the
+  // task is clamped to the task. Refusing them would have blocked saves the
+  // scheduler handles correctly — describeChunking says what will happen instead.
   return errors;
 }
 
@@ -80,6 +114,8 @@ export interface TaskRowFields {
   project_id: string | null;
   category_id: string | null;
   important: boolean;
+  time_of_day: "morning" | "afternoon" | null;
+  max_per_day_min: number | null;
 }
 
 /** `now` is passed in rather than read here so the caller controls it and this
@@ -114,7 +150,8 @@ export function taskRowFields(draft: TaskDraft, now: Date): TaskRowFields | null
   return {
     title: draft.title.trim(),
     duration_min,
-    chunk_min: chunkFor(duration_min),
+    // An explicit block length wins over the derivation; empty keeps it.
+    chunk_min: draft.chunkText.trim() ? Math.round(Number(draft.chunkText.trim())) : chunkFor(duration_min),
     priority: draft.priority,
     deadline_at,
     deadline_all_day,
@@ -122,13 +159,38 @@ export function taskRowFields(draft: TaskDraft, now: Date): TaskRowFields | null
     project_id: draft.projectId || null,
     category_id: draft.categoryId || null,
     important: draft.important,
+    time_of_day: draft.timeOfDay || null,
+    max_per_day_min: draft.maxPerDayText.trim() ? Math.round(Number(draft.maxPerDayText.trim())) : null,
   };
+}
+
+/** What the scheduler will actually do with the block length and the daily cap,
+ * for a panel that would otherwise leave the user to discover it. Null when
+ * there is nothing surprising to say.
+ *
+ * Neither combination is refused (see validateTask): the engine resolves both,
+ * and this is the resolution stated out loud. */
+export function describeChunking(draft: TaskDraft): string | null {
+  const durationMin = Math.round((Number(draft.hoursText.trim()) || 0) * 60);
+  const chunk = Number(draft.chunkText.trim()) || 0;
+  const cap = Number(draft.maxPerDayText.trim()) || 0;
+  if (chunk > 0 && durationMin > 0 && chunk > durationMin) {
+    return `That's longer than the whole task, so it will simply be booked in one ${durationMin}-minute block.`;
+  }
+  if (cap > 0 && chunk > 0 && cap < chunk) {
+    return `The daily cap is shorter than the block, so blocks will be cut to ${cap} minutes — one a day.`;
+  }
+  if (cap > 0 && chunk === 0 && durationMin > 0 && cap < chunkFor(durationMin)) {
+    return `Shorter than this task's ${chunkFor(durationMin)}-minute default block, so blocks will be cut to ${cap} minutes.`;
+  }
+  return null;
 }
 
 /** An existing row back into a draft. */
 export function taskDraft(row: {
   title: string;
   duration_min: number;
+  chunk_min?: number;
   priority: string;
   deadline_at: string | null;
   deadline_all_day: boolean;
@@ -136,6 +198,8 @@ export function taskDraft(row: {
   project_id: string | null;
   category_id: string | null;
   important: boolean;
+  time_of_day?: "morning" | "afternoon" | null;
+  max_per_day_min?: number | null;
 }): TaskDraft {
   const pad = (n: number) => String(n).padStart(2, "0");
   const dateOf = (iso: string) => {
@@ -163,5 +227,12 @@ export function taskDraft(row: {
     projectId: row.project_id ?? "",
     categoryId: row.category_id ?? "",
     important: row.important,
+    timeOfDay: row.time_of_day ?? "",
+    maxPerDayText: row.max_per_day_min != null ? String(row.max_per_day_min) : "",
+    // Shown only when it ISN'T the derived value: a number the user never chose,
+    // presented as theirs, is the same mistake as showing a floor_at default as
+    // "don't start before".
+    chunkText:
+      row.chunk_min != null && row.chunk_min !== chunkFor(row.duration_min) ? String(row.chunk_min) : "",
   };
 }

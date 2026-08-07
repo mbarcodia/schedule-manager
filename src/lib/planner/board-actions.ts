@@ -135,6 +135,16 @@ export interface CommitmentFields {
    * inclusive. Was reachable only through the chat until now. */
   activeFrom: string | null;
   activeUntil: string | null;
+  /** The label its weekly-hours blocks wear. More than a colour: the label
+   * carries the minimum chunk, the time-of-day rule and — the reason this could
+   * not stay chat-only — the WEEKLY SHARE this commitment's hours count toward.
+   * An unlabelled commitment counts toward no share at all. */
+  categoryId: string | null;
+  /** A HARD half-of-day restriction on where those hours may go. Null leaves
+   * them unrestricted (mornings are still tried first). Setting one can make a
+   * large weekly minimum unschedulable — one morning holds only so much — which
+   * is why the panel says so next to the control. */
+  hoursTimeOfDay: "morning" | "afternoon" | null;
 }
 
 export async function saveCommitmentFields(projectId: string, fields: CommitmentFields): Promise<string | null> {
@@ -150,6 +160,8 @@ export async function saveCommitmentFields(projectId: string, fields: Commitment
       important: fields.important,
       active_from: fields.activeFrom,
       active_until: fields.activeUntil,
+      category_id: fields.categoryId,
+      time_of_day: fields.hoursTimeOfDay,
     })
     .eq("id", projectId);
   return error?.message ?? null;

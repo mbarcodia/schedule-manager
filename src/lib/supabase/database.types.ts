@@ -22,6 +22,9 @@ export type LabelTimePref = "prefer_morning" | "morning_only" | "prefer_afternoo
  * left once meetings are removed, which shrinks the goal in a busy week so it
  * still fits. See migration 0038. */
 export type LabelTargetBasis = "week" | "after_meetings";
+/** Which end of the working day a routine holds instead of a clock time
+ * (recurring_rules.anchor). Null = placed by its window. See migration 0039. */
+export type RoutineAnchor = "day_start" | "day_end";
 export type EventSource = "manual" | "google" | "icloud" | "outlook";
 export type SubjectType = "task" | "research" | "anchor";
 export type ChatRole = "user" | "assistant";
@@ -310,6 +313,7 @@ export interface Database {
           length_min: number;
           win_start_min: number | null;
           win_end_min: number | null;
+          anchor: RoutineAnchor | null;
           category_id: string | null;
           created_at: string;
         },
@@ -322,6 +326,7 @@ export interface Database {
           length_min: number;
           win_start_min?: number | null;
           win_end_min?: number | null;
+          anchor?: RoutineAnchor | null;
           category_id?: string | null;
         },
         Partial<{
@@ -331,6 +336,7 @@ export interface Database {
           length_min: number;
           win_start_min: number | null;
           win_end_min: number | null;
+          anchor: RoutineAnchor | null;
           category_id: string | null;
         }>
       >;

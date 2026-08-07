@@ -184,6 +184,11 @@ export interface CalendarEvent {
   allDay?: boolean;
 }
 
+/** Which end of the day a routine holds. See migration 0039: an anchored
+ * instance may slide within its half of the day when something already occupies
+ * the very edge, and is skipped for that day if it can't. */
+export type RoutineAnchor = "day_start" | "day_end";
+
 export interface RecurringRule {
   id: string;
   title: string;
@@ -193,9 +198,14 @@ export interface RecurringRule {
   length: number;
   /** Placement window in minutes-of-day. Null on both = "wherever it fits"
    * (uses working hours as the window). winStart === winEnd - length means
-   * fixed. */
+   * fixed. Both are null when `anchor` is set — see migration 0039. */
   winStart: number | null;
   winEnd: number | null;
+  /** Tie the routine to the day's opening or its close instead of a clock time,
+   * so it follows whatever hours that day turns out to have. Work is placed
+   * after routines, which is what makes "nothing before the emails block" hold
+   * without anyone naming a time. Null = placed by the window above. */
+  anchor?: RoutineAnchor | null;
   /** Optional label. A labelled routine's minutes count toward that label's
    * weekly share and reduce what its commitments are asked for — a weekly
    * literature scan IS research, a standing email slot is not. Null for most. */

@@ -245,6 +245,7 @@ export function buildScheduleInputs(
     length: r.length_min,
     winStart: r.win_start_min,
     winEnd: r.win_end_min,
+    anchor: r.anchor,
     categoryId: r.category_id,
   }));
 

@@ -353,7 +353,16 @@ export function buildPromptContext(rows: RawScheduleRows, inputs: ScheduleInputs
     title: r.title,
     days: r.days.map((d) => WEEKDAY_LABELS[d]).join("/"),
     min: r.length,
-    window: r.winStart == null ? "anytime" : `${minToLabel(r.winStart)}-${minToLabel(r.winEnd!)}`,
+    // An anchored routine has no clock time — saying one would invite the model
+    // to quote a number that changes with the day's hours.
+    window:
+      r.anchor === "day_start"
+        ? "first thing in the day (moves with the day's hours; nothing scheduled before it)"
+        : r.anchor === "day_end"
+          ? "last thing in the day (moves with the day's hours)"
+          : r.winStart == null
+            ? "anytime"
+            : `${minToLabel(r.winStart)}-${minToLabel(r.winEnd!)}`,
   }));
 
   const notes = rows.preferenceNotes.map((n) => n.note);

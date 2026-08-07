@@ -144,6 +144,7 @@ check("anywhere writes both columns null", routineRow(draft()), {
   length_min: 30,
   win_start_min: null,
   win_end_min: null,
+  anchor: null,
   category_id: null,
 });
 
@@ -154,12 +155,12 @@ check("a label is stored as given", routineRow(draft({ categoryId: "research-id"
 check(
   "a fixed time is stored as a window one length wide, as update_recurring does",
   routineRow(draft({ placement: "fixed", lengthText: "60", startText: "12:00" })),
-  { title: "Emails", days: [0, 1, 2, 3, 4], length_min: 60, win_start_min: 720, win_end_min: 780, category_id: null },
+  { title: "Emails", days: [0, 1, 2, 3, 4], length_min: 60, win_start_min: 720, win_end_min: 780, anchor: null, category_id: null },
 );
 check(
   "a window keeps both ends",
   routineRow(draft({ days: [0], placement: "window", startText: "13:00", endText: "17:00" })),
-  { title: "Emails", days: [0], length_min: 30, win_start_min: 780, win_end_min: 1020, category_id: null },
+  { title: "Emails", days: [0], length_min: 30, win_start_min: 780, win_end_min: 1020, anchor: null, category_id: null },
 );
 check("a draft that doesn't validate writes nothing at all", routineRow(draft({ title: "" })), null);
 check("the title is trimmed on the way in", routineRow(draft({ title: "  Emails  " }))?.title, "Emails");
@@ -167,16 +168,22 @@ check("the title is trimmed on the way in", routineRow(draft({ title: "  Emails 
 // --------------------------------------------------------------- the round trip
 
 const rows = [
-  { id: "a", title: "Emails", days: [0, 1, 2, 3, 4], length_min: 30, win_start_min: null, win_end_min: null, category_id: null },
-  { id: "b", title: "Lunch", days: [0, 1, 2, 3, 4], length_min: 60, win_start_min: 720, win_end_min: 780, category_id: null },
-  { id: "c", title: "Lit scan", days: [0], length_min: 30, win_start_min: 780, win_end_min: 1020, category_id: "research-id" },
+  { id: "a", title: "Emails", days: [0, 1, 2, 3, 4], length_min: 30, win_start_min: null, win_end_min: null, anchor: null, category_id: null },
+  { id: "b", title: "Lunch", days: [0, 1, 2, 3, 4], length_min: 60, win_start_min: 720, win_end_min: 780, anchor: null, category_id: null },
+  { id: "c", title: "Lit scan", days: [0], length_min: 30, win_start_min: 780, win_end_min: 1020, anchor: null, category_id: "research-id" },
+  { id: "d", title: "First thing", days: [0, 1, 2, 3, 4], length_min: 15, win_start_min: null, win_end_min: null, anchor: "day_start", category_id: null },
+  { id: "e", title: "Wrap up", days: [4], length_min: 30, win_start_min: null, win_end_min: null, anchor: "day_end", category_id: null },
 ];
 for (const row of rows) {
   const columns = { ...row };
   delete columns.id;
   check(`${row.title}: row -> draft -> row is identity`, routineRow(routineDraft(row)), columns);
 }
-check("the shape is inferred, not stored", rows.map((r) => routineDraft(r).placement), ["anywhere", "fixed", "window"]);
+check(
+  "the shape is inferred, not stored",
+  rows.map((r) => routineDraft(r).placement),
+  ["anywhere", "fixed", "window", "day_start", "day_end"],
+);
 check(
   "a row the engine would ignore loses its weekend days on the way in",
   routineDraft({ id: "d", title: "x", days: [0, 6], length_min: 30, win_start_min: null, win_end_min: null }).days,
@@ -186,6 +193,36 @@ check(
   "a row with no label round-trips to no label",
   routineDraft({ id: "e", title: "x", days: [0], length_min: 30, win_start_min: null, win_end_min: null }).categoryId,
   "",
+);
+
+// ------------------------------------------------------- anchored to a day end
+//
+// The invariant migration 0039 enforces in the database, checked here too: an
+// anchored routine carries NO clock time. A row with both would be two answers
+// to one question, and the insert would simply fail.
+
+for (const anchor of ["day_start", "day_end"]) {
+  const row = routineRow(draft({ placement: anchor, startText: "09:00", endText: "17:00" }));
+  check(`${anchor}: stores the anchor`, row.anchor, anchor);
+  check(`${anchor}: writes no window, even with times typed in`, [row.win_start_min, row.win_end_min], [null, null]);
+  check(`${anchor}: needs no start time to validate`, validateRoutine(draft({ placement: anchor, startText: "" })).errors, []);
+}
+
+check(
+  "an anchored routine longer than half a day is warned about, not rejected",
+  validateRoutine(draft({ placement: "day_start", lengthText: "300" })).warnings.length,
+  1,
+);
+
+check(
+  "a day_start routine describes itself without naming a time",
+  describeRoutine({ days: [0, 1, 2, 3, 4], length_min: 15, win_start_min: null, win_end_min: null, anchor: "day_start" }),
+  "15m · Mon–Fri · first thing, when the day starts",
+);
+check(
+  "a day_end routine says which end it holds",
+  describeRoutine({ days: [4], length_min: 30, win_start_min: null, win_end_min: null, anchor: "day_end" }),
+  "30m · Fri · last thing, before the day ends",
 );
 
 console.log(`\n${checks - failures}/${checks} checks passed`);

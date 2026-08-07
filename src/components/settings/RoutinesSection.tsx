@@ -28,6 +28,10 @@ type CategoryRow = Database["public"]["Tables"]["categories"]["Row"];
 const PLACEMENTS: { id: RoutinePlacement; label: string; hint: string }[] = [
   { id: "fixed", label: "At a set time", hint: "it holds that slot" },
   { id: "window", label: "Somewhere in a window", hint: "the scheduler picks when, inside it" },
+  // No clock time of their own: they follow the day's hours, so moving a day's
+  // start moves them with it and no work can be placed in front of them.
+  { id: "day_start", label: "First thing in the day", hint: "starts when the day does, whenever that is" },
+  { id: "day_end", label: "Last thing in the day", hint: "ends when the day does" },
   { id: "anywhere", label: "Wherever it fits", hint: "anywhere in that day's working hours" },
 ];
 
@@ -288,7 +292,7 @@ function RoutineEditor({
         ))}
       </div>
 
-      {draft.placement !== "anywhere" && (
+      {(draft.placement === "fixed" || draft.placement === "window") && (
         <div className="flex items-center gap-2 text-xs text-muted pl-5">
           <input
             type="time"
@@ -308,6 +312,18 @@ function RoutineEditor({
             </>
           )}
         </div>
+      )}
+
+      {/* The one thing that isn't obvious about an anchored routine: what
+         happens on a day where a meeting is already sitting on the edge it
+         wants. Said here rather than left to be discovered on such a day. */}
+      {(draft.placement === "day_start" || draft.placement === "day_end") && (
+        <p className="text-[11px] text-muted pl-5">
+          No fixed time — it moves with your hours, and nothing else is scheduled{" "}
+          {draft.placement === "day_start" ? "before" : "after"} it. If something is already on that edge of the day
+          it takes the first free slot in that {draft.placement === "day_start" ? "first" : "last"} half of the day,
+          and is skipped for the day if there isn&apos;t one.
+        </p>
       )}
 
       {/* Optional, and "no label" is the right answer for most: a standing email

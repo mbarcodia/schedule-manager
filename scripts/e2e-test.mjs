@@ -304,6 +304,39 @@ try {
   check("routine repeats across the whole horizon", routine.length, 5 * s.inputs.horizonWeeks);
   checkThat("routine sits in its window", routine.every((b) => b.start === 540 && b.end === 555));
 
+  // A routine anchored to an end of the day (migration 0039). Through Postgres
+  // because the interesting parts are a constraint and a column default: the
+  // engine's own placement rules are covered by sanity-check-routines.
+  const { error: anchorErr } = await admin.from("recurring_rules").insert({
+    user_id: userId,
+    title: "Wrap up",
+    days: [0, 1, 2, 3, 4],
+    length_min: 30,
+    anchor: "day_end",
+  });
+  checkThat("an anchored routine round-trips", anchorErr == null, anchorErr?.message ?? "");
+  const { error: bothErr } = await admin.from("recurring_rules").insert({
+    user_id: userId,
+    title: "Impossible",
+    days: [0],
+    length_min: 30,
+    anchor: "day_start",
+    win_start_min: 600,
+    win_end_min: 630,
+  });
+  checkThat("an anchor plus a clock time is refused by the database", bothErr != null, "it was accepted");
+  {
+    const r = await recompute();
+    const wrap = r.schedule.blocks.filter((b) => b.title === "Wrap up" && b.gday < 5);
+    check("the anchored routine appears on each working day", wrap.length, 5);
+    checkThat(
+      "it ends when the day does, without a time of its own",
+      wrap.every((b) => b.end === 1020),
+      wrap.map((b) => b.end).join(","),
+    );
+  }
+  await admin.from("recurring_rules").delete().eq("user_id", userId).eq("title", "Wrap up");
+
   // ------------------------------------------------------------- disruption
   console.log("\n== disruption: a meeting lands on booked time ==");
   const busyDay = 1;

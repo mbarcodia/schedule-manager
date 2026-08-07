@@ -26,6 +26,7 @@ import type {
   GDay,
   MinuteOfDay,
   Priority,
+  RoutineAnchor,
   ScheduleBlock,
   ScheduleInputs,
   Task,
@@ -53,6 +54,25 @@ interface AnchorDef {
   length: number;
   title: string;
   ruleId: string;
+  /** Set when the routine holds an end of the day rather than a clock time; the
+   * window above is then a placeholder, recomputed from the day's real hours
+   * where they're resolved. See anchoredWindow. */
+  anchor?: RoutineAnchor | null;
+}
+
+/** How tightly a routine's own definition pins it down — lowest goes first, so
+ * a slot that can only be in one place isn't taken by one that could have gone
+ * anywhere. Previously they were placed in whatever order the rows arrived in,
+ * which decided contention arbitrarily.
+ *
+ * An anchored routine sits between fixed and flexible on purpose: it wants the
+ * edge of the day but may drift, so a 9:00 lab meeting still beats it to 9:00,
+ * while a "wherever it fits" block no longer takes the opening out from under
+ * the thing that is meant to start the day. */
+function anchorTightness(a: AnchorDef): number {
+  if (a.anchor === "day_start") return 1;
+  if (a.anchor === "day_end") return 3;
+  return a.winEnd - a.winStart <= a.length ? 0 : 2;
 }
 
 function anchorDefs(inputs: ScheduleInputs): AnchorDef[] {
@@ -70,11 +90,32 @@ function anchorDefs(inputs: ScheduleInputs): AnchorDef[] {
           length: r.length,
           title: r.title,
           ruleId: r.id,
+          anchor: r.anchor ?? null,
         });
       });
     });
   }
-  return list;
+  return list.sort((a, b) => a.gday - b.gday || anchorTightness(a) - anchorTightness(b));
+}
+
+/** The window an anchored routine may be placed in on one day, given that day's
+ * real working hours (overrides included).
+ *
+ * It starts at the edge it holds and reaches to the MIDPOINT of the day — the
+ * generic form of "slide within the morning, or skip". Half the window rather
+ * than literally noon: a day running 1pm-5pm has a first half too, and 12:00
+ * would make an anchored routine on it either impossible (day_start) or free to
+ * drift across the whole day (day_end). Always at least `length` wide, so a very
+ * short day still places the routine at its edge instead of dropping it. */
+function anchoredWindow(
+  anchor: RoutineAnchor,
+  win: { start: MinuteOfDay; end: MinuteOfDay },
+  length: number,
+): { start: MinuteOfDay; end: MinuteOfDay } {
+  const mid = win.start + Math.round((win.end - win.start) / 2);
+  return anchor === "day_start"
+    ? { start: win.start, end: Math.min(win.end, Math.max(mid, win.start + length)) }
+    : { start: Math.max(win.start, Math.min(mid, win.end - length)), end: win.end };
 }
 
 /** A task definition normalized for the scheduler's internal loop — includes
@@ -662,8 +703,12 @@ export function computeSchedule(
   anchorDefs(inputs).forEach((a) => {
     const dayWindow = resolveDayWindow(a.gday, inputs.weeklyHours, inputs.dayOverrides, inputs.allDayBlocks);
     if (dayWindow == null) return; // day off entirely
-    let ws = Math.max(a.winStart, dayWindow.start);
-    let we = Math.min(a.winEnd, dayWindow.end);
+    // An anchored routine ignores its stored window (it has none) and takes its
+    // half of the day as the day actually runs — including a day an override has
+    // shortened, which is the case a clock time gets wrong.
+    const anchored = a.anchor ? anchoredWindow(a.anchor, dayWindow, a.length) : null;
+    let ws = anchored ? anchored.start : Math.max(a.winStart, dayWindow.start);
+    let we = anchored ? anchored.end : Math.min(a.winEnd, dayWindow.end);
 
     // A routine whose whole window sits before the day opens slides to the
     // day's first moment instead of vanishing. A 9:00-9:15 email block used to
@@ -673,14 +718,27 @@ export function computeSchedule(
     // later. Deliberately NOT applied to a window that falls after the day
     // closes: an evening routine on a day that already ended should be skipped,
     // not dragged to the morning.
-    if (we - ws < a.length && a.winEnd <= dayWindow.start) {
+    // (Anchored routines are exempt: their window is already the day's own, so
+    // there is nothing stranded before it. This fix-up is the workaround that
+    // rule needed before anchoring existed — see migration 0039.)
+    if (!anchored && we - ws < a.length && a.winEnd <= dayWindow.start) {
       ws = dayWindow.start;
       we = Math.min(dayWindow.end, dayWindow.start + Math.max(a.length, a.winEnd - a.winStart));
     }
 
     if (we - ws < a.length) return; // day shortened past this window
     let placed: number | null = null;
-    for (let m = ws; m + a.length <= we; m += 15) {
+    // Every other routine takes the EARLIEST free slot in its window; a day_end
+    // one takes the latest, starting flush with the day's close and working
+    // back. Searching forward would leave "the last thing in the day" sitting at
+    // the middle of it the moment the final slot is taken.
+    const candidates: MinuteOfDay[] = [];
+    if (a.anchor === "day_end") {
+      for (let m = we - a.length; m >= ws; m -= 15) candidates.push(m);
+    } else {
+      for (let m = ws; m + a.length <= we; m += 15) candidates.push(m);
+    }
+    for (const m of candidates) {
       const abs = a.gday * 1440 + m;
       let free = true;
       for (let k = 0; k < a.length; k += 1) {

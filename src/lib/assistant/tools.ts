@@ -27,7 +27,7 @@ import { computeSchedule } from "@/lib/scheduling/engine";
 import { buildScheduleInputs } from "@/lib/scheduling/from-db";
 import { queryScheduleRows } from "@/lib/scheduling/query-rows";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Database } from "@/lib/supabase/database.types";
+import type { Database, RoutineAnchor } from "@/lib/supabase/database.types";
 import type { ScheduleInputs, Task, WeeklyHours } from "@/lib/scheduling/types";
 import type { RawScheduleRows } from "@/lib/scheduling/from-db";
 
@@ -1218,7 +1218,7 @@ export function buildTools(ctx: ToolContext) {
   const update_recurring = betaTool({
     name: "update_recurring",
     description:
-      'Create, update, or remove a routine — a standing weekly slot (email, lunch, gym, lit scan...). Routines persist across sessions. Give a window for flexible placement, anytime=true for "wherever it fits", or window_start with no window_end for a fixed time. A routine may carry a label, and most should not: a labelled one counts toward that label\'s weekly share and reduces what its commitments are asked for, which is right for a weekly literature scan and wrong for a standing email slot.',
+      'Create, update, or remove a routine — a standing weekly slot (email, lunch, gym, lit scan...). Routines persist across sessions. Give a window for flexible placement, anytime=true for "wherever it fits", window_start with no window_end for a fixed time, or anchor="day_start"/"day_end" for one that holds an END of the working day rather than a clock time. A routine may carry a label, and most should not: a labelled one counts toward that label\'s weekly share and reduces what its commitments are asked for, which is right for a weekly literature scan and wrong for a standing email slot.',
     inputSchema: {
       type: "object",
       properties: {
@@ -1228,6 +1228,12 @@ export function buildTools(ctx: ToolContext) {
         window_start: { type: "string", description: '"12pm", "9:00"' },
         window_end: { type: "string" },
         anytime: { type: "boolean", description: "place wherever it fits in the day" },
+        anchor: {
+          type: "string",
+          enum: ["day_start", "day_end", "none"],
+          description:
+            'tie it to an end of the working day instead of a clock time: "day_start" = the first thing in the day (nothing else is scheduled before it), "day_end" = the last. Use this whenever the user describes a routine in terms of the start or end of their day ("emails first thing", "wrap up at the end of the day") rather than a time — it then follows their hours instead of going stale when those hours change. It may slide within its half of the day if a meeting is already on that edge, and is skipped for that day if it can\'t. "none" turns it back into an ordinary windowed routine.',
+        },
         category: {
           type: "string",
           description:
@@ -1253,9 +1259,12 @@ export function buildTools(ctx: ToolContext) {
       const length_min = inp.length_min ?? match?.length_min ?? 30;
       let win_start_min = match?.win_start_min ?? null;
       let win_end_min = match?.win_end_min ?? null;
+      let anchor: RoutineAnchor | null = match?.anchor ?? null;
+      if (inp.anchor) anchor = inp.anchor === "none" ? null : (inp.anchor as RoutineAnchor);
       if (inp.anytime) {
         win_start_min = null;
         win_end_min = null;
+        anchor = null;
       }
       if (inp.window_start != null) {
         const t = parseTimeStr(inp.window_start);
@@ -1266,6 +1275,15 @@ export function buildTools(ctx: ToolContext) {
         if (t != null) win_end_min = t;
       }
       if (win_start_min != null && win_end_min == null) win_end_min = win_start_min + length_min;
+      // A time given in the same breath as an anchor is the more specific of the
+      // two answers, so it wins and the anchor drops — the alternative is a row
+      // the database rejects outright (migration 0039) for what reads as a
+      // reasonable request. An anchor with no time simply clears the window.
+      if (anchor && (inp.window_start != null || inp.window_end != null)) anchor = null;
+      if (anchor) {
+        win_start_min = null;
+        win_end_min = null;
+      }
 
       // "none" erases, an omitted field leaves whatever is set — the same
       // three-way distinction add_trackable draws for its own facets.
@@ -1276,12 +1294,18 @@ export function buildTools(ctx: ToolContext) {
           : ((await findCategoryId(ctx, inp.category)) ?? category_id);
       }
 
-      const payload = { title: inp.title, tag: match?.tag ?? "anchor", days, length_min, win_start_min, win_end_min, category_id };
+      const payload = { title: inp.title, tag: match?.tag ?? "anchor", days, length_min, win_start_min, win_end_min, anchor, category_id };
       if (match) await supabase.from("recurring_rules").update(payload).eq("id", match.id);
       else await supabase.from("recurring_rules").insert({ user_id: userId, ...payload });
       markMutated(ctx);
 
-      const win = win_start_min == null ? "wherever it fits" : `${win_start_min}-${win_end_min}`;
+      const win = anchor
+        ? anchor === "day_start"
+          ? "first thing in the day, whenever the day starts"
+          : "last thing in the day"
+        : win_start_min == null
+          ? "wherever it fits"
+          : `${win_start_min}-${win_end_min}`;
       const labelNote = category_id
         ? " Its minutes count toward that label's weekly share, so the commitments wearing it are asked for the rest."
         : "";

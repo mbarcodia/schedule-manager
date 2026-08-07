@@ -10,16 +10,26 @@
 // so a Saturday routine would be stored, displayed, and silently never appear.
 // The form offers weekdays only rather than a control that does nothing.
 
+import type { RoutineAnchor } from "@/lib/supabase/database.types";
+
 export const ROUTINE_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri"];
 
-/** How the slot is pinned down. All three are the same two columns underneath —
- * this is the shape a person means, mapped onto them:
+/** How the slot is pinned down. This is the shape a person means, mapped onto
+ * the columns underneath:
  *
- *   anywhere  both null            wherever it fits in the working day
- *   fixed     start, end=start+len at a set time
- *   window    start, end>start+len somewhere inside a window
- */
-export type RoutinePlacement = "anywhere" | "fixed" | "window";
+ *   anywhere   both null            wherever it fits in the working day
+ *   fixed      start, end=start+len at a set time
+ *   window     start, end>start+len somewhere inside a window
+ *   day_start  anchor='day_start'   the first thing in the day, whenever it starts
+ *   day_end    anchor='day_end'     the last thing in it
+ *
+ * The last two carry no clock time at all (migration 0039 forbids one), which is
+ * the point: "the first fifteen minutes of my day are email" written as a fixed
+ * 9:00 window quietly stops being true the day the hours move to 8:30. */
+export type RoutinePlacement = "anywhere" | "fixed" | "window" | "day_start" | "day_end";
+
+/** The two placements that are stored as an anchor rather than a window. */
+export const ANCHOR_PLACEMENTS: RoutinePlacement[] = ["day_start", "day_end"];
 
 export interface RoutineDraft {
   /** Absent while being added. */
@@ -78,14 +88,21 @@ export function describeRoutine(row: {
   length_min: number;
   win_start_min: number | null;
   win_end_min: number | null;
+  anchor?: RoutineAnchor | null;
 }): string {
   const length = row.length_min % 60 === 0 ? `${row.length_min / 60}h` : `${row.length_min}m`;
+  // An anchored routine has no time to name, and naming one would be a lie the
+  // first time the day's hours change — which is the whole reason it exists.
   const when =
-    row.win_start_min == null
-      ? "wherever it fits"
-      : row.win_end_min != null && row.win_end_min - row.win_start_min > row.length_min
-        ? `between ${clock(row.win_start_min)} and ${clock(row.win_end_min)}`
-        : `at ${clock(row.win_start_min)}`;
+    row.anchor === "day_start"
+      ? "first thing, when the day starts"
+      : row.anchor === "day_end"
+        ? "last thing, before the day ends"
+        : row.win_start_min == null
+          ? "wherever it fits"
+          : row.win_end_min != null && row.win_end_min - row.win_start_min > row.length_min
+            ? `between ${clock(row.win_start_min)} and ${clock(row.win_end_min)}`
+            : `at ${clock(row.win_start_min)}`;
   return `${length} · ${describeDays(row.days)} · ${when}`;
 }
 
@@ -109,7 +126,15 @@ export function validateRoutine(draft: RoutineDraft): RoutineProblems {
     errors.push(`${where} is longer than a day.`);
   }
 
-  if (draft.placement !== "anywhere") {
+  // An anchored routine longer than half a normal day can never be placed
+  // inside its half of the window, so it would simply never appear.
+  if (ANCHOR_PLACEMENTS.includes(draft.placement) && Number.isFinite(length) && length > 240) {
+    warnings.push(
+      `${where} is ${length} minutes long — anchored to an end of the day it only gets that day's first (or last) half, so it may be dropped on shorter days.`,
+    );
+  }
+
+  if (draft.placement === "fixed" || draft.placement === "window") {
     const start = parseTimeOfDay(draft.startText);
     if (start == null) {
       errors.push(`${where} needs a start time, or set it to go wherever it fits.`);
@@ -139,18 +164,23 @@ export function routineRow(draft: RoutineDraft): {
   length_min: number;
   win_start_min: number | null;
   win_end_min: number | null;
+  anchor: RoutineAnchor | null;
   category_id: string | null;
 } | null {
   if (validateRoutine(draft).errors.length) return null;
   const length_min = Math.round(Number(draft.lengthText.trim()));
   const category_id = draft.categoryId || null;
-  if (draft.placement === "anywhere") {
+  // Both anchored placements and "anywhere" write null windows; the anchor is
+  // what distinguishes them, and writing both would violate the constraint
+  // migration 0039 adds.
+  if (draft.placement === "anywhere" || ANCHOR_PLACEMENTS.includes(draft.placement)) {
     return {
       title: draft.title.trim(),
       days: [...draft.days].sort(),
       length_min,
       win_start_min: null,
       win_end_min: null,
+      anchor: draft.placement === "anywhere" ? null : (draft.placement as RoutineAnchor),
       category_id,
     };
   }
@@ -164,6 +194,7 @@ export function routineRow(draft: RoutineDraft): {
     length_min,
     win_start_min: start,
     win_end_min: end,
+    anchor: null,
     category_id,
   };
 }
@@ -176,10 +207,12 @@ export function routineDraft(row: {
   length_min: number;
   win_start_min: number | null;
   win_end_min: number | null;
+  anchor?: RoutineAnchor | null;
   category_id?: string | null;
 }): RoutineDraft {
-  const placement: RoutinePlacement =
-    row.win_start_min == null
+  const placement: RoutinePlacement = row.anchor
+    ? row.anchor
+    : row.win_start_min == null
       ? "anywhere"
       : row.win_end_min != null && row.win_end_min - row.win_start_min > row.length_min
         ? "window"

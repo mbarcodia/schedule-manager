@@ -167,6 +167,19 @@ export async function saveCommitmentFields(projectId: string, fields: Commitment
   return error?.message ?? null;
 }
 
+/** Pause a commitment, or pick it back up. NOT archiving: it stays on the
+ * boards, because the point of recording something you aren't doing is to keep
+ * seeing it. Nothing else is touched — above all not weekly_min_min, which is
+ * the rate it resumes at (migration 0041). */
+export async function setCommitmentOnHold(projectId: string, onHold: boolean): Promise<string | null> {
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("projects")
+    .update({ on_hold_at: onHold ? new Date().toISOString() : null })
+    .eq("id", projectId);
+  return error?.message ?? null;
+}
+
 /** A commitment starts as a title and nothing else — an estimate, hours and a
  * date are all things you may not know yet, and pace says so rather than being
  * blocked on them. Returns the new id so the panel can go on to write its dates.

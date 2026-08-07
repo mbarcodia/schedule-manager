@@ -203,6 +203,12 @@ export function buildPromptContext(rows: RawScheduleRows, inputs: ScheduleInputs
     projects: rows.projects.map((p) => ({
       title: p.title,
       important: p.important || undefined,
+      // Reported as a state, not as absent hours. Without this the model reads a
+      // paused commitment as one somebody forgot to configure and offers to fix
+      // it — which is precisely what the user asked it to stop doing.
+      onHold: p.on_hold_at
+        ? `on hold since ${p.on_hold_at.slice(0, 10)} — nothing is scheduled for it or its tasks, and it claims no share of its label's week. Its weekly hours (${p.weekly_min_min ? `${p.weekly_min_min / 60}h/wk` : "none set"}) are kept for when it resumes. Do NOT treat its empty fields as gaps to fill, and do not schedule work for it unless asked to take it off hold.`
+        : undefined,
       totalEffortHrs: p.effort_estimate_min ? p.effort_estimate_min / 60 : null,
       pace: paceById.get(p.id) ? paceSentence(paceById.get(p.id)!) : null,
       /** Last 8 weeks against this commitment's weekly minimum, oldest first:
@@ -324,9 +330,13 @@ export function buildPromptContext(rows: RawScheduleRows, inputs: ScheduleInputs
      * board as complete. Ask about these; don't fill them in by guessing. */
     whatIsThin: (() => {
       const gaps: string[] = [];
-      const hourly = rows.projects.filter((p) => p.weekly_min_min);
+      // An ON HOLD commitment is not thin — it is a decision. Reporting its
+      // empty fields as gaps is how the chat came to keep asking about work the
+      // user had already told it they were not doing.
+      const live = rows.projects.filter((p) => !p.on_hold_at);
+      const hourly = live.filter((p) => p.weekly_min_min);
       const noEstimate = hourly.filter((p) => !p.effort_estimate_min);
-      const noDate = rows.projects.filter(
+      const noDate = live.filter(
         (p) => !p.deadline_date && !rows.targets.some((t) => t.commitment_id === p.id),
       );
       const noTasks = hourly.filter((p) => !rows.tasks.some((t) => t.project_id === p.id));
@@ -338,7 +348,7 @@ export function buildPromptContext(rows: RawScheduleRows, inputs: ScheduleInputs
         gaps.push(
           `${noDate.length} commitment(s) have no date of any kind, so nothing counts down and they cannot appear on the timeline: ${noDate.map((p) => p.title).join(", ")}`,
         );
-      if (!rows.projects.some((p) => p.important) && !rows.tasks.some((t) => t.important))
+      if (!live.some((p) => p.important) && !rows.tasks.some((t) => t.important))
         gaps.push("nothing is marked important, so the Priorities board puts everything in one quadrant");
       if (noTasks.length)
         gaps.push(

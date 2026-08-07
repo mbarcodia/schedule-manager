@@ -619,6 +619,34 @@ try {
       .eq("id", userId);
   }
 
+  // ------------------------------------------------------------- on hold
+  // The state that has to do two opposite things at once: schedule nothing, and
+  // forget nothing. Through Postgres because the hours being PRESERVED while
+  // unused is a column-level promise, and the obvious way to implement a pause
+  // (clear weekly_min_min) would pass every engine check and fail this one.
+  console.log("\n== a commitment on hold ==");
+  {
+    const before = (await recompute()).schedule.blocks.filter((b) => b.projectId === proj.id).length;
+    checkThat("it was being scheduled to begin with", before > 0, `${before} blocks`);
+
+    const { error: holdErr } = await admin
+      .from("projects")
+      .update({ on_hold_at: new Date().toISOString() })
+      .eq("id", proj.id);
+    checkThat("it can be put on hold", holdErr == null, holdErr?.message ?? "");
+
+    const r = await recompute();
+    check("nothing is scheduled for it", r.schedule.blocks.filter((b) => b.projectId === proj.id).length, 0);
+    check("nor for its tasks", r.inputs.tasks.filter((t) => t.projectId === proj.id).length, 0);
+    check("the engine sees no weekly hours", r.projects.find((p) => p.id === proj.id).weeklyMinMin, null);
+    check("but the column still holds the rate", r.rows.projects.find((p) => p.id === proj.id).weekly_min_min, 240);
+    check("and the app knows what it resumes at", r.projects.find((p) => p.id === proj.id).weeklyMinMinOnHold, 240);
+
+    await admin.from("projects").update({ on_hold_at: null }).eq("id", proj.id);
+    const after = (await recompute()).schedule.blocks.filter((b) => b.projectId === proj.id).length;
+    check("picking it back up restores exactly what it was", after, before);
+  }
+
   // ------------------------------------------------------- one day's hours
   // The `closed` column, and the thing it exists for: an override with no start
   // and no end is NOT a closed day — it falls through to the standard hours.

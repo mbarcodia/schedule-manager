@@ -43,7 +43,11 @@ export type PaceStatus =
   /** Fits, without much room. */
   | "on_pace"
   /** Will not fit at the current rate. */
-  | "slipping";
+  | "slipping"
+  /** Recorded, deliberately not being worked on. Nothing is scheduled for it.
+   * Reported as its own state rather than as "needs weekly hours", which is what
+   * a paused commitment looked like before — a decision misread as an omission. */
+  | "on_hold";
 
 export interface CommitmentPace {
   projectId: string;
@@ -75,6 +79,14 @@ export interface CommitmentPace {
   slipWeeks: number | null;
   /** Weekly minutes that would still hit nextDate — the "or go faster" option. */
   rateToHitMin: number | null;
+  /** ON HOLD ONLY: the rate it would have to run at, from today, to still make
+   * its date — set only once that rate exceeds the rate it was paused at, i.e.
+   * once resuming as before would no longer be enough. Null while there is still
+   * time, which is what keeps a hold quiet until it matters.
+   *
+   * The whole risk of putting something down is forgetting to pick it up in
+   * time, and a state that never speaks would carry that risk silently. */
+  holdRateNeededMin: number | null;
   /** Set when that "or go faster" rate is more than a normal week has room for,
    * once meetings, routines and the reserve are taken off (see reserve.ts).
    * "Go 38h/wk" is not advice when no week has ever held 38 hours of anything —
@@ -193,6 +205,34 @@ export function computePace(inputs: PaceInputs): CommitmentPace[] {
       nextDateLabel,
     };
 
+    // ON HOLD short-circuits everything below. A paused commitment is not
+    // "unmeasurable" — nothing is missing, it is simply not running — and its
+    // rate is the one it will RESUME at, which is remembered rather than blank.
+    if (p.onHold) {
+      const holdRate = p.weeklyMinMinOnHold ?? null;
+      const weeksLeft = nextDate ? Math.max(0.1, (nextDate.getTime() - now.getTime()) / MS_PER_WEEK) : null;
+      const needed = remainingMin != null && weeksLeft != null ? Math.ceil(remainingMin / weeksLeft) : null;
+      // Silent until resuming as before would no longer make the date. Without a
+      // remembered rate there is nothing to compare against, so a normal week's
+      // bookable hours stand in — and failing that, it stays quiet rather than
+      // inventing a threshold.
+      const bar = holdRate ?? bookableWeekMin;
+      const tight = needed != null && bar != null && bar > 0 && needed > bar;
+      return {
+        ...base,
+        weeklyRateMin: holdRate,
+        status: "on_hold" as PaceStatus,
+        missing: [],
+        weeksNeeded: holdRate && remainingMin != null ? remainingMin / holdRate : null,
+        weeksAvailable: weeksLeft,
+        slipWeeks: null,
+        rateToHitMin: needed,
+        holdRateNeededMin: tight ? needed : null,
+        exceedsWeekMin: tight ? overWeek(needed) : null,
+      };
+    }
+
+
     if (missing.length) {
       return {
         ...base,
@@ -201,6 +241,7 @@ export function computePace(inputs: PaceInputs): CommitmentPace[] {
         weeksAvailable: null,
         slipWeeks: null,
         rateToHitMin: null,
+        holdRateNeededMin: null,
         exceedsWeekMin: null,
       };
     }
@@ -213,7 +254,16 @@ export function computePace(inputs: PaceInputs): CommitmentPace[] {
 
     // Already finished the estimated effort — nothing left to be late for.
     if (remainingMin === 0) {
-      return { ...base, status: "ahead" as PaceStatus, weeksNeeded: 0, weeksAvailable, slipWeeks: null, rateToHitMin: 0, exceedsWeekMin: null };
+      return {
+        ...base,
+        status: "ahead" as PaceStatus,
+        weeksNeeded: 0,
+        weeksAvailable,
+        slipWeeks: null,
+        rateToHitMin: 0,
+        holdRateNeededMin: null,
+        exceedsWeekMin: null,
+      };
     }
     if (loggedMin === 0) {
       return {
@@ -223,6 +273,7 @@ export function computePace(inputs: PaceInputs): CommitmentPace[] {
         weeksAvailable,
         slipWeeks: null,
         rateToHitMin,
+        holdRateNeededMin: null,
         exceedsWeekMin: overWeek(rateToHitMin),
       };
     }
@@ -236,6 +287,7 @@ export function computePace(inputs: PaceInputs): CommitmentPace[] {
       weeksAvailable,
       slipWeeks: status === "slipping" ? weeksNeeded - weeksAvailable : null,
       rateToHitMin,
+      holdRateNeededMin: null,
       exceedsWeekMin: overWeek(rateToHitMin),
     };
   });
@@ -254,6 +306,23 @@ export function paceSentence(p: CommitmentPace): string {
   if (p.status === "unmeasurable") {
     return `Pace unknown — needs ${missingList(p.missing)} to be measurable.`;
   }
+  // On hold speaks in two registers: quiet while there is time, specific once
+  // resuming as before would no longer make the date. The quiet form still names
+  // what it will resume at, because "on hold" alone doesn't say whether picking
+  // it up is a small thing or a large one.
+  if (p.status === "on_hold") {
+    const rate = p.weeklyRateMin ? ` It resumes at ${hrs(p.weeklyRateMin)}/wk.` : "";
+    const left = p.remainingMin != null ? `${hrs(p.remainingMin)} left` : "nothing scheduled";
+    if (!p.nextDate) return `On hold — ${left}, no date.${rate}`;
+    const when = p.nextDate.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    const weeks = Math.max(1, Math.round(p.weeksAvailable ?? 0));
+    if (p.holdRateNeededMin == null) {
+      return `On hold — ${left}, ${p.nextDateKind === "hard" ? "due" : "aiming at"} ${when}.${rate}`;
+    }
+    const cannot = p.exceedsWeekMin != null ? `, more than a normal week's ${hrs(p.exceedsWeekMin)} of free time` : "";
+    return `On hold, and the date is getting tight — ${left} before ${when}, ${weeks} week${weeks > 1 ? "s" : ""} away. Starting now would take ${hrs(p.holdRateNeededMin)}/wk${cannot}.`;
+  }
+
   const on = p.nextDate!.toLocaleDateString(undefined, { month: "short", day: "numeric" });
   const date = p.nextDateLabel === "deadline" ? `the ${p.nextDateKind} deadline, ${on}` : `“${p.nextDateLabel}” on ${on}`;
 

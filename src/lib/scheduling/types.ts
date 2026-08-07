@@ -148,6 +148,15 @@ export interface Project {
    * Both are scheduled toward identically; only the consequence of missing one
    * differs. */
   deadlineKind?: "hard" | "goal";
+  /** Recorded but not being worked on — see migration 0041. from-db strips the
+   * weekly hours before the engine sees one of these, so the engine itself has
+   * no concept of a hold; what reaches it is simply a commitment that carries no
+   * hours. The flag survives for pace and the board, which must tell "paused" and
+   * "never given any hours" apart. The DECLARED rate is preserved in
+   * weeklyMinMinOnHold so resuming doesn't mean deciding it again. */
+  onHold?: boolean;
+  /** The weekly minutes it will return to. Only set when onHold. */
+  weeklyMinMinOnHold?: number | null;
 }
 
 /** A date inside a project that consumes no calendar time. Deliberately

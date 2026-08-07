@@ -172,6 +172,7 @@ export interface Database {
           important: boolean;
           deadline_kind: DateKind;
           archived_at: string | null;
+          on_hold_at: string | null;
           created_at: string;
         },
         {
@@ -192,6 +193,7 @@ export interface Database {
           important?: boolean;
           deadline_kind?: DateKind;
           archived_at?: string | null;
+          on_hold_at?: string | null;
         },
         Partial<{
           title: string;
@@ -209,6 +211,7 @@ export interface Database {
           important: boolean;
           deadline_kind: DateKind;
           archived_at: string | null;
+          on_hold_at: string | null;
         }>
       >;
       /** A dated checkpoint inside a project that consumes no hours. */

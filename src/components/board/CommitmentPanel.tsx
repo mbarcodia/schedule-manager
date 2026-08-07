@@ -19,7 +19,7 @@
 // months behind (see lib/scheduling/pace.ts).
 
 import { useState } from "react";
-import { XIcon, PlusIcon, TrashIcon, StarIcon, ArchiveBoxIcon } from "@phosphor-icons/react";
+import { XIcon, PlusIcon, TrashIcon, StarIcon, ArchiveBoxIcon, PauseIcon } from "@phosphor-icons/react";
 import {
   addTarget,
   createCommitment,
@@ -27,6 +27,7 @@ import {
   saveCommitmentFields,
   saveTarget,
   setCommitmentArchived,
+  setCommitmentOnHold,
   setTargetHit,
 } from "@/lib/planner/board-actions";
 import { hoursValue, parseHours, validateCommitmentForm, type TargetDraft } from "@/lib/planner/commitment-form";
@@ -99,6 +100,7 @@ export function CommitmentPanel({
   const [removedIds, setRemovedIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [confirmArchive, setConfirmArchive] = useState(false);
+  const [onHold, setOnHold] = useState(!!project?.onHold);
   const [error, setError] = useState<string | null>(null);
 
   const { errors: fieldErrors, warnings } = validateCommitmentForm({
@@ -119,6 +121,20 @@ export function CommitmentPanel({
     const draft = drafts[index];
     if (draft.id) setRemovedIds((prev) => [...prev, draft.id!]);
     setDrafts((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  async function toggleHold() {
+    setBusy(true);
+    setError(null);
+    const next = !onHold;
+    const message = await setCommitmentOnHold(project!.id, next);
+    setBusy(false);
+    if (message) {
+      setError(`Couldn't ${next ? "put that on hold" : "pick that back up"}: ${message}`);
+      return;
+    }
+    setOnHold(next);
+    await onSaved();
   }
 
   async function save() {
@@ -269,7 +285,11 @@ export function CommitmentPanel({
             <input value={weeklyText} onChange={(e) => setWeeklyText(e.target.value)} className={`${field} w-14`} />
             <span className="text-[11px] text-muted">hours a week, defended</span>
           </div>
-          <div className={hint}>These get found and protected on the calendar. Empty books nothing.</div>
+          <div className={hint}>
+            {onHold
+              ? "On hold: nothing is being scheduled — not these hours and not its tasks. The figure is kept, and picking it back up resumes at exactly this rate."
+              : "These get found and protected on the calendar. Empty books nothing."}
+          </div>
 
           <div className="flex items-center gap-1.5 pt-1">
             <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className={field}>
@@ -432,6 +452,24 @@ export function CommitmentPanel({
           </button>
           {project && (
             <div className="ml-auto">
+              {/* Beside "finished with this", because they are the two ways a
+                 commitment stops taking time — and the difference between them
+                 is the whole point: one is over, the other is waiting. Takes
+                 effect immediately rather than on Save: it is a state, not a
+                 field, and the same is true of archiving next to it. */}
+              <button
+                onClick={() => void toggleHold()}
+                disabled={busy}
+                title={
+                  onHold
+                    ? "Start scheduling its hours again, at the rate it was already set to"
+                    : "Keep it on the board, schedule nothing for it — its weekly hours are remembered"
+                }
+                className="flex items-center gap-1 text-[10px] text-muted-2 hover:text-text disabled:opacity-50"
+              >
+                <PauseIcon size={11} /> {onHold ? "pick this back up" : "put on hold"}
+              </button>
+
               {confirmArchive ? (
                 <span className="text-[10px] text-muted-2">
                   Put it away?{" "}

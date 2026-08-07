@@ -163,11 +163,18 @@ export function buildScheduleInputs(
     return gday * 1440 + (endOfDay ? 1440 : 0);
   };
 
+  // An on-hold commitment reaches the engine as one carrying NO weekly hours,
+  // which is the whole of the mechanism: no chunks are generated for it and it
+  // takes no part of its label's share, without the engine needing to know the
+  // concept exists. The declared rate travels alongside so the boards can say
+  // what it will resume at — deleting it to pause would throw away a decision.
   const projects: Project[] = rows.projects.map((p) => ({
     id: p.id,
     title: p.title,
     deadlineDate: p.deadline_date ? localDate(p.deadline_date) : null,
-    weeklyMinMin: p.weekly_min_min,
+    weeklyMinMin: p.on_hold_at ? null : p.weekly_min_min,
+    onHold: p.on_hold_at != null,
+    weeklyMinMinOnHold: p.on_hold_at ? p.weekly_min_min : null,
     ...timePrefFor(p.category_id, p.time_of_day, p.prefer_morning),
     activeFromAbs: p.active_from ? dateToAbs(p.active_from, false) : null,
     activeUntilAbs: p.active_until ? dateToAbs(p.active_until, true) : null,
@@ -192,7 +199,15 @@ export function buildScheduleInputs(
     weeklyHours[dow] = rows.profile.weekly_hours[String(dow)] ?? null;
   }
 
-  const tasks: Task[] = rows.tasks.map((t) => {
+  // A hold that still booked the tasks underneath would be a distinction without
+  // a difference, so they are withheld from the engine too. They stay on the
+  // board (which reads rawTasks) — invisible would be a different promise from
+  // unscheduled.
+  const onHoldProjectIds = new Set(rows.projects.filter((p) => p.on_hold_at).map((p) => p.id));
+
+  const tasks: Task[] = rows.tasks
+    .filter((t) => !(t.project_id && onHoldProjectIds.has(t.project_id)))
+    .map((t) => {
     const floorParts = timestampToParts(t.floor_at, timezone);
     const floorGday = gdayForDate(timezone, floorParts, now);
     const floor = Math.max(0, floorGday * 1440 + floorParts.minuteOfDay);

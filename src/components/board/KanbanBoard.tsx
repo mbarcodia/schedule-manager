@@ -19,7 +19,7 @@ import {
 import { CommitmentCard } from "./CommitmentCard";
 import { CommitmentPanelHost, NEW_COMMITMENT } from "./CommitmentPanel";
 import { TaskPanel } from "./TaskPanel";
-import { computePace, type CommitmentPace, type PaceStatus } from "@/lib/scheduling/pace";
+import { paceFromData, type CommitmentPace, type PaceStatus } from "@/lib/scheduling/pace";
 import { whyNotCommitment, whyNotTask } from "@/lib/scheduling/why-not";
 import { nowAbsMinute, startOfWeekMonday } from "@/lib/scheduling/time";
 import { computeStreaks, type CommitmentStreak } from "@/lib/scheduling/streaks";
@@ -40,6 +40,9 @@ const PACE_COLUMNS: { status: PaceStatus; title: string; subtitle?: string }[] =
   { status: "not_started", title: "Not started", subtitle: "nothing logged yet" },
   { status: "on_pace", title: "On pace", subtitle: "fits the time left" },
   { status: "slipping", title: "Slipping", subtitle: "more work left than time" },
+  // Last, and its own column: things you are carrying but not doing belong out
+  // of the four that describe live work, while still being in front of you.
+  { status: "on_hold", title: "On hold", subtitle: "recorded, nothing scheduled" },
 ];
 
 const TASK_COLUMNS: { status: BoardStatus; title: string; subtitle?: string }[] = [
@@ -81,16 +84,7 @@ export function KanbanBoard({ scheduleData, onMutated }: KanbanBoardProps) {
 
   // Commitments carry their own pace; "ahead" shares the On pace column with a
   // badge rather than getting one of its own, which would usually sit empty.
-  const pace = useMemo<CommitmentPace[]>(() => {
-    if (!data) return [];
-    return computePace({
-      projects: data.projects,
-      targets: data.targets,
-      loggedByProject: data.progressFacts.byProject,
-      weeklyHours: data.inputs.weeklyHours,
-      now,
-    });
-  }, [data, now]);
+  const pace = useMemo<CommitmentPace[]>(() => (data ? paceFromData(data, now) : []), [data, now]);
 
   // Consistency and the phase-based projection, alongside pace. Both read from
   // the full work history rather than the visible fortnight.

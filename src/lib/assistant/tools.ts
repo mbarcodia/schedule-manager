@@ -567,6 +567,11 @@ export function buildTools(ctx: ToolContext) {
           description: "Mark this project important — the importance axis of the Priorities board. Urgency is read from its dates; importance is only ever the user's call, so ask rather than inferring it.",
         },
         category: { type: "string", description: "name of the label for this project's weekly-hours blocks" },
+        on_hold: {
+          type: "boolean",
+          description:
+            'Put this commitment on hold (true) or pick it back up (false). ON HOLD = recorded and visible, but the engine schedules NOTHING for it — neither its weekly hours nor its tasks — and it claims no part of its label\'s weekly share. Its weekly hours are REMEMBERED, not cleared, so resuming returns it to the same rate. Use this whenever someone describes work they are keeping track of but not doing yet, or pausing for now; it is the honest alternative to deleting the hours, which throws away a decision. Different from archiving, which means finished. Its dates still approach, and pace will speak up if the work left stops fitting before one.',
+        },
       },
       required: ["title"],
     },
@@ -614,6 +619,7 @@ export function buildTools(ctx: ToolContext) {
       if (inp.total_effort_hrs != null) patch.effort_estimate_min = Math.round(inp.total_effort_hrs * 60);
       if (inp.deadline_kind) patch.deadline_kind = inp.deadline_kind;
       if (inp.important != null) patch.important = inp.important;
+      if (inp.on_hold != null) patch.on_hold_at = inp.on_hold ? new Date().toISOString() : null;
       if (categoryId) patch.category_id = categoryId;
       // "any" erases the hard restriction. Previously only "morning" and
       // "afternoon" existed and an omitted field meant "leave it", so a project
@@ -644,6 +650,8 @@ export function buildTools(ctx: ToolContext) {
         inp.total_effort_hrs != null ? `${inp.total_effort_hrs}h total effort` : null,
         inp.deadline_kind ? `${inp.deadline_kind} date` : null,
         inp.important ? "important" : null,
+        inp.on_hold === true ? "ON HOLD — nothing scheduled for it, its weekly hours kept for when it resumes" : null,
+        inp.on_hold === false ? "off hold — its hours are being scheduled again" : null,
       ].filter(Boolean);
       const summary = facets.length ? ` — ${facets.join(", ")}.${dateNote}` : `.${dateNote}`;
 
@@ -684,6 +692,7 @@ export function buildTools(ctx: ToolContext) {
           effort_estimate_min: inp.total_effort_hrs != null ? Math.round(inp.total_effort_hrs * 60) : null,
           deadline_kind: inp.deadline_kind ?? (inp.due ? "hard" : "goal"),
           important: inp.important ?? false,
+          on_hold_at: inp.on_hold ? new Date().toISOString() : null,
           chunk_min: 120,
           research_ord: 5,
           category_id: categoryId,

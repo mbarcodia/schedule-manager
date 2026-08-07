@@ -20,6 +20,7 @@
 // Pure over its inputs so it can be checked without a browser or a database.
 
 import { resolveDayWindow } from "./day-window";
+import { NO_RESERVE, bookableMinForWeek, reservedMinForWeek, type WeeklyReserve } from "./reserve";
 import type {
   Category,
   ComputeScheduleResult,
@@ -75,6 +76,19 @@ export interface WeekReview {
   outOfHoursMeetingsMin: number;
   /** Working minutes in the week that nothing is scheduled in. */
   freeMin: number;
+  /** Held back on purpose: the meetings this week hasn't been given yet, plus the
+   * standing slack. 0 when the account keeps no reserve, and always 0 for a past
+   * week — a record has nothing left to hold back. See reserve.ts. */
+  reservedMin: number;
+  /** Of the reserve, the part that is a meeting forecast rather than the floor.
+   * Kept apart because it decays as real meetings land and the floor doesn't. */
+  reservedForMeetingsMin: number;
+  /** Capacity minus meetings, routines and the reserve: what the week can
+   * honestly be asked to hold. Without a reserve this is just the free time. */
+  bookableMin: number;
+  /** How far the work booked this week has eaten into the reserve. 0 when it
+   * hasn't. Advisory — nothing was refused, this is the news. */
+  overBookedMin: number;
   /** Total working minutes the week's hours open up. */
   capacityMin: number;
   /** What the same week would open if nothing were closed or away — the figure
@@ -100,6 +114,9 @@ export interface WeekReviewInputs {
   /** Monday of the current week, for turning a logged date into a gday. */
   weekStart: Date;
   offset: number;
+  /** The account's capacity assumptions. Omitted behaves as none, so every
+   * existing caller keeps the gross figures it had. */
+  reserve?: WeeklyReserve;
 }
 
 const DAY_MS = 86400000;
@@ -115,6 +132,10 @@ function gdayOf(date: Date, weekStart: Date): GDay {
 
 export function buildWeekReview(inputs: WeekReviewInputs): WeekReview {
   const { schedule, projects, categories, weeklyHours, dayOverrides, allDayBlocks, logged, weekStart, offset } = inputs;
+  // A past week is a record: there is nothing left to hold back in it, and
+  // showing a reserve against hours already spent would read as a shortfall in a
+  // week that is simply over.
+  const reserve: WeeklyReserve = offset < 0 ? NO_RESERVE : (inputs.reserve ?? NO_RESERVE);
 
   const first = offset * 7;
   const last = first + 7;
@@ -168,6 +189,14 @@ export function buildWeekReview(inputs: WeekReviewInputs): WeekReview {
   }
 
   const freeMin = Math.max(0, capacityMin - meetingsMin - routinesMin - workBookedMin);
+
+  // What the week could honestly be asked for, and how far the plan has gone past
+  // it. Nothing was refused — the engine never sees these — so overBookedMin is a
+  // statement about the week, not a failure to schedule.
+  const reservedMin = reservedMinForWeek(reserve, meetingsMin);
+  const reservedForMeetingsMin = Math.max(0, reserve.expectedMeetingMin - meetingsMin);
+  const bookableMin = bookableMinForWeek({ capacityMin, meetingsMin, routinesMin, reserve });
+  const overBookedMin = Math.max(0, workBookedMin - bookableMin);
 
   // Logged hours are attributed through the commitment they belong to, because
   // progress_log records research against a commitment id and a task's minutes
@@ -239,6 +268,10 @@ export function buildWeekReview(inputs: WeekReviewInputs): WeekReview {
     workBookedMin,
     workDoneMin,
     freeMin,
+    reservedMin,
+    reservedForMeetingsMin,
+    bookableMin,
+    overBookedMin,
     capacityMin,
     standardCapacityMin,
     byLabel,

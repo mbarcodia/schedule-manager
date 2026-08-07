@@ -1313,6 +1313,40 @@ export function buildTools(ctx: ToolContext) {
     },
   });
 
+  const set_week_reserve = betaTool({
+    name: "set_week_reserve",
+    description:
+      'Set what a normal week is NOT available for, so feasibility is judged against the hours that really exist. Two figures, both in hours per week: `expected_meeting_hours` is the typical meeting load — only the part not yet on the calendar is held back, so it decays as real meetings land — and `unbooked_hours` is slack kept free for the unplanned, which always stands. Reach for this whenever the user describes their week in terms of what it can\'t take ("I need to keep 8-10 hours a week clear", "assume 10-15h of meetings"): a rule saved with remember_rule holds only while YOU are doing the booking, whereas these two numbers are read by the week view and by every pace sentence. Advisory even so — the scheduler still fills the week. Pass 0 to remove an assumption.',
+    inputSchema: {
+      type: "object",
+      properties: {
+        expected_meeting_hours: { type: "number", description: "typical meetings per week, in hours" },
+        unbooked_hours: { type: "number", description: "hours per week kept free for the unplanned" },
+      },
+    },
+    run: async (inp) => {
+      const patch: { expected_meeting_min_per_week?: number; reserve_misc_min_per_week?: number } = {};
+      // Omitted leaves whatever is set; 0 is a real value that clears one — the
+      // same three-way distinction the other update tools draw.
+      if (inp.expected_meeting_hours != null)
+        patch.expected_meeting_min_per_week = Math.max(0, Math.round(inp.expected_meeting_hours * 60));
+      if (inp.unbooked_hours != null) patch.reserve_misc_min_per_week = Math.max(0, Math.round(inp.unbooked_hours * 60));
+      if (!Object.keys(patch).length) return "Nothing to change — give expected_meeting_hours, unbooked_hours, or both.";
+
+      const { error } = await supabase.from("profiles").update(patch).eq("id", userId);
+      if (error) return `Couldn't save that: ${error.message}`;
+      markMutated(ctx);
+
+      const said = [
+        patch.expected_meeting_min_per_week != null
+          ? `${patch.expected_meeting_min_per_week / 60}h/wk of expected meetings`
+          : null,
+        patch.reserve_misc_min_per_week != null ? `${patch.reserve_misc_min_per_week / 60}h/wk kept unbooked` : null,
+      ].filter(Boolean);
+      return `Set: ${said.join(", ")}. The week view and every pace figure now measure against what's left after this; the scheduler itself still fills the week, so this makes the numbers honest rather than making the time untouchable.`;
+    },
+  });
+
   const remember_rule = betaTool({
     name: "remember_rule",
     description:
@@ -1398,6 +1432,7 @@ export function buildTools(ctx: ToolContext) {
     record_progress,
     pin_research,
     update_recurring,
+    set_week_reserve,
     remember_rule,
     get_status,
   ];

@@ -76,8 +76,8 @@ let userId = null;
 
 async function recompute() {
   const rows = await queryScheduleRows(admin, userId, MONDAY);
-  const { inputs, projects, targets } = buildScheduleInputs(rows, MONDAY);
-  return { rows, inputs, projects, targets, schedule: computeSchedule(inputs, MONDAY) };
+  const { inputs, projects, targets, reserve } = buildScheduleInputs(rows, MONDAY);
+  return { rows, inputs, projects, targets, reserve, schedule: computeSchedule(inputs, MONDAY) };
 }
 
 try {
@@ -587,6 +587,36 @@ try {
       r.rows.projects.some((p) => p.id === paceProj.id),
       "not returned after un-archiving",
     );
+  }
+
+  // --------------------------------------------------- what the week keeps back
+  // The reserve is advisory, and the check that matters through Postgres is that
+  // it reaches the app at all — the arithmetic is covered by
+  // sanity-check-reserve. Advisory means the SCHEDULE must be identical either
+  // way; if setting it ever changed what was booked, that's the bug.
+  console.log("\n== the week's capacity assumptions ==");
+  {
+    const before = (await recompute()).schedule.blocks.filter((b) => b.type === "task").map(show);
+    const { error: resErr } = await admin
+      .from("profiles")
+      .update({ expected_meeting_min_per_week: 12 * 60, reserve_misc_min_per_week: 8 * 60 })
+      .eq("id", userId);
+    checkThat("the reserve round-trips", resErr == null, resErr?.message ?? "");
+    const r = await recompute();
+    check("it reaches the app beside the engine's inputs", r.reserve, {
+      expectedMeetingMin: 720,
+      miscMin: 480,
+    });
+    const after = r.schedule.blocks.filter((b) => b.type === "task").map(show);
+    checkThat(
+      "and changes nothing about what is scheduled — it is advisory",
+      JSON.stringify(before) === JSON.stringify(after),
+      "the schedule moved",
+    );
+    await admin
+      .from("profiles")
+      .update({ expected_meeting_min_per_week: 0, reserve_misc_min_per_week: 0 })
+      .eq("id", userId);
   }
 
   // ------------------------------------------------------- one day's hours

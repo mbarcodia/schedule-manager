@@ -8,6 +8,7 @@ import { gdayForDate, zonedNow } from "./time";
 import { defaultDayWindow } from "./day-window";
 import { ROUTINE_TAG_LABEL } from "./types";
 import { HISTORY_WEEKS, HORIZON_WEEKS } from "./horizon";
+import type { WeeklyReserve } from "./reserve";
 import type { ProgressFacts } from "./logged-hours";
 import type {
   CalendarEvent,
@@ -99,6 +100,7 @@ export function buildScheduleInputs(
   projects: Project[];
   targets: Target[];
   categories: Category[];
+  reserve: WeeklyReserve;
 } {
   const timezone = rows.profile.timezone || "UTC";
   const horizonWeeks = HORIZON_WEEKS;
@@ -423,5 +425,13 @@ export function buildScheduleInputs(
     labelTargetBasis,
   };
 
-  return { inputs, projects, targets, categories };
+  // Deliberately NOT part of ScheduleInputs: the engine does not read the
+  // reserve and must not appear to. It travels alongside, for the views and
+  // sentences that judge whether a week can hold what is being asked of it.
+  const reserve: WeeklyReserve = {
+    expectedMeetingMin: rows.profile.expected_meeting_min_per_week ?? 0,
+    miscMin: rows.profile.reserve_misc_min_per_week ?? 0,
+  };
+
+  return { inputs, projects, targets, categories, reserve };
 }

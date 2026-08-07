@@ -5,6 +5,7 @@
 import { createClient } from "@/lib/supabase/client";
 import { buildScheduleInputs, type RawScheduleRows } from "./from-db";
 import { queryScheduleRows } from "./query-rows";
+import type { WeeklyReserve } from "./reserve";
 import type { Category, Project, ScheduleInputs, Target } from "./types";
 import type { ProgressFacts } from "./logged-hours";
 
@@ -13,6 +14,9 @@ export interface ScheduleData {
   projects: Project[];
   targets: Target[];
   categories: Category[];
+  /** The account's capacity assumptions. Not in `inputs`: the engine never sees
+   * them — they shape what the app SAYS about a week, not what it books. */
+  reserve: WeeklyReserve;
   preferredModel: string;
   /** Raw task rows as stored — the board needs fields the engine's
    * transformed Task drops (important, archived_at, raw deadline_at,
@@ -45,12 +49,13 @@ export async function fetchScheduleData(): Promise<ScheduleData> {
 
   const now = new Date();
   const rows = await queryScheduleRows(supabase, user.id, now);
-  const { inputs, projects, targets, categories } = buildScheduleInputs(rows, now);
+  const { inputs, projects, targets, categories, reserve } = buildScheduleInputs(rows, now);
   return {
     inputs,
     projects,
     targets,
     categories,
+    reserve,
     preferredModel: rows.profile.preferred_model,
     rawTasks: rows.tasks,
     progressFacts: rows.progressFacts ?? { byProject: {}, finished: [], logged: [] },

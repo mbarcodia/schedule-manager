@@ -63,6 +63,7 @@ export function WeekView({ scheduleData }: { scheduleData: UseScheduleDataResult
       logged: data.progressFacts.logged,
       weekStart: startOfWeekMonday(now),
       offset,
+      reserve: data.reserve,
     });
   }, [data, schedule, now, offset]);
 
@@ -150,13 +151,34 @@ export function WeekView({ scheduleData }: { scheduleData: UseScheduleDataResult
           }
         />
         <Tile label="Routines" value={hrs(review.routinesMin)} hint="standing weekly slots" />
-        <Tile
-          label="Unbooked"
-          value={hrs(review.freeMin)}
-          hint={`of ${hrs(review.capacityMin)} the week opens`}
-          color={review.freeMin === 0 ? "#e0a94e" : undefined}
-        />
+        {/* With a reserve set, "unbooked" is the wrong headline: what matters is
+           how much of the week could honestly still be asked for, which is that
+           figure minus what is being held back. Without one, nothing changes. */}
+        {review.reservedMin > 0 ? (
+          <Tile
+            label="Room left"
+            value={hrs(Math.max(0, review.bookableMin - review.workBookedMin))}
+            hint={`${hrs(review.reservedMin)} held back${review.reservedForMeetingsMin > 0 ? ` (${hrs(review.reservedForMeetingsMin)} for meetings still to land)` : ""}`}
+            color={review.overBookedMin > 0 ? "#e0a94e" : undefined}
+          />
+        ) : (
+          <Tile
+            label="Unbooked"
+            value={hrs(review.freeMin)}
+            hint={`of ${hrs(review.capacityMin)} the week opens`}
+            color={review.freeMin === 0 ? "#e0a94e" : undefined}
+          />
+        )}
       </div>
+
+      {/* Nothing was refused — the engine doesn't read the reserve — so this is
+         news about the week rather than a scheduling failure, and it says which
+         of the two numbers it has eaten into. */}
+      {review.overBookedMin > 0 && (
+        <div className="text-[10.5px] leading-snug" style={{ color: "#e0a94e" }}>
+          {`This week books ${hrs(review.workBookedMin)} of work against the ${hrs(review.bookableMin)} it can honestly hold — ${hrs(review.overBookedMin)} of that comes out of the ${hrs(review.reservedMin)} you keep for meetings and the unplanned. It is still scheduled; it just isn't free time.`}
+        </div>
+      )}
 
       <div className="rounded-lg border border-border bg-panel p-3">
         <div className="text-[10px] tracking-wide uppercase text-muted-2 font-medium pb-2">

@@ -78,6 +78,8 @@ export interface Database {
           display_name: string | null;
           office_location: string | null;
           grace_hours: number;
+          expected_meeting_min_per_week: number;
+          reserve_misc_min_per_week: number;
         },
         { id: string } & Partial<{
           preferred_model: PreferredModel;
@@ -93,6 +95,8 @@ export interface Database {
           display_name: string | null;
           office_location: string | null;
           grace_hours: number;
+          expected_meeting_min_per_week: number;
+          reserve_misc_min_per_week: number;
         }>,
         Partial<{
           preferred_model: PreferredModel;
@@ -108,6 +112,8 @@ export interface Database {
           display_name: string | null;
           office_location: string | null;
           grace_hours: number;
+          expected_meeting_min_per_week: number;
+          reserve_misc_min_per_week: number;
         }>
       >;
       categories: Table<

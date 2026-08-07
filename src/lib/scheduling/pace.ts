@@ -30,6 +30,7 @@
 // is right for a commitment that hasn't been broken into phases and is also
 // exactly the old behaviour.
 
+import { typicalBookableWeekMin, type WeeklyReserve } from "./reserve";
 import type { Project, Target, WeeklyHours } from "./types";
 
 export type PaceStatus =
@@ -74,6 +75,13 @@ export interface CommitmentPace {
   slipWeeks: number | null;
   /** Weekly minutes that would still hit nextDate — the "or go faster" option. */
   rateToHitMin: number | null;
+  /** Set when that "or go faster" rate is more than a normal week has room for,
+   * once meetings, routines and the reserve are taken off (see reserve.ts).
+   * "Go 38h/wk" is not advice when no week has ever held 38 hours of anything —
+   * it is a date that has to move, and saying so is the point. Null when the
+   * account keeps no capacity assumptions, since there is then nothing to
+   * compare against. */
+  exceedsWeekMin: number | null;
 }
 
 /** Above this share of the available time, there's no meaningful slack left, so
@@ -90,6 +98,9 @@ export interface PaceInputs {
   loggedByProject: Record<string, number>;
   weeklyHours: WeeklyHours;
   now: Date;
+  /** What a normal week can actually be asked for — typicalBookableWeekMin.
+   * Omitted (or null) leaves every rate unchecked, exactly as before. */
+  bookableWeekMin?: number | null;
 }
 
 /** Minutes actually worked, per commitment.
@@ -121,6 +132,13 @@ export function loggedMinutesByCommitment(
 
 export function computePace(inputs: PaceInputs): CommitmentPace[] {
   const { projects, targets, loggedByProject, now } = inputs;
+  const bookableWeekMin = inputs.bookableWeekMin ?? null;
+  /** Only asked about a rate that would have to be sustained — a rate the week
+   * can hold says nothing worth saying. */
+  const overWeek = (rateMin: number | null): number | null =>
+    bookableWeekMin != null && bookableWeekMin > 0 && rateMin != null && rateMin > bookableWeekMin
+      ? bookableWeekMin
+      : null;
 
   return projects.map((p) => {
     const estimateMin = p.effortEstimateMin ?? null;
@@ -176,7 +194,15 @@ export function computePace(inputs: PaceInputs): CommitmentPace[] {
     };
 
     if (missing.length) {
-      return { ...base, status: "unmeasurable" as PaceStatus, weeksNeeded: null, weeksAvailable: null, slipWeeks: null, rateToHitMin: null };
+      return {
+        ...base,
+        status: "unmeasurable" as PaceStatus,
+        weeksNeeded: null,
+        weeksAvailable: null,
+        slipWeeks: null,
+        rateToHitMin: null,
+        exceedsWeekMin: null,
+      };
     }
 
     const weeksNeeded = remainingMin! / weeklyRateMin!;
@@ -187,10 +213,18 @@ export function computePace(inputs: PaceInputs): CommitmentPace[] {
 
     // Already finished the estimated effort — nothing left to be late for.
     if (remainingMin === 0) {
-      return { ...base, status: "ahead" as PaceStatus, weeksNeeded: 0, weeksAvailable, slipWeeks: null, rateToHitMin: 0 };
+      return { ...base, status: "ahead" as PaceStatus, weeksNeeded: 0, weeksAvailable, slipWeeks: null, rateToHitMin: 0, exceedsWeekMin: null };
     }
     if (loggedMin === 0) {
-      return { ...base, status: "not_started" as PaceStatus, weeksNeeded, weeksAvailable, slipWeeks: null, rateToHitMin };
+      return {
+        ...base,
+        status: "not_started" as PaceStatus,
+        weeksNeeded,
+        weeksAvailable,
+        slipWeeks: null,
+        rateToHitMin,
+        exceedsWeekMin: overWeek(rateToHitMin),
+      };
     }
 
     const ratio = weeksNeeded / weeksAvailable;
@@ -202,6 +236,7 @@ export function computePace(inputs: PaceInputs): CommitmentPace[] {
       weeksAvailable,
       slipWeeks: status === "slipping" ? weeksNeeded - weeksAvailable : null,
       rateToHitMin,
+      exceedsWeekMin: overWeek(rateToHitMin),
     };
   });
 }
@@ -234,12 +269,16 @@ export function paceSentence(p: CommitmentPace): string {
       : hrs(p.loggedMin);
   const by = scoped ? "" : ` ${date}`;
 
+  // A rate no week can hold is not a rate — the honest reading is that the date
+  // has to move, and the sentence has to say so or it advises the impossible.
+  const impossible = p.exceedsWeekMin != null ? `, which is more than the ${hrs(p.exceedsWeekMin)} a normal week has free` : "";
+
   if (p.status === "not_started") return `${progress} — nothing logged yet${scoped ? "" : `,${by}`}.`;
   if (p.status === "slipping") {
     const late = Math.max(1, Math.round(p.slipWeeks!));
     const push = p.nextDateKind === "hard" ? "needs" : "move the date, or go";
     const past = scoped ? "late" : `past${by}`;
-    return `${progress}. At ${hrs(p.weeklyRateMin!)}/wk this lands about ${late} week${late > 1 ? "s" : ""} ${past} — ${push} ${hrs(p.rateToHitMin!)}/wk.`;
+    return `${progress}. At ${hrs(p.weeklyRateMin!)}/wk this lands about ${late} week${late > 1 ? "s" : ""} ${past} — ${push} ${hrs(p.rateToHitMin!)}/wk${impossible}.`;
   }
   if (p.status === "ahead") return `${progress} — comfortably ahead${scoped ? "" : ` of${by}`}.`;
   return `${progress} — on pace${scoped ? "" : ` for${by}`}, without much slack.`;
@@ -252,7 +291,8 @@ export function paceFromData(
     projects: Project[];
     targets: Target[];
     progressFacts: { byProject: Record<string, number> };
-    inputs: { weeklyHours: WeeklyHours };
+    inputs: { weeklyHours: WeeklyHours; recurringRules: { days: number[]; length: number }[] };
+    reserve?: WeeklyReserve;
   },
   now: Date,
 ): CommitmentPace[] {
@@ -261,6 +301,11 @@ export function paceFromData(
     targets: data.targets,
     loggedByProject: data.progressFacts.byProject,
     weeklyHours: data.inputs.weeklyHours,
+    // A normal week rather than this one: the question "is that rate even
+    // possible" is about every week between now and the date.
+    bookableWeekMin: data.reserve
+      ? typicalBookableWeekMin(data.inputs.weeklyHours, data.inputs.recurringRules, data.reserve)
+      : null,
     now,
   });
 }

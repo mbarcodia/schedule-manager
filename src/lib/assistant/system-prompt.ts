@@ -13,6 +13,7 @@ import { dateForGday, minToLabel, MONTH_NAMES, WEEKDAY_LABELS } from "@/lib/sche
 import { resolveDayWindow } from "@/lib/scheduling/day-window";
 import { allDayDueDate } from "@/lib/scheduling/all-day-due";
 import { computePace, paceSentence } from "@/lib/scheduling/pace";
+import { hasReserve, typicalBookableWeekMin, type WeeklyReserve } from "@/lib/scheduling/reserve";
 import { computeCalibration, correctEstimate, projectTotalMin } from "@/lib/scheduling/calibration";
 import { computeStreaks, streakGlyphs } from "@/lib/scheduling/streaks";
 import { deriveBoardStatuses, boardStatusFor } from "@/lib/planner/board-status";
@@ -118,11 +119,20 @@ export function buildPromptContext(rows: RawScheduleRows, inputs: ScheduleInputs
   // schedule hours for them), so they come straight from the raw rows — through
   // the shared mapper, since a local copy of it parsed the dates as UTC and
   // reported every target a day early.
+  const reserve: WeeklyReserve = {
+    expectedMeetingMin: rows.profile.expected_meeting_min_per_week ?? 0,
+    miscMin: rows.profile.reserve_misc_min_per_week ?? 0,
+  };
   const pace = computePace({
     projects: inputs.projects,
     targets: toTargets(rows.targets),
     loggedByProject: rows.progressFacts?.byProject ?? {},
     weeklyHours: inputs.weeklyHours,
+    // So a "go 38h/wk" recommendation carries the fact that no week has 38
+    // hours in it — the model repeats these sentences verbatim.
+    bookableWeekMin: hasReserve(reserve)
+      ? typicalBookableWeekMin(inputs.weeklyHours, inputs.recurringRules, reserve)
+      : null,
     now: new Date(),
   });
   const paceById = new Map(pace.map((p) => [p.projectId, p]));
@@ -367,7 +377,21 @@ export function buildPromptContext(rows: RawScheduleRows, inputs: ScheduleInputs
 
   const notes = rows.preferenceNotes.map((n) => n.note);
 
-  return { weeklyHoursDescription, snapshot, researchPriorityNote, recurringDescription, notes };
+  // What the week is NOT available for. Given as the two assumptions AND the
+  // figure they come to, because the useful question is almost always "does this
+  // fit" and answering it from the gross weekly hours is how a plan comes to be
+  // agreed that no week could have held. Absent when the account keeps none.
+  const capacityNote = hasReserve(reserve)
+    ? {
+        expectedMeetingsPerWeek: `${+(reserve.expectedMeetingMin / 60).toFixed(1)}h (only the part not already booked is held back)`,
+        keptUnbookedPerWeek: `${+(reserve.miscMin / 60).toFixed(1)}h`,
+        typicalBookableWeek: `${+(typicalBookableWeekMin(inputs.weeklyHours, inputs.recurringRules, reserve) / 60).toFixed(1)}h of flexible work in a normal week, after routines, expected meetings and the reserve`,
+        howToUseIt:
+          "Judge feasibility against typicalBookableWeek, not against the standard hours. These are advisory — the engine still fills the week — so say plainly when a plan only fits by eating into them.",
+      }
+    : null;
+
+  return { weeklyHoursDescription, snapshot, researchPriorityNote, recurringDescription, notes, capacityNote };
 }
 
 function formatDayOverrides(dayOverrides: DayOverrides): Record<string, unknown> {

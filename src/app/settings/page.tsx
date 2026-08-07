@@ -19,6 +19,7 @@ import { getPushSubscriptionStatus, subscribeToPush, unsubscribeFromPush } from 
 import { BookingSection } from "@/components/settings/BookingSection";
 import { RoutinesSection } from "@/components/settings/RoutinesSection";
 import { RulesSection } from "@/components/settings/RulesSection";
+import { NO_RESERVE, hasReserve, typicalBookableWeekMin, type WeeklyReserve } from "@/lib/scheduling/reserve";
 import {
   DEFAULT_VIEW_DAYS,
   VIEW_DAY_OPTIONS,
@@ -66,6 +67,26 @@ const PROVIDER_INSTRUCTIONS: Record<CalendarProvider, string[]> = {
     "Paste that link below.",
   ],
 };
+
+/** The stored weekly_hours JSON (string keys) as the numeric-keyed shape the
+ * scheduling helpers take. Same object at runtime; the conversion is for the
+ * type, and doing it here keeps the helpers free of a storage detail. */
+function weeklyHoursFromJson(json: WeeklyHoursJson): Record<number, { start: number; end: number } | null> {
+  const out: Record<number, { start: number; end: number } | null> = {};
+  for (let d = 0; d < 7; d++) out[d] = json[String(d)] ?? null;
+  return out;
+}
+
+const sumWeeklyHours = (json: WeeklyHoursJson): number => {
+  let total = 0;
+  for (let d = 0; d < 7; d++) {
+    const win = json[String(d)];
+    if (win) total += win.end - win.start;
+  }
+  return total;
+};
+
+const fmtHours = (min: number): string => `${+(min / 60).toFixed(min % 60 === 0 ? 0 : 1)}h`;
 
 function minutesToTimeInput(min: number): string {
   return `${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`;
@@ -219,6 +240,10 @@ export default function SettingsPage() {
   const [viewDays, setViewDays] = useState<ViewDays>(DEFAULT_VIEW_DAYS);
   const [graceHours, setGraceHours] = useState(DEFAULT_GRACE_HOURS);
   const [hours, setHours] = useState<WeeklyHoursJson | null>(null);
+  const [reserve, setReserve] = useState<WeeklyReserve>(NO_RESERVE);
+  /** Just the shape of each routine (which days, how long) — enough to say what
+   * a normal week has left, without duplicating RoutinesSection's own fetch. */
+  const [routineShapes, setRoutineShapes] = useState<{ days: number[]; length: number }[]>([]);
   const [categories, setCategories] = useState<CategoryRow[]>([]);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [newCategoryColor, setNewCategoryColor] = useState("#9184d9");
@@ -253,15 +278,16 @@ export default function SettingsPage() {
         data: { user },
       } = await supabase.auth.getUser();
       if (!user) return;
-      const [{ data }, { data: cats }, { data: conns }, pushOn] = await Promise.all([
+      const [{ data }, { data: cats }, { data: rules }, { data: conns }, pushOn] = await Promise.all([
         supabase
           .from("profiles")
           .select(
-            "planner_model,grace_hours,weekly_hours,eod_checkin_enabled,eod_checkin_time,weekly_summary_enabled,weekly_summary_dow,weekly_summary_time",
+            "planner_model,grace_hours,weekly_hours,eod_checkin_enabled,eod_checkin_time,weekly_summary_enabled,weekly_summary_dow,weekly_summary_time,expected_meeting_min_per_week,reserve_misc_min_per_week",
           )
           .eq("id", user.id)
           .single(),
         supabase.from("categories").select("*").order("sort_order"),
+        supabase.from("recurring_rules").select("days,length_min"),
         supabase.from("calendar_connections").select("*").order("created_at"),
         getPushSubscriptionStatus(),
       ]);
@@ -270,6 +296,10 @@ export default function SettingsPage() {
         setPlannerModel(data.planner_model);
         setGraceHours(data.grace_hours ?? DEFAULT_GRACE_HOURS);
         setHours(data.weekly_hours);
+        setReserve({
+          expectedMeetingMin: data.expected_meeting_min_per_week ?? 0,
+          miscMin: data.reserve_misc_min_per_week ?? 0,
+        });
         setNotif({
           eodEnabled: data.eod_checkin_enabled,
           eodTime: data.eod_checkin_time,
@@ -279,6 +309,7 @@ export default function SettingsPage() {
         });
       }
       setCategories(cats ?? []);
+      setRoutineShapes((rules ?? []).map((r) => ({ days: r.days, length: r.length_min })));
       setConnections(conns ?? []);
       setPushEnabled(pushOn);
       setLoading(false);
@@ -466,6 +497,25 @@ export default function SettingsPage() {
       data: { user },
     } = await supabase.auth.getUser();
     if (user) await supabase.from("profiles").update({ grace_hours: hours }).eq("id", user.id);
+  }
+
+  /** Hours in, minutes stored — every duration in the schema is minutes, and an
+   * empty field is 0 (no assumption) rather than null: the columns are NOT NULL
+   * and "none" and "zero" mean the same thing here. */
+  async function saveReserve(next: WeeklyReserve) {
+    setReserve(next);
+    const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (user)
+      await supabase
+        .from("profiles")
+        .update({
+          expected_meeting_min_per_week: next.expectedMeetingMin,
+          reserve_misc_min_per_week: next.miscMin,
+        })
+        .eq("id", user.id);
   }
 
   async function saveHours(next: WeeklyHoursJson) {
@@ -1013,6 +1063,79 @@ export default function SettingsPage() {
                 );
               })}
             </div>
+          )}
+        </div>
+
+        {/* What those hours are NOT all available for. Sits with standard hours
+           because it is the second half of the same answer: the week opens 40
+           hours, and this is how much of that was ever really yours. */}
+        <div className="mt-8 pt-5 border-t border-border">
+          <h2 id="reserve" className="text-base font-medium mb-1 scroll-mt-4">
+            What the week keeps back
+          </h2>
+          <p className="text-xs text-muted mb-3">
+            Two assumptions about a normal week, so that &quot;can I take this on?&quot; is answered against the hours
+            you really have rather than the hours your calendar opens. Leave both at 0 and nothing changes.
+          </p>
+          <p className="text-xs text-muted mb-4">
+            These are <span className="text-text">advisory</span>: the scheduler still fills the week, and will book
+            into this time when there is nowhere else. What changes is what the app tells you — the week view says how
+            much room is honestly left, and pace stops recommending a rate no week could hold.
+          </p>
+
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-3 rounded-md border border-border bg-panel px-3 py-2">
+              <label className="flex-1 min-w-0 text-xs text-text">
+                Meetings in a typical week
+                <span className="block text-[11px] text-muted mt-0.5">
+                  Only the part not yet on your calendar is held back, so a week that fills with real meetings stops
+                  reserving anything further.
+                </span>
+              </label>
+              <input
+                type="number"
+                min={0}
+                step={0.5}
+                value={reserve.expectedMeetingMin / 60}
+                onChange={(e) =>
+                  void saveReserve({
+                    ...reserve,
+                    expectedMeetingMin: Math.max(0, Math.round((Number(e.target.value) || 0) * 60)),
+                  })
+                }
+                className="w-16 flex-none rounded border border-border bg-surface px-1.5 py-1 text-text text-xs outline-none focus-visible:border-accent"
+              />
+              <span className="flex-none text-xs text-muted">h/week</span>
+            </div>
+
+            <div className="flex items-center gap-3 rounded-md border border-border bg-panel px-3 py-2">
+              <label className="flex-1 min-w-0 text-xs text-text">
+                Kept unbooked for the unplanned
+                <span className="block text-[11px] text-muted mt-0.5">
+                  Slack on top of routines and meetings — the hours that absorb what you couldn&apos;t have known
+                  about on Monday. Always subtracted.
+                </span>
+              </label>
+              <input
+                type="number"
+                min={0}
+                step={0.5}
+                value={reserve.miscMin / 60}
+                onChange={(e) =>
+                  void saveReserve({ ...reserve, miscMin: Math.max(0, Math.round((Number(e.target.value) || 0) * 60)) })
+                }
+                className="w-16 flex-none rounded border border-border bg-surface px-1.5 py-1 text-text text-xs outline-none focus-visible:border-accent"
+              />
+              <span className="flex-none text-xs text-muted">h/week</span>
+            </div>
+          </div>
+
+          {hasReserve(reserve) && hours && (
+            <p className="text-[11px] text-muted mt-2">
+              {`A normal week opens ${fmtHours(sumWeeklyHours(hours))} and can be asked for about ${fmtHours(
+                typicalBookableWeekMin(weeklyHoursFromJson(hours), routineShapes, reserve),
+              )} of flexible work, once routines, expected meetings and this reserve come off.`}
+            </p>
           )}
         </div>
 

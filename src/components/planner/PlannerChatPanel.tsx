@@ -12,72 +12,32 @@ import { computeTrackableChips } from "@/lib/scheduling/trackables";
 import { paceFromData } from "@/lib/scheduling/pace";
 import { DEFAULT_CHAT_MODE, type ChatMode } from "@/lib/planner/modes";
 import type { UseScheduleDataResult } from "@/hooks/useScheduleData";
+import type { ChatRail } from "@/hooks/useChatRail";
 
 interface PlannerChatPanelProps {
   scheduleData: UseScheduleDataResult;
+  /** Width and collapse, owned by the page because they are its grid columns —
+   * see app/page.tsx. The controls for both still live in here. */
+  rail: ChatRail;
 }
 
-const MIN_WIDTH = 300;
-const MAX_WIDTH = 900;
-const DEFAULT_WIDTH = 400;
-const WIDTH_KEY = "planner-panel-width";
+// This panel's two halves, placed explicitly in the page's grid. Column 3 is the
+// rail; column 2 is the drag handle, which spans BOTH rows so it stays one
+// continuous edge past the header's bottom border.
+// No display/direction here: a grid item stretches to its row's height on its
+// own, and forcing a column threw the header's own `flex … justify-between` into
+// the vertical axis — which dropped the collapse caret to the bottom of the cell
+// as soon as the calendar's toolbar made the row taller than the text.
+const HEADER_CELL: React.CSSProperties = { gridColumn: 3, gridRow: 1 };
+const BODY_CELL: React.CSSProperties = { gridColumn: 3, gridRow: 2, display: "flex", flexDirection: "column", minHeight: 0 };
+const HANDLE_CELL: React.CSSProperties = { gridColumn: 2, gridRow: "1 / 3" };
 
-/** The calendar's floor: below about this the hour gutter plus a few day columns
- * stop being readable however much they scale. The chat gives width back rather
- * than pushing the calendar under it. */
-const CALENDAR_MIN = 560;
-
-/** The panel is a fixed pixel width, so on a narrow window a width that was
- * comfortable on a wide one would squeeze the calendar to nothing. Clamping
- * against the viewport makes the two sides give way to each other instead: widen
- * the window and the chat can grow again, narrow it and the chat yields first. */
-function clampWidth(want: number, viewportWidth: number): number {
-  const ceiling = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, viewportWidth - CALENDAR_MIN));
-  return Math.min(ceiling, Math.max(MIN_WIDTH, want));
-}
-
-export function PlannerChatPanel({ scheduleData }: PlannerChatPanelProps) {
+export function PlannerChatPanel({ scheduleData, rail }: PlannerChatPanelProps) {
   const { data, schedule, refresh } = scheduleData;
   const { messages, busy, send } = usePlannerChat(refresh);
-  const [collapsed, setCollapsed] = useState(false);
-  const [width, setWidth] = useState(DEFAULT_WIDTH);
+  const { collapsed, setCollapsed, startWidthResize, resetWidth } = rail;
   const [initialInput, setInitialInput] = useState<string | undefined>();
   const [mode, setMode] = useState<ChatMode>(DEFAULT_CHAT_MODE);
-
-  useEffect(() => {
-    const stored = Number(window.localStorage.getItem(WIDTH_KEY));
-    const wanted = stored >= MIN_WIDTH && stored <= MAX_WIDTH ? stored : DEFAULT_WIDTH;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setWidth(clampWidth(wanted, window.innerWidth));
-
-    // Re-clamp as the window changes, so the pair stay in proportion rather than
-    // the calendar being crushed by a width chosen on a bigger screen. The
-    // stored preference is left alone — it's what to return to when there's room.
-    const onResize = () => setWidth((w) => clampWidth(w, window.innerWidth));
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
-
-  /** Drag the panel's left edge to trade calendar width for chat width. */
-  function startWidthResize(e: React.PointerEvent<HTMLDivElement>) {
-    e.preventDefault();
-    const startX = e.clientX;
-    const startW = width;
-    const move = (ev: PointerEvent) => {
-      // Dragging left (smaller clientX) widens the panel.
-      setWidth(clampWidth(startW + (startX - ev.clientX), window.innerWidth));
-    };
-    const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-      setWidth((w) => {
-        window.localStorage.setItem(WIDTH_KEY, String(w));
-        return w;
-      });
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-  }
 
   useEffect(() => {
     // The board's "Discuss this week's review" link lands on /?review=1 —
@@ -114,9 +74,15 @@ export function PlannerChatPanel({ scheduleData }: PlannerChatPanelProps) {
         })()
       : [];
 
+  // Collapsed, the rail is one narrow column with nothing but the expand button.
+  // It still spans both grid rows so the calendar's header border runs the full
+  // width of the page rather than stopping short of it.
   if (collapsed) {
     return (
-      <div className="flex-none w-9 border-l border-border flex flex-col items-center pt-3">
+      <div
+        style={{ gridColumn: 3, gridRow: "1 / 3" }}
+        className="border-l border-border flex flex-col items-center pt-3"
+      >
         <button
           onClick={() => setCollapsed(false)}
           title="Expand chat"
@@ -129,20 +95,21 @@ export function PlannerChatPanel({ scheduleData }: PlannerChatPanelProps) {
   }
 
   return (
-    <div className="flex-none flex min-h-0" style={{ width }}>
-      {/* Vertical grab handle: drag left/right to resize the whole panel. */}
+    <>
+      {/* Vertical grab handle: drag left/right to resize the whole panel. Spans
+         both rows, so it reads as one edge rather than being cut in half by the
+         header's bottom border. */}
       <div
+        style={{ ...HANDLE_CELL, touchAction: "none" }}
         onPointerDown={startWidthResize}
-        onDoubleClick={() => setWidth(DEFAULT_WIDTH)}
+        onDoubleClick={resetWidth}
         title="Drag to resize the chat panel (double-click to reset)"
-        className="flex-none w-2.5 border-l border-border cursor-col-resize flex items-center justify-center group"
-        style={{ touchAction: "none" }}
+        className="border-l border-border cursor-col-resize flex items-center justify-center group"
       >
         <div className="w-0.5 h-8 rounded-full bg-border group-hover:bg-accent transition-colors" />
       </div>
 
-      <div className="flex-1 flex flex-col min-h-0 min-w-0">
-      <div className="flex-none px-4 py-3.5 border-b border-border flex items-start justify-between gap-2">
+      <div style={HEADER_CELL} className="min-w-0 px-4 py-3.5 border-b border-border flex items-start justify-between gap-2">
         <div>
           <div className="font-medium text-[13px]">Chat</div>
           <div className="mt-0.5 text-[11px] text-muted">
@@ -158,6 +125,7 @@ export function PlannerChatPanel({ scheduleData }: PlannerChatPanelProps) {
         </button>
       </div>
 
+      <div style={BODY_CELL} className="min-w-0">
       {chips.length > 0 && (
         <div className="flex-none px-4 py-2.5 border-b border-border flex gap-1.5 overflow-x-auto">
           {chips.map((c) => (
@@ -196,6 +164,6 @@ export function PlannerChatPanel({ scheduleData }: PlannerChatPanelProps) {
           initialInput={initialInput}
         />
       </div>
-    </div>
+    </>
   );
 }

@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import {
+  ArrowsClockwiseIcon,
   CaretDoubleLeftIcon,
   CaretDoubleRightIcon,
   CaretLeftIcon,
@@ -32,6 +33,23 @@ const MONTH_NAMES = [
   "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ];
 
+// Where this panel's two halves sit in the page's grid. Explicit rather than
+// auto-placed: auto-placement fills row-major, which would put the calendar's
+// BODY next to its own header instead of under it. See app/page.tsx.
+const HEADER_CELL: React.CSSProperties = { gridColumn: 1, gridRow: 1 };
+const BODY_CELL: React.CSSProperties = { gridColumn: 1, gridRow: 2, display: "flex", flexDirection: "column" };
+
+function CalendarMark() {
+  return (
+    <svg width={16} height={16} viewBox="0 0 256 256" fill="none">
+      <rect x="32" y="48" width="192" height="168" rx="16" stroke="#9184d9" strokeWidth="14" />
+      <line x1="32" y1="96" x2="224" y2="96" stroke="#9184d9" strokeWidth="14" />
+      <line x1="80" y1="24" x2="80" y2="64" stroke="#9184d9" strokeWidth="14" strokeLinecap="round" />
+      <line x1="176" y1="24" x2="176" y2="64" stroke="#9184d9" strokeWidth="14" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 interface CalendarPanelProps {
   scheduleData: UseScheduleDataResult;
 }
@@ -48,6 +66,12 @@ export function CalendarPanel({ scheduleData }: CalendarPanelProps) {
   const [openEvent, setOpenEvent] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [viewDays, setViewDays] = useState<ViewDays>(DEFAULT_VIEW_DAYS);
+  /** Null until the connections have been read — the Sync button stays hidden
+   * until we know there is something to sync, rather than flashing in and out. */
+  const [hasConnections, setHasConnections] = useState(false);
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
   const { data, schedule, loading, error, writeError, dismissWriteError, refresh, setProgress, pinDone, unpinDone } =
     scheduleData;
 
@@ -63,24 +87,82 @@ export function CalendarPanel({ scheduleData }: CalendarPanelProps) {
     })();
   }, []);
 
+  const readConnections = useCallback(async () => {
+    const { data } = await createClient()
+      .from("calendar_connections")
+      .select("last_synced_at")
+      .order("last_synced_at", { ascending: false, nullsFirst: false });
+    setHasConnections((data ?? []).length > 0);
+    const newest = data?.[0]?.last_synced_at;
+    setLastSyncedAt(newest ? new Date(newest).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : null);
+  }, []);
+
+  // Wrapped in an async IIFE like the booking-slug effect above it: the state
+  // is set from the awaited result, not synchronously in the effect body, which
+  // is the distinction the React Compiler lint is checking for.
+  useEffect(() => {
+    void (async () => {
+      await readConnections();
+    })();
+  }, [readConnections]);
+
+  /** Re-pull every connected feed, then re-derive the schedule from what landed.
+   *
+   * Settings' copy of this fires the same request and ignores what comes back,
+   * so a feed whose URL has rotated reports nothing and the calendar quietly
+   * keeps showing last week's meetings. The count is in the response; this one
+   * reads it. */
+  const syncNow = useCallback(async () => {
+    setSyncing(true);
+    setSyncError(null);
+    try {
+      const res = await fetch("/api/calendar/sync", { method: "POST" });
+      const body = (await res.json().catch(() => null)) as { synced?: number; failed?: number; error?: string } | null;
+      if (!res.ok) {
+        setSyncError(body?.error ?? `Couldn't sync your calendars (${res.status}).`);
+      } else if (body?.failed) {
+        setSyncError(
+          `${body.failed} of ${(body.synced ?? 0) + body.failed} calendars didn't sync — check their links in Settings.`,
+        );
+      }
+      // Refreshed even on a partial failure: whatever DID sync is now newer than
+      // what's on screen, and leaving the old view up would be the worse lie.
+      await refresh();
+      await readConnections();
+    } catch {
+      setSyncError("Couldn't reach the server to sync your calendars.");
+    } finally {
+      setSyncing(false);
+    }
+  }, [refresh, readConnections]);
+
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setViewDays(readViewDays());
     return onViewDaysChange(setViewDays);
   }, []);
 
-  if (loading) {
+  // Loading and error still render the header row, empty. The page's grid sizes
+  // that row to the taller of the two headers, so returning a single centred
+  // message (as this used to) left the chat's header alone in the row and the
+  // whole layout jumped the moment the schedule arrived.
+  if (loading || error || !data || !schedule) {
     return (
-      <div className="flex-1 flex items-center justify-center">
-        <p className="text-sm text-muted">Loading your schedule…</p>
-      </div>
-    );
-  }
-  if (error || !data || !schedule) {
-    return (
-      <div className="flex-1 flex items-center justify-center">
-        <p className="text-sm text-accent-text">{error ?? "Couldn't load your schedule."}</p>
-      </div>
+      <>
+        <div style={HEADER_CELL} className="min-h-14 flex items-center px-[22px] border-b border-border">
+          <div className="flex items-center gap-2.5">
+            <CalendarMark />
+            <span className="font-medium text-base tracking-tight">Schedule</span>
+          </div>
+        </div>
+        <div style={BODY_CELL} className="flex items-center justify-center min-w-0">
+          {loading ? (
+            <p className="text-sm text-muted">Loading your schedule…</p>
+          ) : (
+            <p className="text-sm text-accent-text">{error ?? "Couldn't load your schedule."}</p>
+          )}
+        </div>
+      </>
     );
   }
 
@@ -129,35 +211,18 @@ export function CalendarPanel({ scheduleData }: CalendarPanelProps) {
   const hasWarnings = hasRisk || hasNearDeadline || hasOverflow || hasMissed || beyondHorizon.length > 0;
 
   return (
-    <div className="@container flex-1 flex flex-col min-w-0 overflow-hidden">
-      {/* A write that didn't land. Deliberately a strip rather than the
-         full-view error above: failing to save one tick is not a reason to
-         take the calendar away. Every write refreshes afterwards, so without
-         this the block simply un-ticked itself and said nothing. */}
-      {writeError && (
-        <div
-          className="flex-none px-4 py-2 text-[11px] border-b border-border flex items-center gap-2"
-          style={{ color: "#e5484d" }}
-        >
-          <span className="flex-1 min-w-0">{writeError}</span>
-          <button onClick={dismissWriteError} className="flex-none text-muted-2 hover:text-text">
-            dismiss
-          </button>
-        </div>
-      )}
+    <>
       {/* Top bar. Wraps rather than overflowing: it holds three groups, and at
          narrow widths they used to collide into each other and push the
          right-hand links out of view entirely. Sizing is by CONTAINER width,
          since what makes this narrow is the chat panel taking room, which a
          viewport breakpoint can't see. */}
-      <div className="flex-none min-h-14 flex items-center justify-between flex-wrap gap-x-5 gap-y-2 px-[22px] py-2 border-b border-border">
+      <div
+        style={HEADER_CELL}
+        className="@container min-w-0 min-h-14 flex items-center justify-between flex-wrap gap-x-5 gap-y-2 px-[22px] py-2 border-b border-border"
+      >
         <div className="flex items-center gap-2.5">
-          <svg width={16} height={16} viewBox="0 0 256 256" fill="none">
-            <rect x="32" y="48" width="192" height="168" rx="16" stroke="#9184d9" strokeWidth="14" />
-            <line x1="32" y1="96" x2="224" y2="96" stroke="#9184d9" strokeWidth="14" />
-            <line x1="80" y1="24" x2="80" y2="64" stroke="#9184d9" strokeWidth="14" strokeLinecap="round" />
-            <line x1="176" y1="24" x2="176" y2="64" stroke="#9184d9" strokeWidth="14" strokeLinecap="round" />
-          </svg>
+          <CalendarMark />
           <span className="font-medium text-base tracking-tight @max-[820px]:hidden">Schedule</span>
         </div>
         <div className="flex items-center gap-3">
@@ -260,6 +325,25 @@ export function CalendarPanel({ scheduleData }: CalendarPanelProps) {
           >
             <PlusIcon size={12} /> Event
           </button>
+          {/* Re-pull the connected calendars. It existed only in Settings, three
+             clicks from the one screen where a missing meeting is actually
+             noticed — and noticing it here is the entire trigger for wanting it.
+             Hidden when nothing is connected, since it would do nothing. */}
+          {hasConnections && (
+            <button
+              onClick={() => void syncNow()}
+              disabled={syncing}
+              title={
+                lastSyncedAt
+                  ? `Re-check your connected calendars now. Last synced ${lastSyncedAt}.`
+                  : "Re-check your connected calendars now"
+              }
+              className="inline-flex items-center gap-1 border border-border rounded-md h-[30px] px-2.5 hover:bg-white/5 text-muted text-[12px] font-medium disabled:opacity-50"
+            >
+              <ArrowsClockwiseIcon size={12} className={syncing ? "animate-spin" : undefined} />
+              <span className="@max-[1240px]:hidden">{syncing ? "Syncing…" : "Sync"}</span>
+            </button>
+          )}
           <Link
             href="/planner"
             title="Planner"
@@ -309,6 +393,26 @@ export function CalendarPanel({ scheduleData }: CalendarPanelProps) {
         </div>
       </div>
 
+      <div style={BODY_CELL} className="@container min-w-0 overflow-hidden">
+      {/* A write that didn't land, or a sync that did. Deliberately a strip
+         rather than the full-view error above: failing to save one tick is not a
+         reason to take the calendar away. Every write refreshes afterwards, so
+         without this the block simply un-ticked itself and said nothing. */}
+      {(writeError || syncError) && (
+        <div
+          className="flex-none px-4 py-2 text-[11px] border-b border-border flex items-center gap-2"
+          style={{ color: "#e5484d" }}
+        >
+          <span className="flex-1 min-w-0">{writeError ?? syncError}</span>
+          <button
+            onClick={() => (writeError ? dismissWriteError() : setSyncError(null))}
+            className="flex-none text-muted-2 hover:text-text"
+          >
+            dismiss
+          </button>
+        </div>
+      )}
+
       {/* Warning banner */}
       {hasWarnings && (
         <div className="flex-none px-[22px] py-2 bg-panel border-b border-border text-xs text-accent-text flex items-center gap-4 flex-wrap">
@@ -352,6 +456,7 @@ export function CalendarPanel({ scheduleData }: CalendarPanelProps) {
           onSaved={refresh}
         />
       )}
-    </div>
+      </div>
+    </>
   );
 }

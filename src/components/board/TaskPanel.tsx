@@ -17,9 +17,11 @@ import { createClient } from "@/lib/supabase/client";
 import { setTaskArchived } from "@/lib/planner/board-actions";
 import {
   PRIORITIES,
+  SPLIT_MODES,
   blankTaskDraft,
   chunkFor,
   describeChunking,
+  labelMinChunkClash,
   taskDraft,
   taskRowFields,
   validateTask,
@@ -57,6 +59,8 @@ export function TaskPanel({
 
   const errors = validateTask(draft);
   const patch = (next: Partial<TaskDraft>) => setDraft({ ...draft, ...next });
+  const label = categories.find((c) => c.id === draft.categoryId) ?? null;
+  const minChunkClash = labelMinChunkClash(draft, label);
 
   async function save() {
     const fields = taskRowFields(draft, new Date());
@@ -261,19 +265,69 @@ export function TaskPanel({
           </div>
           <div className={hint}>Spreads it out instead of taking it in as few sittings as fit. Empty means no cap.</div>
 
+          {/* How far it may be spread. Above the block length because it can
+             make that field moot, and a control that silently overrules the one
+             below it belongs above it. */}
+          <div className="flex flex-col gap-0.5 pt-1">
+            {SPLIT_MODES.map((m) => (
+              <label key={m.id} className="flex items-center gap-1.5 text-[11px] text-text">
+                <input
+                  type="radio"
+                  checked={draft.splitMode === m.id}
+                  onChange={() => patch({ splitMode: m.id })}
+                />
+                {m.label} <span className={hint}>— {m.hint}</span>
+              </label>
+            ))}
+          </div>
+          {draft.splitMode !== "free" && (
+            <div className={hint}>
+              A hard rule, like the time of day above: if no {draft.splitMode === "one_block" ? "single gap" : "one day"}{" "}
+              is big enough, it stays off the calendar and says so rather than being split anyway.
+            </div>
+          )}
+
           <div className="flex items-center gap-1.5 pt-1">
             <input
               value={draft.chunkText}
               onChange={(e) => patch({ chunkText: e.target.value })}
               placeholder={String(chunkFor(Math.round((Number(draft.hoursText) || 0) * 60)) || 30)}
               className={`${field} w-14`}
+              disabled={draft.splitMode === "one_block"}
             />
             <span className="text-[11px] text-muted">minutes per block</span>
           </div>
           <div className={hint}>
             Empty uses the default shown — an hour for anything over 90 minutes, otherwise the whole task in one
-            sitting. A label&apos;s minimum chunk still overrides a shorter one.
+            sitting.
           </div>
+
+          <div className="flex items-center gap-1.5 pt-1">
+            <input
+              value={draft.minChunkText}
+              onChange={(e) => patch({ minChunkText: e.target.value })}
+              placeholder={label?.minChunkMin ? String(label.minChunkMin) : "30"}
+              className={`${field} w-14`}
+              disabled={draft.splitMode === "one_block"}
+            />
+            <span className="text-[11px] text-muted">smallest block, in minutes</span>
+          </div>
+          <div className={hint}>
+            The shortest piece it may be cut into when squeezed into a gap. Empty uses{" "}
+            {label?.minChunkMin ? `${label.name}'s ${label.minChunkMin}` : "the standard 30"} minutes.
+          </div>
+          {/* The override, said where it is caused. Not an error — the task's
+             figure wins by design (migration 0042) — so it is worded as what
+             will happen, and only coloured when it LOOSENS the label's floor,
+             which is the direction someone might not have meant. */}
+          {minChunkClash && (
+            <div
+              className="text-[10px] leading-snug"
+              style={{ color: minChunkClash.loosens ? "#e0a94e" : "var(--color-muted-2, #75798c)" }}
+            >
+              {minChunkClash.text}
+            </div>
+          )}
           {/* Neither of these combinations is refused, because the scheduler
              resolves both. It just doesn't resolve them the way the numbers as
              typed suggest, so it says which one wins. */}

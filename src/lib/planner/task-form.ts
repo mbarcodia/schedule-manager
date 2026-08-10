@@ -42,7 +42,24 @@ export interface TaskDraft {
   /** Overrides the derived chunk length. Empty keeps the derivation, which is
    * the right answer almost always and is why this is the last field. */
   chunkText: string;
+  /** How far the work may be spread — see migration 0042. Unlike chunkText this
+   * is a CONSTRAINT: the engine leaves the work unplaced rather than break it. */
+  splitMode: SplitMode;
+  /** The shortest piece this task may be cut into. Empty falls back to the
+   * label's minimum, then to the engine's 30-minute floor. Setting one
+   * OVERRIDES the label in both directions, which is why the panels warn when
+   * it does — see labelMinChunkClash. */
+  minChunkText: string;
 }
+
+export type SplitMode = "free" | "one_day" | "one_block";
+
+/** The three modes with the words the panels use, so both say the same thing. */
+export const SPLIT_MODES: { id: SplitMode; label: string; hint: string }[] = [
+  { id: "free", label: "Split it however it fits", hint: "the usual — pieces anywhere in its window" },
+  { id: "one_day", label: "All on one day", hint: "may still be split, but not across days" },
+  { id: "one_block", label: "All in one block", hint: "one unbroken sitting" },
+];
 
 export const blankTaskDraft = (): TaskDraft => ({
   title: "",
@@ -57,6 +74,8 @@ export const blankTaskDraft = (): TaskDraft => ({
   timeOfDay: "",
   maxPerDayText: "",
   chunkText: "",
+  splitMode: "free",
+  minChunkText: "",
 });
 
 /** Same rule as add_task: an hour-long chunk for anything over 90 minutes, the
@@ -93,6 +112,25 @@ export function validateTask(draft: TaskDraft): string[] {
   };
   positive(draft.maxPerDayText, "The daily cap");
   positive(draft.chunkText, "The block length");
+  positive(draft.minChunkText, "The smallest block");
+
+  // The one combination that genuinely cannot be satisfied, as opposed to the
+  // two below that merely resolve surprisingly: "one block" means the single
+  // sitting is the whole task, so a daily cap shorter than the task forbids it
+  // outright. The engine's answer would be to schedule nothing at all, silently
+  // — so this one IS refused rather than described.
+  const cap = Number(draft.maxPerDayText.trim());
+  const durationMin = Math.round((Number(draft.hoursText.trim()) || 0) * 60);
+  if (draft.splitMode === "one_block" && cap > 0 && durationMin > 0 && cap < durationMin) {
+    errors.push(
+      `It can't be one block of ${durationMin} minutes and also capped at ${cap} minutes a day — raise the cap, or let it split.`,
+    );
+  }
+  if (draft.splitMode === "one_day" && cap > 0 && durationMin > 0 && cap < durationMin) {
+    errors.push(
+      `It can't all fall on one day and also be capped at ${cap} minutes a day — that's ${durationMin} minutes of work. Raise the cap, or let it spread across days.`,
+    );
+  }
 
   // NEITHER of the two obvious-looking conflicts is an error, and both were
   // refused here until the engine was read properly. A cap below the block
@@ -116,6 +154,8 @@ export interface TaskRowFields {
   important: boolean;
   time_of_day: "morning" | "afternoon" | null;
   max_per_day_min: number | null;
+  split_mode: SplitMode;
+  min_chunk_min: number | null;
 }
 
 /** `now` is passed in rather than read here so the caller controls it and this
@@ -161,6 +201,36 @@ export function taskRowFields(draft: TaskDraft, now: Date): TaskRowFields | null
     important: draft.important,
     time_of_day: draft.timeOfDay || null,
     max_per_day_min: draft.maxPerDayText.trim() ? Math.round(Number(draft.maxPerDayText.trim())) : null,
+    split_mode: draft.splitMode,
+    min_chunk_min: draft.minChunkText.trim() ? Math.round(Number(draft.minChunkText.trim())) : null,
+  };
+}
+
+/** The task's own minimum against its label's, when the two differ.
+ *
+ * Returned so a panel can say it at the moment it is caused. The task's figure
+ * WINS either way (migration 0042) — this is not a conflict being resolved, it
+ * is an override being reported, and the wording has to make that clear or it
+ * reads as a warning that something won't work.
+ *
+ * Null when there is no label, the label sets no minimum, the task sets none, or
+ * the two agree. */
+export function labelMinChunkClash(
+  draft: TaskDraft,
+  /** The chosen label, already looked up. Takes the label rather than the whole
+   * list because the two panels hold theirs in different shapes — the board's
+   * comes from the scheduling types, the to-do's straight off the table row. */
+  label: { name: string; minChunkMin?: number | null } | null | undefined,
+): { text: string; loosens: boolean } | null {
+  const own = Number(draft.minChunkText.trim());
+  if (!draft.minChunkText.trim() || !Number.isFinite(own) || own <= 0) return null;
+  if (!label?.minChunkMin || label.minChunkMin === own) return null;
+  const loosens = own < label.minChunkMin;
+  return {
+    loosens,
+    text: loosens
+      ? `${label.name} asks for at least ${label.minChunkMin} minutes a block. This task overrides that with ${own}, so it alone may be booked in shorter pieces.`
+      : `${label.name} asks for at least ${label.minChunkMin} minutes a block. This task raises that to ${own}, so it alone gets longer pieces.`,
   };
 }
 
@@ -174,6 +244,17 @@ export function describeChunking(draft: TaskDraft): string | null {
   const durationMin = Math.round((Number(draft.hoursText.trim()) || 0) * 60);
   const chunk = Number(draft.chunkText.trim()) || 0;
   const cap = Number(draft.maxPerDayText.trim()) || 0;
+
+  // "One block" makes the preferred block length moot — the single sitting is
+  // the whole task, whatever was typed. Said first, because leaving a 60 in the
+  // block-length box next to "all in one block" otherwise looks like the two
+  // are fighting and the smaller number might win.
+  if (draft.splitMode === "one_block") {
+    return chunk > 0 && durationMin > 0 && chunk !== durationMin
+      ? `In one sitting, so the block length is ignored — it will be a single ${durationMin}-minute block.`
+      : null;
+  }
+
   if (chunk > 0 && durationMin > 0 && chunk > durationMin) {
     // The cap still applies to the clamped block, so saying only "one block"
     // would be wrong in the very case both fields are set.
@@ -205,6 +286,8 @@ export function taskDraft(row: {
   important: boolean;
   time_of_day?: "morning" | "afternoon" | null;
   max_per_day_min?: number | null;
+  split_mode?: SplitMode | null;
+  min_chunk_min?: number | null;
 }): TaskDraft {
   const pad = (n: number) => String(n).padStart(2, "0");
   const dateOf = (iso: string) => {
@@ -239,5 +322,7 @@ export function taskDraft(row: {
     // "don't start before".
     chunkText:
       row.chunk_min != null && row.chunk_min !== chunkFor(row.duration_min) ? String(row.chunk_min) : "",
+    splitMode: row.split_mode ?? "free",
+    minChunkText: row.min_chunk_min != null ? String(row.min_chunk_min) : "",
   };
 }

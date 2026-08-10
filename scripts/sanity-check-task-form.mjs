@@ -13,6 +13,7 @@ import {
   blankTaskDraft,
   chunkFor,
   describeChunking,
+  labelMinChunkClash,
   taskDraft,
   taskRowFields,
   validateTask,
@@ -102,9 +103,15 @@ const row = {
   important: true,
   time_of_day: "afternoon",
   max_per_day_min: 60,
+  // "free" here on purpose: this row carries a 60-minute daily cap on 4 hours of
+  // work, which either hard split mode would contradict (and validateTask now
+  // refuses). The modes get their own round trip below.
+  split_mode: "free",
+  min_chunk_min: 45,
 };
 const back = taskDraft(row);
 check("the levers survive the trip", [back.timeOfDay, back.maxPerDayText, back.chunkText], ["afternoon", "60", "90"]);
+check("and so does the minimum block", back.minChunkText, "45");
 check("and write back to the same columns", taskRowFields(back, NOW), {
   ...row,
   // The panel stores a date-only deadline at the end of that day, which is what
@@ -122,6 +129,70 @@ check(
   taskRowFields(derived, NOW).chunk_min,
   chunkFor(240),
 );
+
+// ---------------------------------------------------------- split modes (0042)
+
+console.log("\n== how it's split ==");
+
+const splitRow = { ...row, max_per_day_min: null, split_mode: "one_block", min_chunk_min: null };
+const splitBack = taskDraft(splitRow);
+check("a split mode survives the trip", splitBack.splitMode, "one_block");
+check("an unset minimum reads as empty", splitBack.minChunkText, "");
+check("and writes back unchanged", taskRowFields(splitBack, NOW).split_mode, "one_block");
+
+// A row that predates the column reads as the default rather than as undefined,
+// so an old task edited today doesn't acquire a constraint nobody asked for.
+check("a row with no split_mode defaults to free", taskDraft({ ...row, split_mode: undefined }).splitMode, "free");
+
+// The one genuinely impossible pair. Refused rather than described, because the
+// engine's answer to it is to schedule nothing at all — silently.
+const capped = { ...draft(), hoursText: "4", splitMode: "one_block", maxPerDayText: "60" };
+check("one block under a smaller daily cap is refused", validateTask(capped).length > 0, true);
+check("...and writes nothing", taskRowFields(capped, NOW), null);
+const cappedDay = { ...draft(), hoursText: "4", splitMode: "one_day", maxPerDayText: "60" };
+check("one day under a smaller daily cap is refused", validateTask(cappedDay).length > 0, true);
+// The same cap that FITS is fine — the check is against the duration, not the
+// mere presence of a cap, which is the easy way to get this wrong.
+const roomy = { ...draft(), hoursText: "1", splitMode: "one_block", maxPerDayText: "120" };
+check("a cap bigger than the task is allowed", validateTask(roomy).length, 0);
+
+// The block length is moot in one sitting, and saying so is the whole job of
+// describeChunking — leaving a stale 60 next to "all in one block" reads as a
+// contradiction the user has to resolve.
+check(
+  "one block explains that the block length is ignored",
+  /ignored/.test(describeChunking({ ...draft(), hoursText: "2", splitMode: "one_block", chunkText: "60" }) ?? ""),
+  true,
+);
+check(
+  "and says nothing when there's no block length to ignore",
+  describeChunking({ ...draft(), hoursText: "2", splitMode: "one_block" }),
+  null,
+);
+
+// ------------------------------------------------- the label override warning
+
+console.log("\n== overriding a label's minimum ==");
+
+const research = { id: "cat-1", name: "Research", minChunkMin: 60 };
+const withLabel = (minChunkText) => ({ ...draft(), categoryId: "cat-1", minChunkText });
+
+check("no minimum set, nothing to say", labelMinChunkClash(withLabel(""), research), null);
+check("the same minimum is not a clash", labelMinChunkClash(withLabel("60"), research), null);
+check("no label, nothing to clash with", labelMinChunkClash({ ...draft(), minChunkText: "30" }, null), null);
+check(
+  "a label with no minimum has nothing to override",
+  labelMinChunkClash(withLabel("30"), { id: "cat-2", name: "Teaching", minChunkMin: null }),
+  null,
+);
+
+const loosened = labelMinChunkClash(withLabel("45"), research);
+check("going below the label's floor is flagged", loosened?.loosens, true);
+check("...and names both figures", /Research.*60.*45/s.test(loosened?.text ?? ""), true);
+
+const tightened = labelMinChunkClash(withLabel("90"), research);
+check("going above it is reported too", tightened?.loosens, false);
+check("...but as raising, not overriding", /raises/.test(tightened?.text ?? ""), true);
 
 console.log(`\n${checks - failures}/${checks} checks passed`);
 if (failures) process.exit(1);

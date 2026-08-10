@@ -22,6 +22,7 @@
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { availableCapacity } from "@/lib/assistant/status";
+import { SPLIT_MODES, blankTaskDraft, labelMinChunkClash, type SplitMode } from "@/lib/planner/task-form";
 import type { WeeklyHours } from "@/lib/scheduling/types";
 import type { Database } from "@/lib/supabase/database.types";
 
@@ -213,6 +214,8 @@ export function TodoItemPanel({
   );
   const [categoryId, setCategoryId] = useState(linked?.category_id ?? "");
   const [maxPerDay, setMaxPerDay] = useState(linked?.max_per_day_min ? String(linked.max_per_day_min / 60) : "");
+  const [splitMode, setSplitMode] = useState<SplitMode>(linked?.split_mode ?? "free");
+  const [minChunk, setMinChunk] = useState(linked?.min_chunk_min != null ? String(linked.min_chunk_min) : "");
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -259,6 +262,12 @@ export function TodoItemPanel({
   // are the work itself, not preparation — which is why this is limited to
   // events rather than any earlier finish-by.
   const isPrep = kind === "event" && !!inheritedFinishIso && !!finishIso && finishIso <= inheritedFinishIso;
+
+  // A minimum set here OVERRIDES the label's rather than being capped by it (see
+  // migration 0042), so the panel says so at the moment it's typed — the only
+  // place the two figures are ever visible together.
+  const label = categories.find((c) => c.id === categoryId) ?? null;
+  const minChunkClash = labelMinChunkClash({ ...blankTaskDraft(), minChunkText: minChunk }, label ? { name: label.name, minChunkMin: label.min_chunk_min } : null);
 
   function toggleLead(minutes: number) {
     setLeads((prev) =>
@@ -309,11 +318,32 @@ export function TodoItemPanel({
     }
 
     if (keepTime) {
+      const durationMin = Math.round(hoursNum * 60);
+      const capMin = maxPerDay ? Math.round(Number(maxPerDay) * 60) : null;
+      // Refused rather than described, because the engine's answer to the pair
+      // is to schedule NOTHING — and a to-do whose hours silently never appear
+      // is exactly the failure this panel exists to prevent.
+      if (splitMode !== "free" && capMin != null && capMin < durationMin) {
+        return fail(
+          splitMode === "one_block"
+            ? `It can't be one unbroken block of ${hoursNum}h and also capped at ${capMin / 60}h a day.`
+            : `It can't all fall on one day and also be capped at ${capMin / 60}h a day — that's ${hoursNum}h of work.`,
+        );
+      }
+      const minChunkMin = minChunk.trim() ? Math.round(Number(minChunk.trim())) : null;
+      if (minChunk.trim() && (!Number.isFinite(minChunkMin) || (minChunkMin ?? 0) <= 0)) {
+        return fail("The smallest block has to be a number of minutes above zero — leave it empty for the default.");
+      }
       // user_id belongs on the insert only — it isn't an updatable column.
       const taskFields = {
         title: isPrep ? `Prep: ${item.text}` : item.text,
-        duration_min: Math.round(hoursNum * 60),
-        chunk_min: Math.min(120, Math.round(hoursNum * 60)),
+        duration_min: durationMin,
+        // In one sitting the preferred size IS the whole task; capping it at 120
+        // would leave the engine trying to place a 120-minute block for a task
+        // that must not be split, and one_block ignores it anyway.
+        chunk_min: splitMode === "one_block" ? durationMin : Math.min(120, durationMin),
+        split_mode: splitMode,
+        min_chunk_min: minChunkMin,
         priority,
         // Empty start means "any time from now", which is the scheduler's
         // default anyway.
@@ -321,7 +351,7 @@ export function TodoItemPanel({
         deadline_at: finishIso,
         deadline_all_day: finishIso ? finishIsAllDay : false,
         category_id: categoryId || null,
-        max_per_day_min: maxPerDay ? Math.round(Number(maxPerDay) * 60) : null,
+        max_per_day_min: capMin,
       };
       if (linked) {
         const { error: err } = await supabase.from("tasks").update(taskFields).eq("id", linked.id);
@@ -488,6 +518,46 @@ export function TodoItemPanel({
             />
             <span className="text-[11px] text-muted">max hours per day (optional)</span>
           </div>
+
+          {/* How the hours may be broken up. The default is what the panel did
+             before this existed, so an item nobody touches behaves unchanged. */}
+          <div className="flex flex-col gap-0.5 pt-0.5">
+            <span className={hint}>How it&apos;s split</span>
+            {SPLIT_MODES.map((m) => (
+              <label key={m.id} className="flex items-center gap-1.5 text-[11px] text-text">
+                <input type="radio" checked={splitMode === m.id} onChange={() => setSplitMode(m.id)} />
+                {m.label} <span className={hint}>— {m.hint}</span>
+              </label>
+            ))}
+          </div>
+          {splitMode !== "free" && (
+            <div className={hint}>
+              A hard rule: if no {splitMode === "one_block" ? "single gap" : "one day"} in the window is big enough, the
+              hours stay off the calendar and the board says why, rather than being split anyway.
+            </div>
+          )}
+
+          {splitMode !== "one_block" && (
+            <>
+              <div className="flex items-center gap-1.5">
+                <input
+                  value={minChunk}
+                  onChange={(e) => setMinChunk(e.target.value)}
+                  placeholder={label?.min_chunk_min ? String(label.min_chunk_min) : "30"}
+                  className={`${field} w-12`}
+                />
+                <span className="text-[11px] text-muted">smallest block, in minutes</span>
+              </div>
+              {minChunkClash && (
+                <div
+                  className="text-[10px] leading-snug"
+                  style={{ color: minChunkClash.loosens ? "#e0a94e" : "var(--color-muted-2, #75798c)" }}
+                >
+                  {minChunkClash.text}
+                </div>
+              )}
+            </>
+          )}
 
           {isPrep && (
             <div className={hint}>Finishes before the thing itself, so it appears as “Prep: {item.text}”.</div>

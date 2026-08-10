@@ -362,10 +362,24 @@ export function buildTodoReminderTools(ctx: ToolContext) {
         due: { type: "string", description: 'when the hours must be finished. OMIT THIS when the hours should be finished by the to-do\'s own due date, which is the usual case and needs no restating — it is inherited. Pass it only to finish EARLIER than that (which is how preparation is expressed), or when the item has no due date of its own. A bare date ("august 11") means date-only; name a time only if the user did.' },
         priority: { type: "string", enum: ["high", "medium", "low"] },
         category: { type: "string", description: "label name for the booked time" },
+        // The same two levers add_task carries. Without them this tool was the
+        // one route to booked hours that could not say "all on one day", so the
+        // answer depended on which tool the model happened to reach for.
+        split_mode: {
+          type: "string",
+          enum: ["free", "one_day", "one_block"],
+          description:
+            'How far the hours may be spread. "free" (default) places pieces wherever they fit. "one_day" still splits but keeps every piece on a SINGLE day. "one_block" is one unbroken sitting. The last two are hard: hours that will not fit under them are left unscheduled and reported rather than split anyway.',
+        },
+        min_chunk_min: {
+          type: "number",
+          description:
+            "shortest piece the hours may be cut into, in minutes. A hard floor, and it overrides the label's own minimum in both directions.",
+        },
       },
       required: ["text", "hours"],
     },
-    run: async ({ text, hours, start, due, priority, category }) => {
+    run: async ({ text, hours, start, due, priority, category, split_mode, min_chunk_min }) => {
       if (!hours) return "Say how many hours to book.";
       const { data: items } = await supabase
         .from("todo_items")
@@ -396,10 +410,16 @@ export function buildTodoReminderTools(ctx: ToolContext) {
         if (due && !deadlineAt) return `Couldn't understand the deadline "${due}".`;
         const startAt = start ? resolveStart(ctx, start) : null;
         if (start && !startAt) return `Couldn't understand the start "${start}".`;
+        const durationMin = Math.round(hours * 60);
+        const splitMode = split_mode ?? "free";
         const fields = {
           title: item.text,
-          duration_min: Math.round(hours * 60),
-          chunk_min: Math.min(120, Math.round(hours * 60)),
+          duration_min: durationMin,
+          // In one sitting the preferred size IS the whole thing; capping it at
+          // 120 would leave the row's two chunking fields contradicting.
+          chunk_min: splitMode === "one_block" ? durationMin : Math.min(120, durationMin),
+          split_mode: splitMode,
+          min_chunk_min: min_chunk_min || null,
           priority: priority ?? "medium",
           floor_at: startAt ?? new Date().toISOString(),
           deadline_at: deadlineAt?.at ?? null,
@@ -407,7 +427,11 @@ export function buildTodoReminderTools(ctx: ToolContext) {
           category_id: categoryId,
         };
         if (item.task_id) {
-          await supabase.from("tasks").update(fields).eq("id", item.task_id);
+          // Previously unchecked, while the insert branch below it checked —
+          // so re-booking hours on a to-do that already had them was the one
+          // path that could fail and still report the time as booked.
+          const { error } = await supabase.from("tasks").update(fields).eq("id", item.task_id);
+          if (error) return `Couldn't update the booked time: ${error.message}`;
         } else {
           const { data: made, error } = await supabase
             .from("tasks")

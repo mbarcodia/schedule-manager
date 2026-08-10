@@ -216,6 +216,15 @@ export function buildPromptContext(rows: RawScheduleRows, inputs: ScheduleInputs
       linkedProject: t.project_id ? (projectTitleById.get(t.project_id) ?? null) : null,
       label: t.category_id ? (labelById.get(t.category_id) ?? null) : null,
       timeOfDay: t.time_of_day ?? null,
+      // The placement constraints, for exactly the reason the deadlines above
+      // were added: the model is told to SET these and could not SEE them. A
+      // task locked to one day looked identical to a free one, so the honest
+      // answer to "why is this in three pieces on Thursday?" wasn't available —
+      // and a helpful suggestion to re-chunk it would have contradicted a rule
+      // the user had set. Omitted when unset so an ordinary task stays quiet.
+      ...(t.split_mode && t.split_mode !== "free" ? { splitMode: t.split_mode } : {}),
+      ...(t.min_chunk_min ? { minChunkMin: t.min_chunk_min } : {}),
+      ...(t.max_per_day_min ? { maxPerDayMin: t.max_per_day_min } : {}),
     })),
     // One thing with optional facets — only the ones actually set are reported,
     // so the model sees a project the way the user described it rather than a

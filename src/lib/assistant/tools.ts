@@ -208,6 +208,17 @@ export function buildTools(ctx: ToolContext) {
         priority: { type: "string", enum: ["high", "medium", "low"] },
         chunk_min: { type: "number", description: "split into chunks of this many minutes" },
         max_per_day_min: { type: "number", description: "spread it out: schedule at most this many minutes of it per day" },
+        split_mode: {
+          type: "string",
+          enum: ["free", "one_day", "one_block"],
+          description:
+            'How far it may be spread out. "free" (default) puts pieces wherever they fit. "one_day" still splits it but keeps every piece on a SINGLE day — for "I want to knock this out in a day". "one_block" is one unbroken sitting — for "I need two solid hours on this". The last two are HARD: if no single day or single gap is big enough, the work is left unscheduled and reported, never quietly split. Do not use them unless the user asked for one sitting or one day; chunk_min is the softer lever.',
+        },
+        min_chunk_min: {
+          type: "number",
+          description:
+            "shortest piece it may ever be cut into, in minutes — a floor, unlike chunk_min which is only the preferred size. OVERRIDES the label's own minimum in both directions, so setting it below the label's is allowed and will be honoured. Mention it when it does.",
+        },
         time_of_day: {
           type: "string",
           enum: ["morning", "afternoon"],
@@ -257,7 +268,16 @@ export function buildTools(ctx: ToolContext) {
       const notBeforeAt = inp.not_before ? titleToFloorAt(ctx, inp.not_before.toLowerCase()) : null;
       const notBeforeNotUnderstood = !!inp.not_before && !notBeforeAt;
       const priority = inp.priority || "medium";
-      const chunk_min = inp.chunk_min || (duration > 90 ? 60 : duration);
+      const splitMode = inp.split_mode ?? "free";
+      // In one sitting the preferred size IS the whole task, whatever was asked
+      // for — the engine ignores chunk_min under one_block, and storing a
+      // smaller number would leave a row whose two fields contradict each other.
+      const chunk_min = splitMode === "one_block" ? duration : inp.chunk_min || (duration > 90 ? 60 : duration);
+      // The pair the engine can only answer by scheduling NOTHING, so it is
+      // refused here with the reason rather than silently accepted.
+      if (splitMode !== "free" && inp.max_per_day_min && inp.max_per_day_min < duration) {
+        return `Couldn't add "${inp.title}": it can't be ${splitMode === "one_block" ? "one unbroken block" : "confined to one day"} and also capped at ${inp.max_per_day_min} minutes a day when it's ${duration} minutes of work.`;
+      }
 
       const pin = resolvePin(ctx, inp.pin_date, inp.pin_time);
       if (typeof pin === "string") return `Couldn't add "${inp.title}": ${pin}`;
@@ -277,13 +297,23 @@ export function buildTools(ctx: ToolContext) {
         deadline_all_day: deadline?.allDay ?? false,
         floor_at: notBeforeAt ?? new Date().toISOString(),
         max_per_day_min: inp.max_per_day_min || null,
+        split_mode: splitMode,
+        min_chunk_min: inp.min_chunk_min || null,
         project_id: link?.projectId ?? null,
         category_id: categoryId,
         pinned_date: pin?.pinned_date ?? null,
         pinned_start_min: pin?.pinned_start_min ?? null,
         pinned_length_min: pinLength,
       };
-      const summary = `(${duration}m, ${priority} priority${link ? ", linked to " + link.title : ""}).${pin ? ` ${pinLength}m pinned to ${inp.pin_date} at ${inp.pin_time} — anything else scheduled there moves automatically.` : inp.time_of_day ? ` Placed in the ${inp.time_of_day}.` : " Placed on the calendar."}${deadlineNotUnderstood ? ` Couldn't understand the deadline "${inp.due}", so no deadline was set — try a format like "july 24" or "in 2 weeks".` : ""}${notBeforeNotUnderstood ? ` Couldn't understand the start date "${inp.not_before}", so it may be scheduled as early as today.` : notBeforeAt ? ` Not scheduled before ${inp.not_before}.` : ""}`;
+      // Said out loud because both are hard constraints that can leave the work
+      // OFF the calendar — an outcome nobody should have to discover by looking.
+      const splitNote =
+        splitMode === "one_block"
+          ? ` In one unbroken ${duration}-minute sitting — if no gap that long exists it will stay unscheduled rather than be split.`
+          : splitMode === "one_day"
+            ? " All on one day — if no single day has room it will stay unscheduled rather than be spread out."
+            : "";
+      const summary = `(${duration}m, ${priority} priority${link ? ", linked to " + link.title : ""}).${pin ? ` ${pinLength}m pinned to ${inp.pin_date} at ${inp.pin_time} — anything else scheduled there moves automatically.` : inp.time_of_day ? ` Placed in the ${inp.time_of_day}.` : " Placed on the calendar."}${splitNote}${deadlineNotUnderstood ? ` Couldn't understand the deadline "${inp.due}", so no deadline was set — try a format like "july 24" or "in 2 weeks".` : ""}${notBeforeNotUnderstood ? ` Couldn't understand the start date "${inp.not_before}", so it may be scheduled as early as today.` : notBeforeAt ? ` Not scheduled before ${inp.not_before}.` : ""}`;
 
       // Dedupe on exact (normalized) title — re-declaring a task with the
       // same title updates it in place instead of creating a duplicate.
@@ -295,14 +325,29 @@ export function buildTools(ctx: ToolContext) {
       // appeared and the tool said it had been saved.
       const { data: existingTasks } = await supabase
         .from("tasks")
-        .select("id,title,archived_at")
+        .select("id,title,archived_at,split_mode")
         .eq("user_id", userId);
       const dupe = (existingTasks ?? []).find((t) => normTitle(t.title) === normTitle(inp.title));
       if (dupe) {
         const wasArchived = dupe.archived_at != null;
+        // On the UPDATE path the two chunking constraints are only written when
+        // this call actually named one. They default to "free"/null, and letting
+        // a default overwrite an existing row would mean that re-stating a task
+        // ("add npj climate, 2 hours") silently unlocked a rule the user had set
+        // — the same shape as the `weekly_research_hrs: 0` bug, and worse here
+        // because the setting's whole purpose is to be honoured without being
+        // re-checked. An insert still gets both, since there is nothing to lose.
+        const update = { ...payload };
+        if (inp.split_mode == null) delete update.split_mode;
+        if (inp.min_chunk_min == null) delete update.min_chunk_min;
+        // chunk_min was derived above from THIS call's split mode, which may not
+        // be the one the row keeps. Re-derive against the mode that will
+        // actually be stored, so the row's two chunking fields never disagree.
+        const keptSplit = inp.split_mode ?? dupe.split_mode ?? "free";
+        if (keptSplit === "one_block") update.chunk_min = duration;
         const { error } = await supabase
           .from("tasks")
-          .update(wasArchived ? { ...payload, archived_at: null } : payload)
+          .update(wasArchived ? { ...update, archived_at: null } : update)
           .eq("id", dupe.id);
         if (error) return `Couldn't update "${dupe.title}": ${error.message}`;
         markMutated(ctx);
@@ -330,6 +375,17 @@ export function buildTools(ctx: ToolContext) {
         duration_min: { type: "number" },
         chunk_min: { type: "number" },
         max_per_day_min: { type: "number" },
+        split_mode: {
+          type: "string",
+          enum: ["free", "one_day", "one_block"],
+          description:
+            'How far it may be spread out. "free" is the default and removes either restriction. "one_day" keeps every piece on a single day; "one_block" is one unbroken sitting. Both are hard: work that will not fit under them is left unscheduled and reported.',
+        },
+        min_chunk_min: {
+          type: "number",
+          description:
+            "shortest piece it may be cut into, in minutes — a hard floor, unlike chunk_min. Overrides the label's own minimum in both directions. Pass 0 to clear it and fall back to the label's.",
+        },
         due: {
           type: "string",
           description:
@@ -371,7 +427,7 @@ export function buildTools(ctx: ToolContext) {
       // reasoning findTrackableId already applies to commitments.
       const { data: tasks } = await supabase
         .from("tasks")
-        .select("id,title,chunk_min,duration_min")
+        .select("id,title,chunk_min,duration_min,max_per_day_min,split_mode")
         .eq("user_id", userId)
         .is("archived_at", null);
       const { match, ambiguous } = findByTitle(tasks ?? [], inp.title);
@@ -386,6 +442,24 @@ export function buildTools(ctx: ToolContext) {
       if (inp.duration_min) patch.duration_min = inp.duration_min;
       if (inp.chunk_min) patch.chunk_min = inp.chunk_min;
       if (inp.max_per_day_min != null) patch.max_per_day_min = inp.max_per_day_min || null;
+      if (inp.split_mode) patch.split_mode = inp.split_mode;
+      // `!= null`, not truthiness: 0 is the documented way to CLEAR this and
+      // fall back to the label's minimum, and a truthy test would drop it.
+      if (inp.min_chunk_min != null) patch.min_chunk_min = inp.min_chunk_min || null;
+
+      // Both checks read the row's own values where the call doesn't override
+      // them: "make it one block" on a task that already has a daily cap is the
+      // same contradiction as setting the two together, and only the merged view
+      // can see it.
+      const effDuration = inp.duration_min || match.duration_min;
+      const effCap = inp.max_per_day_min != null ? inp.max_per_day_min : match.max_per_day_min;
+      const effSplit = inp.split_mode ?? match.split_mode;
+      if (effSplit !== "free" && effCap && effCap < effDuration) {
+        return `Couldn't update "${match.title}": it can't be ${effSplit === "one_block" ? "one unbroken block" : "confined to one day"} and also capped at ${effCap} minutes a day when it's ${effDuration} minutes of work. Nothing was changed.`;
+      }
+      // One sitting means the preferred size is the whole task — otherwise the
+      // row keeps a stale chunk_min that contradicts its own split_mode.
+      if (effSplit === "one_block") patch.chunk_min = effDuration;
       if (inp.category) {
         const categoryId = await findCategoryId(ctx, inp.category);
         if (!categoryId) return `No category matching "${inp.category}". Add it first in Settings.`;

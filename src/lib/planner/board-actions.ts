@@ -24,12 +24,16 @@ import type { TaskRow } from "@/components/board/KanbanCard";
 
 export type DroppableColumn = "backlog" | "this_week" | "in_progress";
 
-export async function moveTaskToColumn(task: TaskRow, target: DroppableColumn, allTasks: TaskRow[]): Promise<void> {
+export async function moveTaskToColumn(
+  task: TaskRow,
+  target: DroppableColumn,
+  allTasks: TaskRow[],
+): Promise<string | null> {
   const supabase = createClient();
   const ords = allTasks.map((t) => t.ord);
 
   if (target === "backlog") {
-    await supabase
+    const { error } = await supabase
       .from("tasks")
       .update({
         pinned_date: null,
@@ -38,11 +42,11 @@ export async function moveTaskToColumn(task: TaskRow, target: DroppableColumn, a
         ord: Math.max(0, ...ords) + 1,
       })
       .eq("id", task.id);
-    return;
+    return error?.message ?? null;
   }
 
   if (target === "this_week") {
-    await supabase
+    const { error } = await supabase
       .from("tasks")
       .update({
         pinned_date: null,
@@ -51,7 +55,7 @@ export async function moveTaskToColumn(task: TaskRow, target: DroppableColumn, a
         ord: Math.min(0, ...ords) - 1,
       })
       .eq("id", task.id);
-    return;
+    return error?.message ?? null;
   }
 
   // in_progress: pin the next chunk to today, starting at the next
@@ -59,7 +63,7 @@ export async function moveTaskToColumn(task: TaskRow, target: DroppableColumn, a
   const d = new Date();
   const startMin = Math.ceil((d.getHours() * 60 + d.getMinutes()) / 15) * 15;
   const pinnedDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  await supabase
+  const { error } = await supabase
     .from("tasks")
     .update({
       pinned_date: pinnedDate,
@@ -67,6 +71,7 @@ export async function moveTaskToColumn(task: TaskRow, target: DroppableColumn, a
       pinned_length_min: Math.min(task.chunk_min, task.duration_min),
     })
     .eq("id", task.id);
+  return error?.message ?? null;
 }
 
 /** Next Monday, local, at midnight — the first moment of the next working week.
@@ -87,24 +92,27 @@ export async function holdUntilNextWeek(taskId: string, now: Date = new Date()):
   return error?.message ?? null;
 }
 
-export async function setTaskImportant(taskId: string, important: boolean): Promise<void> {
+export async function setTaskImportant(taskId: string, important: boolean): Promise<string | null> {
   const supabase = createClient();
-  await supabase.from("tasks").update({ important }).eq("id", taskId);
+  const { error } = await supabase.from("tasks").update({ important }).eq("id", taskId);
+  return error?.message ?? null;
 }
 
 /** Importance on a commitment, mirroring setTaskImportant. Both axes of the
  * Priorities board are per-row flags the user sets; urgency is derived. */
-export async function setCommitmentImportant(projectId: string, important: boolean): Promise<void> {
+export async function setCommitmentImportant(projectId: string, important: boolean): Promise<string | null> {
   const supabase = createClient();
-  await supabase.from("projects").update({ important }).eq("id", projectId);
+  const { error } = await supabase.from("projects").update({ important }).eq("id", projectId);
+  return error?.message ?? null;
 }
 
-export async function setTaskArchived(taskId: string, archived: boolean): Promise<void> {
+export async function setTaskArchived(taskId: string, archived: boolean): Promise<string | null> {
   const supabase = createClient();
-  await supabase
+  const { error } = await supabase
     .from("tasks")
     .update({ archived_at: archived ? new Date().toISOString() : null })
     .eq("id", taskId);
+  return error?.message ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -119,7 +127,9 @@ export async function setTaskArchived(taskId: string, archived: boolean): Promis
 //
 // Errors are RETURNED rather than swallowed: a panel that closes on a failed
 // write reads as a saved change, which is how two earlier "Save does nothing"
-// bugs presented.
+// bugs presented. That rule held for the commitment half of this file and not
+// the task half — a failed drag simply snapped the card back with no
+// explanation — so every function here now returns a message or null.
 
 /** null clears the field. Hours are stored as minutes throughout. */
 export interface CommitmentFields {

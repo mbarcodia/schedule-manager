@@ -39,6 +39,7 @@ export function EisenhowerBoard({ scheduleData, onMutated }: EisenhowerBoardProp
 
   const { data, refresh } = scheduleData;
   const [openCommitment, setOpenCommitment] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const grouped = useMemo(() => {
     const groups: Record<Quadrant, TaskRow[]> = { do: [], schedule: [], delegate: [], eliminate: [] };
@@ -122,25 +123,38 @@ export function EisenhowerBoard({ scheduleData, onMutated }: EisenhowerBoardProp
   if (!data) return <div className="px-5 py-4 text-[12px] text-muted">Loading…</div>;
 
   async function handleToggleImportant(task: TaskRow) {
-    await setTaskImportant(task.id, !task.important);
+    const message = await setTaskImportant(task.id, !task.important);
+    if (message) return setNotice(`Couldn't change that: ${message}`);
     await refresh();
     onMutated?.();
   }
 
   async function handleArchive(task: TaskRow) {
-    await setTaskArchived(task.id, true);
+    const message = await setTaskArchived(task.id, true);
+    if (message) return setNotice(`Couldn't archive that: ${message}`);
     await refresh();
     onMutated?.();
   }
 
   async function handleToggleCommitmentImportant(projectId: string, next: boolean) {
-    await setCommitmentImportant(projectId, next);
+    const message = await setCommitmentImportant(projectId, next);
+    if (message) return setNotice(`Couldn't change that: ${message}`);
     await refresh();
     onMutated?.();
   }
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto p-3">
+      {/* A star or an archive that didn't take. Same strip the Progress board
+         uses: the toggle has already flipped back by the time you see it. */}
+      {notice && (
+        <div className="px-1 pb-2 text-[11px]" style={{ color: "#e5484d" }}>
+          {notice}{" "}
+          <button onClick={() => setNotice(null)} className="text-muted-2 hover:text-text">
+            dismiss
+          </button>
+        </div>
+      )}
       <div className="flex items-baseline justify-between px-1 pb-2 gap-3">
         <div className="text-[10.5px] text-muted-2">
           ★ marks something important — commitments and tasks alike. Urgent = a date within{" "}

@@ -70,7 +70,12 @@ export function ArchiveView({ onMutated }: ArchiveViewProps) {
   async function restoreTask(id: string) {
     setBusyId(id);
     setError(null);
-    await setTaskArchived(id, false);
+    const message = await setTaskArchived(id, false);
+    if (message) {
+      setError(`Couldn't bring that back: ${message}`);
+      setBusyId(null);
+      return;
+    }
     await load();
     setBusyId(null);
     onMutated?.();

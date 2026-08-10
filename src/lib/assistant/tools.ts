@@ -905,6 +905,7 @@ export function buildTools(ctx: ToolContext) {
       }
 
       const written: string[] = [];
+      const phaseFailures: string[] = [];
       const unreachable: string[] = [];
       for (let i = 0; i < inp.phases.length; i++) {
         const title = inp.phases[i];
@@ -922,20 +923,25 @@ export function buildTools(ctx: ToolContext) {
         // and they were being discarded after the dates were derived from them.
         const effort_estimate_min = Math.round(hours[i] * 60);
         const dupe = (existing ?? []).find((t) => normTitle(t.title) === normTitle(title));
-        if (dupe) {
-          await supabase
-            .from("targets")
-            .update({ target_date: on, date_kind: "goal", effort_estimate_min })
-            .eq("id", dupe.id);
-        } else {
-          await supabase.from("targets").insert({
-            user_id: userId,
-            commitment_id: lookup.projectId,
-            title,
-            target_date: on,
-            date_kind: "goal",
-            effort_estimate_min,
-          });
+        // Collected rather than thrown: this writes several phases in a loop,
+        // and reporting "planned 4 phases" when the third failed is the shape
+        // of every "it said it saved" bug in this file.
+        const { error: phaseErr } = dupe
+          ? await supabase
+              .from("targets")
+              .update({ target_date: on, date_kind: "goal", effort_estimate_min })
+              .eq("id", dupe.id)
+          : await supabase.from("targets").insert({
+              user_id: userId,
+              commitment_id: lookup.projectId,
+              title,
+              target_date: on,
+              date_kind: "goal",
+              effort_estimate_min,
+            });
+        if (phaseErr) {
+          phaseFailures.push(`${title} (${phaseErr.message})`);
+          continue;
         }
         written.push(`${title} (${hours[i]}h) — goal ${on}`);
       }
@@ -959,6 +965,7 @@ export function buildTools(ctx: ToolContext) {
         (unreachable.length
           ? `\nNot reachable within the planning horizon at this rate: ${unreachable.join(", ")}.`
           : "") +
+        (phaseFailures.length ? `\nTHESE DID NOT SAVE and need trying again: ${phaseFailures.join("; ")}.` : "") +
         deadlineNote +
         (evenSplit
           ? ` Hours were split evenly across the phases because none were given — worth revising, since writing up rarely takes as long as the analysis.`
@@ -1302,7 +1309,8 @@ export function buildTools(ctx: ToolContext) {
 
       if (inp.remove) {
         if (!match) return `No recurring rule matching "${inp.title}".`;
-        await supabase.from("recurring_rules").delete().eq("id", match.id);
+        const { error } = await supabase.from("recurring_rules").delete().eq("id", match.id);
+        if (error) return `Couldn't remove "${match.title}": ${error.message}`;
         markMutated(ctx);
         return `Removed the recurring "${match.title}" rule.`;
       }
@@ -1347,8 +1355,13 @@ export function buildTools(ctx: ToolContext) {
       }
 
       const payload = { title: inp.title, tag: match?.tag ?? "anchor", days, length_min, win_start_min, win_end_min, anchor, category_id };
-      if (match) await supabase.from("recurring_rules").update(payload).eq("id", match.id);
-      else await supabase.from("recurring_rules").insert({ user_id: userId, ...payload });
+      // This reported "Saved permanently." without ever looking at whether it
+      // had been — and the anchor/window constraint added in 0039 gives it a
+      // real way to fail.
+      const { error: writeErr } = match
+        ? await supabase.from("recurring_rules").update(payload).eq("id", match.id)
+        : await supabase.from("recurring_rules").insert({ user_id: userId, ...payload });
+      if (writeErr) return `Couldn't save the "${inp.title}" routine: ${writeErr.message}`;
       markMutated(ctx);
 
       const win = anchor

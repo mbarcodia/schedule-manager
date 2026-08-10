@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { EyeSlashIcon, EyeIcon } from "@phosphor-icons/react";
 import { createClient } from "@/lib/supabase/client";
+import { writeError } from "@/lib/planner/write";
 import type { Database } from "@/lib/supabase/database.types";
 
 type ListRow = Database["public"]["Tables"]["lists"]["Row"];
@@ -23,6 +24,9 @@ export function ListsView() {
   const [draft, setDraft] = useState<Record<string, string>>({});
   /** Body text held locally while typing so every keystroke isn't a write. */
   const [bodies, setBodies] = useState<Record<string, string>>({});
+  /** A write that didn't land — see TodoView: every action reloads afterwards,
+   * so a swallowed failure read as the change undoing itself. */
+  const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const supabase = createClient();
@@ -53,7 +57,8 @@ export function ListsView() {
     } = await supabase.auth.getUser();
     if (!user) return;
     setNewTitle("");
-    await supabase.from("lists").insert({ user_id: user.id, title });
+    const message = await writeError("Couldn't add that list", supabase.from("lists").insert({ user_id: user.id, title }));
+    if (message) return setError(message);
     await load();
   }
 
@@ -61,7 +66,8 @@ export function ListsView() {
     const body = bodies[list.id] ?? "";
     if (body === list.body) return;
     const supabase = createClient();
-    await supabase.from("lists").update({ body }).eq("id", list.id);
+    const message = await writeError("Couldn't save that", supabase.from("lists").update({ body }).eq("id", list.id));
+    if (message) return setError(message);
     await load();
   }
 
@@ -74,41 +80,56 @@ export function ListsView() {
     } = await supabase.auth.getUser();
     if (!user) return;
     setDraft((d) => ({ ...d, [listId]: "" }));
-    await supabase.from("list_items").insert({ user_id: user.id, list_id: listId, text });
+    const message = await writeError(
+      "Couldn't add that",
+      supabase.from("list_items").insert({ user_id: user.id, list_id: listId, text }),
+    );
+    if (message) return setError(message);
     await load();
   }
 
   async function toggle(item: ItemRow) {
     const supabase = createClient();
-    await supabase
-      .from("list_items")
-      .update({ done: !item.done, completed_at: item.done ? null : new Date().toISOString() })
-      .eq("id", item.id);
+    const message = await writeError(
+      item.done ? "Couldn't un-tick that" : "Couldn't tick that off",
+      supabase
+        .from("list_items")
+        .update({ done: !item.done, completed_at: item.done ? null : new Date().toISOString() })
+        .eq("id", item.id),
+    );
+    if (message) return setError(message);
     await load();
   }
 
   async function setHidden(item: ItemRow, hidden: boolean) {
     const supabase = createClient();
-    await supabase.from("list_items").update({ hidden }).eq("id", item.id);
+    const message = await writeError("Couldn't change that", supabase.from("list_items").update({ hidden }).eq("id", item.id));
+    if (message) return setError(message);
     await load();
   }
 
   async function setShowCompleted(list: ListRow, show: boolean) {
     const supabase = createClient();
-    await supabase.from("lists").update({ show_completed: show }).eq("id", list.id);
+    const message = await writeError(
+      "Couldn't change that",
+      supabase.from("lists").update({ show_completed: show }).eq("id", list.id),
+    );
+    if (message) return setError(message);
     await load();
   }
 
   async function removeItem(id: string) {
     const supabase = createClient();
-    await supabase.from("list_items").delete().eq("id", id);
+    const message = await writeError("Couldn't remove that", supabase.from("list_items").delete().eq("id", id));
+    if (message) return setError(message);
     await load();
   }
 
   async function removeList(list: ListRow) {
     if (!confirm(`Delete "${list.title}" and everything on it?`)) return;
     const supabase = createClient();
-    await supabase.from("lists").delete().eq("id", list.id);
+    const message = await writeError("Couldn't delete that list", supabase.from("lists").delete().eq("id", list.id));
+    if (message) return setError(message);
     await load();
   }
 
@@ -116,6 +137,14 @@ export function ListsView() {
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto p-4">
+      {error && (
+        <div className="mb-2 text-[11px]" style={{ color: "#e5484d" }}>
+          {error}{" "}
+          <button onClick={() => setError(null)} className="text-muted-2 hover:text-text">
+            dismiss
+          </button>
+        </div>
+      )}
       <div className="flex items-center gap-2 mb-3 flex-wrap">
         <input
           value={newTitle}

@@ -20,6 +20,7 @@ import { BookingSection } from "@/components/settings/BookingSection";
 import { RoutinesSection } from "@/components/settings/RoutinesSection";
 import { RulesSection } from "@/components/settings/RulesSection";
 import { NO_RESERVE, hasReserve, typicalBookableWeekMin, type WeeklyReserve } from "@/lib/scheduling/reserve";
+import { writeError } from "@/lib/planner/write";
 import {
   DEFAULT_VIEW_DAYS,
   VIEW_DAY_OPTIONS,
@@ -244,6 +245,11 @@ export default function SettingsPage() {
   /** Just the shape of each routine (which days, how long) — enough to say what
    * a normal week has left, without duplicating RoutinesSection's own fetch. */
   const [routineShapes, setRoutineShapes] = useState<{ days: number[]; length: number }[]>([]);
+  /** A setting that didn't save. Every control here writes OPTIMISTICALLY — the
+   * switch moves first — so a swallowed failure left the screen showing a
+   * setting the scheduler never received. That matters most for a label's
+   * minimum chunk and share of the week, which decide how time is booked. */
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [categories, setCategories] = useState<CategoryRow[]>([]);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [newCategoryColor, setNewCategoryColor] = useState("#9184d9");
@@ -370,7 +376,7 @@ export default function SettingsPage() {
   async function setAllDayMode(id: string, mode: AllDayMode) {
     setConnections((prev) => prev.map((c) => (c.id === id ? { ...c, all_day_mode: mode } : c)));
     const supabase = createClient();
-    await supabase.from("calendar_connections").update({ all_day_mode: mode }).eq("id", id);
+    await save("Couldn't change what that calendar blocks", supabase.from("calendar_connections").update({ all_day_mode: mode }).eq("id", id));
     // All-day entries are only fetched for calendars that want them, so the
     // choice only takes effect on the next sync — run one now rather than
     // leaving the setting looking broken for an hour.
@@ -380,19 +386,19 @@ export default function SettingsPage() {
   async function recolorConnection(id: string, color: string) {
     setConnections((prev) => prev.map((c) => (c.id === id ? { ...c, color } : c)));
     const supabase = createClient();
-    await supabase.from("calendar_connections").update({ color }).eq("id", id);
+    await save("Couldn't change that colour", supabase.from("calendar_connections").update({ color }).eq("id", id));
   }
 
   async function deleteConnection(id: string) {
     setConnections((prev) => prev.filter((c) => c.id !== id));
     const supabase = createClient();
-    await supabase.from("calendar_connections").delete().eq("id", id);
+    await save("Couldn't disconnect that calendar", supabase.from("calendar_connections").delete().eq("id", id));
   }
 
   async function renameConnection(id: string, label: string) {
     setConnections((prev) => prev.map((c) => (c.id === id ? { ...c, label } : c)));
     const supabase = createClient();
-    await supabase.from("calendar_connections").update({ label }).eq("id", id);
+    await save("Couldn't rename that calendar", supabase.from("calendar_connections").update({ label }).eq("id", id));
   }
 
   async function syncNow() {
@@ -451,43 +457,43 @@ export default function SettingsPage() {
   async function renameCategory(id: string, name: string) {
     setCategories((prev) => prev.map((c) => (c.id === id ? { ...c, name } : c)));
     const supabase = createClient();
-    await supabase.from("categories").update({ name }).eq("id", id);
+    await save("Couldn't rename that label", supabase.from("categories").update({ name }).eq("id", id));
   }
 
   async function setCategoryBasis(id: string, basis: LabelTargetBasis) {
     setCategories((prev) => prev.map((c) => (c.id === id ? { ...c, target_basis: basis } : c)));
     const supabase = createClient();
-    await supabase.from("categories").update({ target_basis: basis }).eq("id", id);
+    await save("Couldn't change what that share is measured against", supabase.from("categories").update({ target_basis: basis }).eq("id", id));
   }
 
   async function recolorCategory(id: string, color: string) {
     setCategories((prev) => prev.map((c) => (c.id === id ? { ...c, color } : c)));
     const supabase = createClient();
-    await supabase.from("categories").update({ color }).eq("id", id);
+    await save("Couldn't change that colour", supabase.from("categories").update({ color }).eq("id", id));
   }
 
   async function setCategoryMinChunk(id: string, minChunkMin: number | null) {
     setCategories((prev) => prev.map((c) => (c.id === id ? { ...c, min_chunk_min: minChunkMin } : c)));
     const supabase = createClient();
-    await supabase.from("categories").update({ min_chunk_min: minChunkMin }).eq("id", id);
+    await save("Couldn't change that minimum chunk", supabase.from("categories").update({ min_chunk_min: minChunkMin }).eq("id", id));
   }
 
   async function setCategoryTarget(id: string, pct: number | null) {
     setCategories((prev) => prev.map((c) => (c.id === id ? { ...c, weekly_target_pct: pct } : c)));
     const supabase = createClient();
-    await supabase.from("categories").update({ weekly_target_pct: pct }).eq("id", id);
+    await save("Couldn't change that share of the week", supabase.from("categories").update({ weekly_target_pct: pct }).eq("id", id));
   }
 
   async function setCategoryTimePref(id: string, timePref: LabelTimePref | null) {
     setCategories((prev) => prev.map((c) => (c.id === id ? { ...c, time_pref: timePref } : c)));
     const supabase = createClient();
-    await supabase.from("categories").update({ time_pref: timePref }).eq("id", id);
+    await save("Couldn't change when that work belongs", supabase.from("categories").update({ time_pref: timePref }).eq("id", id));
   }
 
   async function deleteCategory(id: string) {
     setCategories((prev) => prev.filter((c) => c.id !== id));
     const supabase = createClient();
-    await supabase.from("categories").delete().eq("id", id);
+    await save("Couldn't delete that label", supabase.from("categories").delete().eq("id", id));
   }
 
   async function saveGraceHours(hours: number) {
@@ -496,7 +502,12 @@ export default function SettingsPage() {
     const {
       data: { user },
     } = await supabase.auth.getUser();
-    if (user) await supabase.from("profiles").update({ grace_hours: hours }).eq("id", user.id);
+    if (user) await save("Couldn't change the grace window", supabase.from("profiles").update({ grace_hours: hours }).eq("id", user.id));
+  }
+
+  /** Run a settings write and surface it if it fails. */
+  async function save(what: string, write: PromiseLike<{ error: { message: string } | null }>) {
+    setSaveError(await writeError(what, write));
   }
 
   /** Hours in, minutes stored — every duration in the schema is minutes, and an
@@ -509,13 +520,16 @@ export default function SettingsPage() {
       data: { user },
     } = await supabase.auth.getUser();
     if (user)
-      await supabase
-        .from("profiles")
-        .update({
-          expected_meeting_min_per_week: next.expectedMeetingMin,
-          reserve_misc_min_per_week: next.miscMin,
-        })
-        .eq("id", user.id);
+      await save(
+        "Couldn't save what the week keeps back",
+        supabase
+          .from("profiles")
+          .update({
+            expected_meeting_min_per_week: next.expectedMeetingMin,
+            reserve_misc_min_per_week: next.miscMin,
+          })
+          .eq("id", user.id),
+      );
   }
 
   async function saveHours(next: WeeklyHoursJson) {
@@ -524,7 +538,7 @@ export default function SettingsPage() {
     const {
       data: { user },
     } = await supabase.auth.getUser();
-    if (user) await supabase.from("profiles").update({ weekly_hours: next }).eq("id", user.id);
+    if (user) await save("Couldn't save your standard hours", supabase.from("profiles").update({ weekly_hours: next }).eq("id", user.id));
   }
 
   function toggleDay(dow: number, on: boolean) {
@@ -562,16 +576,16 @@ export default function SettingsPage() {
       data: { user },
     } = await supabase.auth.getUser();
     if (!user) return;
-    await supabase
-      .from("profiles")
-      .update({
+    await save(
+      "Couldn't save your notification settings",
+      supabase.from("profiles").update({
         eod_checkin_enabled: next.eodEnabled,
         eod_checkin_time: next.eodTime,
         weekly_summary_enabled: next.weeklyEnabled,
         weekly_summary_dow: next.weeklyDow,
         weekly_summary_time: next.weeklyTime,
-      })
-      .eq("id", user.id);
+      }).eq("id", user.id),
+    );
   }
 
   function toggleEodCheckin(on: boolean) {
@@ -606,7 +620,7 @@ export default function SettingsPage() {
       data: { user },
     } = await supabase.auth.getUser();
     if (user) {
-      await supabase.from("profiles").update({ planner_model: model }).eq("id", user.id);
+      await save("Couldn't change the model", supabase.from("profiles").update({ planner_model: model }).eq("id", user.id));
       setPlannerModel(model);
     }
     setPlannerModelSaving(null);
@@ -662,6 +676,19 @@ export default function SettingsPage() {
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
+      {/* Outside the scroll container with the header, so a setting that didn't
+          save is visible wherever you are on a long page. */}
+      {saveError && (
+        <div
+          className="flex-none px-6 py-2 text-[11px] border-b border-border flex items-center gap-2"
+          style={{ color: "#e5484d" }}
+        >
+          <span className="flex-1 min-w-0">{saveError} — the control shows your change, but it isn&apos;t saved.</span>
+          <button onClick={() => setSaveError(null)} className="flex-none text-muted-2 hover:text-text">
+            dismiss
+          </button>
+        </div>
+      )}
       {/* Sits OUTSIDE the scroll container, so getting back to the calendar and
           re-syncing are one click away from anywhere in the page. */}
       <div className="flex-none border-b border-border px-6 py-2.5 flex items-center gap-4">

@@ -48,7 +48,8 @@ export function CalendarPanel({ scheduleData }: CalendarPanelProps) {
   const [openEvent, setOpenEvent] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [viewDays, setViewDays] = useState<ViewDays>(DEFAULT_VIEW_DAYS);
-  const { data, schedule, loading, error, refresh, setProgress, pinDone, unpinDone } = scheduleData;
+  const { data, schedule, loading, error, writeError, dismissWriteError, refresh, setProgress, pinDone, unpinDone } =
+    scheduleData;
 
   useEffect(() => {
     void (async () => {
@@ -129,6 +130,21 @@ export function CalendarPanel({ scheduleData }: CalendarPanelProps) {
 
   return (
     <div className="@container flex-1 flex flex-col min-w-0 overflow-hidden">
+      {/* A write that didn't land. Deliberately a strip rather than the
+         full-view error above: failing to save one tick is not a reason to
+         take the calendar away. Every write refreshes afterwards, so without
+         this the block simply un-ticked itself and said nothing. */}
+      {writeError && (
+        <div
+          className="flex-none px-4 py-2 text-[11px] border-b border-border flex items-center gap-2"
+          style={{ color: "#e5484d" }}
+        >
+          <span className="flex-1 min-w-0">{writeError}</span>
+          <button onClick={dismissWriteError} className="flex-none text-muted-2 hover:text-text">
+            dismiss
+          </button>
+        </div>
+      )}
       {/* Top bar. Wraps rather than overflowing: it holds three groups, and at
          narrow widths they used to collide into each other and push the
          right-hand links out of view entirely. Sizing is by CONTAINER width,

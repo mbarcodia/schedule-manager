@@ -12,6 +12,13 @@ export interface UseScheduleDataResult {
   schedule: ComputeScheduleResult | null;
   loading: boolean;
   error: string | null;
+  /** A WRITE that failed, as a sentence to show the user. Separate from `error`
+   * on purpose: that one means the schedule couldn't be loaded and replaces the
+   * whole view, which would be an absurd response to one checkbox not saving.
+   * Every write below refreshes afterwards, so a swallowed failure looked
+   * exactly like the tick undoing itself for no reason. */
+  writeError: string | null;
+  dismissWriteError: () => void;
   refresh: () => Promise<void>;
   /** Mark a task/research chunk fully done, partially done, or missed. */
   setProgress: (block: ScheduleBlock, mode: "done" | "partial" | "none", minutes?: number) => Promise<void>;
@@ -53,6 +60,8 @@ export function useScheduleData(): UseScheduleDataResult {
   const [schedule, setSchedule] = useState<ComputeScheduleResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [writeError, setWriteError] = useState<string | null>(null);
+  const dismissWriteError = useCallback(() => setWriteError(null), []);
 
   const refresh = useCallback(async () => {
     try {
@@ -86,16 +95,17 @@ export function useScheduleData(): UseScheduleDataResult {
 
       if (mode === "none") {
         // Remove any prior log for this slot (treat it as missed by absence).
-        await supabase
+        const { error: err } = await supabase
           .from("progress_log")
           .delete()
           .match({ subject_type: subjectType, subject_id: subjectId, occurred_date, start_min: block.start });
+        if (err) return setWriteError(`Couldn't clear that block: ${err.message}`);
       } else {
         const {
           data: { user },
         } = await supabase.auth.getUser();
         if (!user) return;
-        await supabase.from("progress_log").upsert(
+        const { error: err } = await supabase.from("progress_log").upsert(
           {
             user_id: user.id,
             subject_type: subjectType,
@@ -107,7 +117,9 @@ export function useScheduleData(): UseScheduleDataResult {
           },
           { onConflict: "user_id,subject_type,subject_id,occurred_date,start_min" },
         );
+        if (err) return setWriteError(`Couldn't record that: ${err.message}`);
       }
+      setWriteError(null);
       await refresh();
     },
     [refresh],
@@ -147,7 +159,7 @@ export function useScheduleData(): UseScheduleDataResult {
       const claims = [...(pins ?? []), ...(prog ?? [])].map((r) => r.start_min);
       const anchor = claims.length ? Math.min(...claims) : nowMin;
       const start = Math.max(0, Math.min(nowMin, anchor) - len);
-      await supabase.from("pinned_chunks").upsert(
+      const { error: pinErr } = await supabase.from("pinned_chunks").upsert(
         {
           user_id: user.id,
           subject_type: subjectType,
@@ -162,6 +174,8 @@ export function useScheduleData(): UseScheduleDataResult {
         },
         { onConflict: "user_id,subject_type,subject_id,occurred_date,start_min" },
       );
+      if (pinErr) return setWriteError(`Couldn't check that off early: ${pinErr.message}`);
+      setWriteError(null);
       await refresh();
     },
     [refresh],
@@ -172,16 +186,18 @@ export function useScheduleData(): UseScheduleDataResult {
       if (!block.taskId) return;
       const supabase = createClient();
       const { subjectType, subjectId } = subjectFromTaskId(block.taskId);
-      await supabase.from("pinned_chunks").delete().match({
+      const { error: err } = await supabase.from("pinned_chunks").delete().match({
         subject_type: subjectType,
         subject_id: subjectId,
         occurred_date: gdayToISODate(block.gday),
         start_min: block.start,
       });
+      if (err) return setWriteError(`Couldn't undo that: ${err.message}`);
+      setWriteError(null);
       await refresh();
     },
     [refresh],
   );
 
-  return { data, schedule, loading, error, refresh, setProgress, pinDone, unpinDone };
+  return { data, schedule, loading, error, writeError, dismissWriteError, refresh, setProgress, pinDone, unpinDone };
 }

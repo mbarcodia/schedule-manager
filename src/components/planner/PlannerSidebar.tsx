@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { CaretDownIcon, CaretRightIcon, TrashIcon } from "@phosphor-icons/react";
 import { createClient } from "@/lib/supabase/client";
+import { writeError } from "@/lib/planner/write";
 import type { Database, NoteKind } from "@/lib/supabase/database.types";
 
 type NoteRow = Database["public"]["Tables"]["notes"]["Row"];
@@ -35,6 +36,9 @@ export function PlannerSidebar({ refreshKey }: PlannerSidebarProps) {
   const [notes, setNotes] = useState<NoteRow[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
+  /** A note that didn't save. Shown rather than swallowed: this editor used to
+   * close on failure, which is the "Save does nothing" shape exactly. */
+  const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const supabase = createClient();
@@ -62,14 +66,24 @@ export function PlannerSidebar({ refreshKey }: PlannerSidebarProps) {
 
   async function saveNote(note: NoteRow) {
     const supabase = createClient();
-    await supabase.from("notes").update({ content: draft, updated_at: new Date().toISOString() }).eq("id", note.id);
+    const message = await writeError(
+      "Couldn't save that note",
+      supabase.from("notes").update({ content: draft, updated_at: new Date().toISOString() }).eq("id", note.id),
+    );
+    // The editor stays OPEN on failure, so the text you typed is still there.
+    // Closing it and reloading — which is what this did — threw the edit away
+    // and looked exactly like a successful save.
+    if (message) return setError(message);
+    setError(null);
     setOpenId(null);
     void load();
   }
 
   async function deleteNote(note: NoteRow) {
     const supabase = createClient();
-    await supabase.from("notes").delete().eq("id", note.id);
+    const message = await writeError("Couldn't delete that note", supabase.from("notes").delete().eq("id", note.id));
+    if (message) return setError(message);
+    setError(null);
     setOpenId(null);
     void load();
   }
@@ -129,6 +143,14 @@ export function PlannerSidebar({ refreshKey }: PlannerSidebarProps) {
 
   return (
     <div className="flex-none w-[320px] border-l border-border flex flex-col min-h-0">
+      {error && (
+        <div className="flex-none px-4 py-2 text-[11px] border-b border-border" style={{ color: "#e5484d" }}>
+          {error}{" "}
+          <button onClick={() => setError(null)} className="text-muted-2 hover:text-text">
+            dismiss
+          </button>
+        </div>
+      )}
       <div className="flex-none px-4 py-3.5 border-b border-border flex items-start justify-between gap-2">
         <div>
           <div className="font-medium text-[13px]">Project notes</div>

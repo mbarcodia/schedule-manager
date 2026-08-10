@@ -6,6 +6,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { writeError } from "@/lib/planner/write";
 import type { Database, BookingDayWindowsJson, BookingLocationMode } from "@/lib/supabase/database.types";
 
 type BookingLinkRow = Database["public"]["Tables"]["booking_links"]["Row"];
@@ -56,6 +57,7 @@ export function BookingSection({ categories }: { categories: CategoryRow[] }) {
   const [bookings, setBookings] = useState<UpcomingBooking[]>([]);
   const [links, setLinks] = useState<BookingLinkRow[]>([]);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -158,14 +160,21 @@ export function BookingSection({ categories }: { categories: CategoryRow[] }) {
 
   async function updateLink(id: string, patch: Database["public"]["Tables"]["booking_links"]["Update"]) {
     const supabase = createClient();
-    await supabase.from("booking_links").update(patch).eq("id", id);
-    setLinks((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch } as BookingLinkRow : l)));
+    const message = await writeError("Couldn't save that", supabase.from("booking_links").update(patch).eq("id", id));
+    // These two update local state OPTIMISTICALLY rather than reloading, so a
+    // swallowed failure left the screen showing a setting the public booking
+    // page was not honouring — the one place that gap is visible to other people.
+    if (message) return setError(message);
+    setError(null);
+    setLinks((prev) => prev.map((l) => (l.id === id ? ({ ...l, ...patch } as BookingLinkRow) : l)));
   }
 
   async function deleteLink(id: string) {
     if (!confirm("Delete this booking link? Its page stops working immediately (past bookings are kept).")) return;
     const supabase = createClient();
-    await supabase.from("booking_links").delete().eq("id", id);
+    const message = await writeError("Couldn't delete that link", supabase.from("booking_links").delete().eq("id", id));
+    if (message) return setError(message);
+    setError(null);
     setLinks((prev) => prev.filter((l) => l.id !== id));
   }
 
@@ -178,6 +187,14 @@ export function BookingSection({ categories }: { categories: CategoryRow[] }) {
   return (
     <div className="mt-8 pt-5 border-t border-border">
       <h2 id="booking" className="text-base font-medium mb-1 scroll-mt-4">Booking page</h2>
+      {error && (
+        <div className="mb-2 text-[11px]" style={{ color: "#e5484d" }}>
+          {error}{" "}
+          <button onClick={() => setError(null)} className="text-muted-2 hover:text-text">
+            dismiss
+          </button>
+        </div>
+      )}
       <p className="text-xs text-muted mb-4">
         A public link (like Calendly) where anyone can book time with you. Slots come from your working hours,
         connected calendars, and protected labels — booked meetings land on your calendar automatically. Each

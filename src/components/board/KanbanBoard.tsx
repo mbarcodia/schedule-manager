@@ -208,19 +208,27 @@ export function KanbanBoard({ scheduleData, onMutated, focusTask, focusCommitmen
     if (targetCol === "in_progress" && wipCount >= DEFAULT_WIP_LIMIT) {
       setNotice(`Heads up: ${wipCount + 1} tasks in progress exceeds your WIP limit of ${DEFAULT_WIP_LIMIT} — consider parking something first.`);
     }
-    await moveTaskToColumn(task, targetCol as DroppableColumn, data?.rawTasks ?? []);
+    const moveError = await moveTaskToColumn(task, targetCol as DroppableColumn, data?.rawTasks ?? []);
+    if (moveError) {
+      // The card has already snapped back by now; without this it did so in
+      // silence, which reads as the board simply refusing the drag.
+      setNotice(`That didn't move: ${moveError}`);
+      return;
+    }
     await refresh();
     onMutated?.();
   }
 
   async function handleToggleImportant(task: TaskRow) {
-    await setTaskImportant(task.id, !task.important);
+    const message = await setTaskImportant(task.id, !task.important);
+    if (message) return setNotice(`Couldn't change that: ${message}`);
     await refresh();
     onMutated?.();
   }
 
   async function handleToggleCommitmentImportant(projectId: string, next: boolean) {
-    await setCommitmentImportant(projectId, next);
+    const message = await setCommitmentImportant(projectId, next);
+    if (message) return setNotice(`Couldn't change that: ${message}`);
     await refresh();
     onMutated?.();
   }
@@ -237,7 +245,8 @@ export function KanbanBoard({ scheduleData, onMutated, focusTask, focusCommitmen
   }
 
   async function handleArchive(task: TaskRow) {
-    await setTaskArchived(task.id, true);
+    const message = await setTaskArchived(task.id, true);
+    if (message) return setNotice(`Couldn't archive that: ${message}`);
     await refresh();
     onMutated?.();
   }

@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { EyeSlashIcon, EyeIcon, CaretDownIcon, CaretUpIcon } from "@phosphor-icons/react";
 import { createClient } from "@/lib/supabase/client";
+import { writeError } from "@/lib/planner/write";
 import { TodoItemPanel } from "./TodoItemPanel";
 import type { ChaseCadence, Database } from "@/lib/supabase/database.types";
 import type { WeeklyHours } from "@/lib/scheduling/types";
@@ -68,6 +69,10 @@ export function TodoView({ onMutated, focusItem }: { onMutated?: () => void; foc
   const [newList, setNewList] = useState("");
   const [newChase, setNewChase] = useState<ChaseCadence | "">("");
   const [draft, setDraft] = useState<Record<string, string>>({});
+  /** A write that didn't land. Every action here reloads the lists afterwards,
+   * so without this a failure was indistinguishable from the change undoing
+   * itself for no reason. */
+  const [error, setError] = useState<string | null>(null);
   const [openItem, setOpenItem] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -126,7 +131,11 @@ export function TodoView({ onMutated, focusItem }: { onMutated?: () => void; foc
     if (!user) return;
     setNewList("");
     setNewChase("");
-    await supabase.from("todo_lists").insert({ user_id: user.id, name, chase: newChase || null });
+    const message = await writeError(
+      "Couldn't add that list",
+      supabase.from("todo_lists").insert({ user_id: user.id, name, chase: newChase || null }),
+    );
+    if (message) return setError(message);
     await refresh();
   }
 
@@ -139,7 +148,11 @@ export function TodoView({ onMutated, focusItem }: { onMutated?: () => void; foc
     } = await supabase.auth.getUser();
     if (!user) return;
     setDraft((d) => ({ ...d, [listId]: "" }));
-    await supabase.from("todo_items").insert({ user_id: user.id, list_id: listId, text });
+    const message = await writeError(
+      "Couldn't add that",
+      supabase.from("todo_items").insert({ user_id: user.id, list_id: listId, text }),
+    );
+    if (message) return setError(message);
     await refresh();
   }
 
@@ -149,49 +162,80 @@ export function TodoView({ onMutated, focusItem }: { onMutated?: () => void; foc
   async function toggle(item: ItemRow) {
     const supabase = createClient();
     const done = !item.done;
-    await supabase
-      .from("todo_items")
-      .update({ done, completed_at: done ? new Date().toISOString() : null })
-      .eq("id", item.id);
+    const message = await writeError(
+      done ? "Couldn't tick that off" : "Couldn't un-tick that",
+      supabase
+        .from("todo_items")
+        .update({ done, completed_at: done ? new Date().toISOString() : null })
+        .eq("id", item.id),
+    );
+    if (message) return setError(message);
     if (item.task_id) {
-      await supabase
-        .from("tasks")
-        .update({ archived_at: done ? new Date().toISOString() : null })
-        .eq("id", item.task_id);
+      // The hours it booked follow the tick. Reported separately: the to-do IS
+      // ticked at this point, so a failure here leaves a real inconsistency
+      // (done, but its time still on the calendar) that the user has to know
+      // about rather than a change that simply didn't happen.
+      const taskMessage = await writeError(
+        done ? "Ticked it off, but its booked time is still on the calendar" : "Un-ticked it, but its time didn't come back",
+        supabase
+          .from("tasks")
+          .update({ archived_at: done ? new Date().toISOString() : null })
+          .eq("id", item.task_id),
+      );
+      if (taskMessage) setError(taskMessage);
     }
     await refresh();
   }
 
   async function setHidden(item: ItemRow, hidden: boolean) {
     const supabase = createClient();
-    await supabase.from("todo_items").update({ hidden }).eq("id", item.id);
+    const message = await writeError("Couldn't change that", supabase.from("todo_items").update({ hidden }).eq("id", item.id));
+    if (message) return setError(message);
     await refresh();
   }
 
   async function setShowCompleted(list: ListRow, show: boolean) {
     const supabase = createClient();
-    await supabase.from("todo_lists").update({ show_completed: show }).eq("id", list.id);
+    const message = await writeError(
+      "Couldn't change that",
+      supabase.from("todo_lists").update({ show_completed: show }).eq("id", list.id),
+    );
+    if (message) return setError(message);
     await refresh();
   }
 
   async function setChase(list: ListRow, chase: ChaseCadence | "") {
     const supabase = createClient();
-    await supabase.from("todo_lists").update({ chase: chase || null }).eq("id", list.id);
+    const message = await writeError(
+      "Couldn't change how often this list chases",
+      supabase.from("todo_lists").update({ chase: chase || null }).eq("id", list.id),
+    );
+    if (message) return setError(message);
     await refresh();
   }
 
   async function removeItem(item: ItemRow) {
     const supabase = createClient();
-    if (item.task_id) await supabase.from("tasks").delete().eq("id", item.task_id);
-    if (item.event_id) await supabase.from("events").delete().eq("id", item.event_id);
-    await supabase.from("todo_items").delete().eq("id", item.id);
+    // The booked time first: deleting the to-do while its task survived would
+    // leave hours on the calendar belonging to nothing.
+    if (item.task_id) {
+      const message = await writeError("Couldn't remove its booked time", supabase.from("tasks").delete().eq("id", item.task_id));
+      if (message) return setError(message);
+    }
+    if (item.event_id) {
+      const message = await writeError("Couldn't remove its event", supabase.from("events").delete().eq("id", item.event_id));
+      if (message) return setError(message);
+    }
+    const message = await writeError("Couldn't remove that", supabase.from("todo_items").delete().eq("id", item.id));
+    if (message) return setError(message);
     await refresh();
   }
 
   async function removeList(list: ListRow) {
     if (!confirm(`Delete the "${list.name}" list and everything on it?`)) return;
     const supabase = createClient();
-    await supabase.from("todo_lists").delete().eq("id", list.id);
+    const message = await writeError("Couldn't delete that list", supabase.from("todo_lists").delete().eq("id", list.id));
+    if (message) return setError(message);
     await refresh();
   }
 
@@ -202,6 +246,14 @@ export function TodoView({ onMutated, focusItem }: { onMutated?: () => void; foc
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto p-4">
+      {error && (
+        <div className="mb-2 text-[11px]" style={{ color: "#e5484d" }}>
+          {error}{" "}
+          <button onClick={() => setError(null)} className="text-muted-2 hover:text-text">
+            dismiss
+          </button>
+        </div>
+      )}
       <div className="flex items-center gap-2 mb-3 flex-wrap">
         <input
           value={newList}

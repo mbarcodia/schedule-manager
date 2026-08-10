@@ -14,6 +14,7 @@
 
 import { useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { writeError } from "@/lib/planner/write";
 import { CommitmentPanelHost } from "./CommitmentPanel";
 import { computeTrackableChips, type TrackableChip } from "@/lib/scheduling/trackables";
 import { paceFromData, type CommitmentPace } from "@/lib/scheduling/pace";
@@ -27,15 +28,21 @@ export function Timeline({ scheduleData }: { scheduleData: UseScheduleDataResult
   const { data, schedule, refresh } = scheduleData;
   const now = useMemo(() => new Date(), []);
   const [openCommitment, setOpenCommitment] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   /** Ticking a target off is a one-field write with no scheduling consequences
    * — nothing re-flows, because targets never occupied any time. */
   async function toggleTarget(target: Target) {
     const supabase = createClient();
-    await supabase
-      .from("targets")
-      .update({ completed_at: target.completedAt ? null : new Date().toISOString() })
-      .eq("id", target.id);
+    const message = await writeError(
+      target.completedAt ? "Couldn't reopen that date" : "Couldn't tick that date off",
+      supabase
+        .from("targets")
+        .update({ completed_at: target.completedAt ? null : new Date().toISOString() })
+        .eq("id", target.id),
+    );
+    if (message) return setNotice(message);
+    setNotice(null);
     await refresh();
   }
 
@@ -77,6 +84,14 @@ export function Timeline({ scheduleData }: { scheduleData: UseScheduleDataResult
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto p-4 flex flex-col gap-4">
+      {notice && (
+        <div className="text-[11px]" style={{ color: "#e5484d" }}>
+          {notice}{" "}
+          <button onClick={() => setNotice(null)} className="text-muted-2 hover:text-text">
+            dismiss
+          </button>
+        </div>
+      )}
       {undated.length > 0 && (
         <div className="rounded-lg border border-border bg-panel p-3">
           <div className="text-[10px] tracking-wide uppercase text-muted-2 font-medium pb-2">

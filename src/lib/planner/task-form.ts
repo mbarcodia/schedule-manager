@@ -175,7 +175,12 @@ export function describeChunking(draft: TaskDraft): string | null {
   const chunk = Number(draft.chunkText.trim()) || 0;
   const cap = Number(draft.maxPerDayText.trim()) || 0;
   if (chunk > 0 && durationMin > 0 && chunk > durationMin) {
-    return `That's longer than the whole task, so it will simply be booked in one ${durationMin}-minute block.`;
+    // The cap still applies to the clamped block, so saying only "one block"
+    // would be wrong in the very case both fields are set.
+    const clamped = cap > 0 && cap < durationMin ? cap : durationMin;
+    return clamped < durationMin
+      ? `That's longer than the whole task, so it's clamped to ${durationMin} minutes — and the daily cap cuts it further, to ${clamped} minutes a day.`
+      : `That's longer than the whole task, so it will simply be booked in one ${durationMin}-minute block.`;
   }
   if (cap > 0 && chunk > 0 && cap < chunk) {
     return `The daily cap is shorter than the block, so blocks will be cut to ${cap} minutes — one a day.`;

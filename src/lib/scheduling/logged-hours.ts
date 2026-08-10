@@ -42,7 +42,15 @@ export async function fetchProgressFacts(
       .select("subject_type,subject_id,start_min,end_min,minutes_done,occurred_date")
       .eq("user_id", userId),
     // No archived_at filter — see the note above.
-    supabase.from("tasks").select("id,project_id,duration_min,archived_at").eq("user_id", userId),
+    // Ordered because computeCalibration takes the LAST 20 of this as "recent
+    // work", and Postgres row order is arbitrary without it — so the twenty it
+    // sampled were twenty arbitrary tasks, not the twenty most recent ones.
+    // Ascending, since slice(-20) then takes the newest.
+    supabase
+      .from("tasks")
+      .select("id,project_id,duration_min,archived_at")
+      .eq("user_id", userId)
+      .order("archived_at", { ascending: true, nullsFirst: true }),
   ]);
 
   const rows = progress ?? [];

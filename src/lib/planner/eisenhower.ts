@@ -39,7 +39,17 @@ export function commitmentQuadrant(
 ): Quadrant {
   const dates = [nextDate, commitment.deadlineDate ?? null].filter((d): d is Date => d != null);
   const soonest = dates.length ? new Date(Math.min(...dates.map((d) => d.getTime()))) : null;
-  const urgent = soonest ? isUrgent({ deadline_at: soonest.toISOString() } as TaskRow, timezone, at) : false;
+  // These are CIVIL DATES (from-db builds them from local parts), not instants.
+  // Turning one into an ISO string and re-reading it in the account timezone
+  // asked what day that midnight falls on somewhere else — a different day
+  // whenever the two zones disagree. They only ever agree because the app syncs
+  // the profile to the browser on load, which is a coincidence, not a rule.
+  // "Today" still comes from the account zone: that part is a real question
+  // about when the user is.
+  const now = zonedNow(timezone, at);
+  const todayUtc = Date.UTC(now.year, now.month - 1, now.day);
+  const soonestUtc = soonest ? Date.UTC(soonest.getFullYear(), soonest.getMonth(), soonest.getDate()) : null;
+  const urgent = soonestUtc != null && (soonestUtc - todayUtc) / 86400000 <= URGENT_THRESHOLD_DAYS;
   if (commitment.important) return urgent ? "do" : "schedule";
   return urgent ? "delegate" : "eliminate";
 }

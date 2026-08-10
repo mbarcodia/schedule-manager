@@ -650,14 +650,22 @@ export function buildTools(ctx: ToolContext) {
       if (inp.hours_time_of_day === "any") patch.time_of_day = null;
       else if (inp.hours_time_of_day) patch.time_of_day = inp.hours_time_of_day;
       if (inp.weekly_research_hrs != null) {
-        patch.weekly_min_min = inp.weekly_research_hrs * 60;
+        // 0 means "stop defending time for this", and the column is
+        // `check (> 0)` — so it has to become NULL, exactly as the insert path
+        // below already does. Writing a literal 0 was rejected by Postgres and
+        // surfaced as an unreadable constraint error.
+        patch.weekly_min_min = inp.weekly_research_hrs > 0 ? inp.weekly_research_hrs * 60 : null;
         // Mornings-first stays the default for weekly hours, but an explicit
         // half-of-day wins — that's the whole point of the facet.
         patch.prefer_morning = inp.hours_time_of_day !== "afternoon";
       }
 
       const facets = [
-        inp.weekly_research_hrs ? `${inp.weekly_research_hrs}h/wk` : null,
+        inp.weekly_research_hrs != null
+          ? inp.weekly_research_hrs > 0
+            ? `${inp.weekly_research_hrs}h/wk`
+            : "no weekly hours — nothing is booked for it now"
+          : null,
         deadline.value ? `due ${deadline.value}` : null,
         from.value || until.value
           ? `hours apply ${from.value ? `from ${from.value}` : "from now"}${until.value ? ` until ${until.value}` : ""}`
@@ -670,7 +678,7 @@ export function buildTools(ctx: ToolContext) {
         inp.cadence ? inp.cadence.toLowerCase() : null,
         inp.total_effort_hrs != null ? `${inp.total_effort_hrs}h total effort` : null,
         inp.deadline_kind ? `${inp.deadline_kind} date` : null,
-        inp.important ? "important" : null,
+        inp.important === true ? "important" : inp.important === false ? "not important" : null,
         inp.on_hold === true ? "ON HOLD — nothing scheduled for it, its weekly hours kept for when it resumes" : null,
         inp.on_hold === false ? "off hold — its hours are being scheduled again" : null,
       ].filter(Boolean);
@@ -1326,20 +1334,32 @@ export function buildTools(ctx: ToolContext) {
         win_end_min = null;
         anchor = null;
       }
+      // Whether a time was actually UNDERSTOOD, not merely supplied. The
+      // difference decides whether the anchor is dropped below, and getting it
+      // wrong un-anchored a routine on garbage input: "first thing in my day"
+      // silently became "wherever it fits", with no window and no complaint.
+      let gotTime = false;
+      const unparsedTimes: string[] = [];
       if (inp.window_start != null) {
         const t = parseTimeStr(inp.window_start);
-        if (t != null) win_start_min = t;
+        if (t != null) {
+          win_start_min = t;
+          gotTime = true;
+        } else unparsedTimes.push(`start time "${inp.window_start}"`);
       }
       if (inp.window_end != null) {
         const t = parseTimeStr(inp.window_end);
-        if (t != null) win_end_min = t;
+        if (t != null) {
+          win_end_min = t;
+          gotTime = true;
+        } else unparsedTimes.push(`end time "${inp.window_end}"`);
       }
       if (win_start_min != null && win_end_min == null) win_end_min = win_start_min + length_min;
       // A time given in the same breath as an anchor is the more specific of the
       // two answers, so it wins and the anchor drops — the alternative is a row
       // the database rejects outright (migration 0039) for what reads as a
       // reasonable request. An anchor with no time simply clears the window.
-      if (anchor && (inp.window_start != null || inp.window_end != null)) anchor = null;
+      if (anchor && gotTime) anchor = null;
       if (anchor) {
         win_start_min = null;
         win_end_min = null;
@@ -1371,10 +1391,13 @@ export function buildTools(ctx: ToolContext) {
         : win_start_min == null
           ? "wherever it fits"
           : `${win_start_min}-${win_end_min}`;
+      const timeNote = unparsedTimes.length
+        ? ` Couldn't understand the ${unparsedTimes.join(" or the ")}, so ${unparsedTimes.length > 1 ? "those were" : "that was"} ignored — try a format like "9:15" or "2pm".`
+        : "";
       const labelNote = category_id
         ? " Its minutes count toward that label's weekly share, so the commitments wearing it are asked for the rest."
         : "";
-      return `${match ? "Updated" : "Added"} standing rule — "${inp.title}": ${length_min}m, ${win}. Saved permanently.${labelNote}`;
+      return `${match ? "Updated" : "Added"} standing rule — "${inp.title}": ${length_min}m, ${win}. Saved permanently.${timeNote}${labelNote}`;
     },
   });
 

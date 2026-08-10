@@ -61,7 +61,11 @@ export async function moveTaskToColumn(
   // in_progress: pin the next chunk to today, starting at the next
   // quarter-hour (same rounding pinDone uses).
   const d = new Date();
-  const startMin = Math.ceil((d.getHours() * 60 + d.getMinutes()) / 15) * 15;
+  // Rounded UP to the next quarter-hour, then held inside the day: at 23:50
+  // that rounding gives 1440, which is midnight tomorrow expressed as today —
+  // out of range for the date it is written with. The last quarter-hour that
+  // exists is 23:45.
+  const startMin = Math.min(1425, Math.ceil((d.getHours() * 60 + d.getMinutes()) / 15) * 15);
   const pinnedDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   const { error } = await supabase
     .from("tasks")

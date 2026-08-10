@@ -70,6 +70,11 @@ check(
   "That's longer than the whole task, so it will simply be booked in one 60-minute block.",
 );
 check(
+  "a cap still applies to a block clamped to the task's length",
+  describeChunking(draft({ hoursText: "1", chunkText: "90", maxPerDayText: "30" })),
+  "That's longer than the whole task, so it's clamped to 60 minutes — and the daily cap cuts it further, to 30 minutes a day.",
+);
+check(
   "a cap under the DERIVED block length is described too",
   describeChunking(draft({ hoursText: "4", maxPerDayText: "30" })),
   "Shorter than this task's 60-minute default block, so blocks will be cut to 30 minutes.",

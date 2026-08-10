@@ -79,14 +79,19 @@ check("all three empty is the ordinary case", validateTask(draft()), []);
 check("a draft that doesn't validate writes nothing", taskRowFields(draft({ maxPerDayText: "0" }), NOW), null);
 
 console.log("\n== the round trip ==");
+// Both dates are deliberately FAR future. taskDraft only shows a floor as a
+// "not before" the user chose when it is still ahead of now (a floor at or
+// before now is add_task's default, not a decision) — so a fixture dated a few
+// days out silently changes meaning the moment the calendar passes it, which is
+// exactly what happened to an earlier version of this check.
 const row = {
   title: "Read the reviews",
   duration_min: 240,
   chunk_min: 90,
   priority: "high",
-  deadline_at: new Date(2026, 7, 20, 23, 59).toISOString(),
+  deadline_at: new Date(2099, 1, 20, 23, 59).toISOString(),
   deadline_all_day: true,
-  floor_at: new Date(2026, 7, 10, 0, 0).toISOString(),
+  floor_at: new Date(2099, 0, 10, 0, 0).toISOString(),
   project_id: null,
   category_id: null,
   important: true,

@@ -102,12 +102,14 @@ export function computeTrackableChips(
         projectId: c.id,
         facet: "cadence",
         title: c.title,
-        statusText: c.cadence || "no dates set",
+        statusText: c.onHold ? "On hold" : c.cadence || "no dates set",
         statusColor: "#9397ab",
         statusWeight: "500",
         border: "rgba(233,233,237,0.16)",
         bg: "#1d1f2b",
-        tooltip: c.cadence || "No weekly hours and no deadline",
+        tooltip: c.onHold
+          ? `On hold — nothing scheduled${c.weeklyMinMinOnHold ? `; resumes at ${+(c.weeklyMinMinOnHold / 60).toFixed(1)}h/wk` : ""}`
+          : c.cadence || "No weekly hours and no deadline",
       });
     }
   }
@@ -142,17 +144,25 @@ function deadlineChip(
   // kind, and using it here labelled a hard deadline as a goal.
   const kind = deadlineKind;
   const status = pace?.status ?? "unmeasurable";
-  const flag = status === "slipping" || (status === "on_pace" && kind === "hard");
+  // A hold flags only once resuming at the rate it was paused at would no longer
+  // make the date — the same two registers paceSentence uses. Quiet otherwise:
+  // a paused commitment months from its deadline is not an alarm.
+  const holdTight = status === "on_hold" && pace?.holdRateNeededMin != null;
+  const flag = status === "slipping" || (status === "on_pace" && kind === "hard") || holdTight;
   const label =
-    status === "unmeasurable"
-      ? `Pace unknown · ${days}d left`
-      : status === "slipping"
-        ? `Slipping · ${days}d left`
-        : status === "not_started"
-          ? `Not started · ${days}d left`
-          : status === "ahead"
-            ? `Ahead · ${days}d left`
-            : `On pace · ${days}d left`;
+    status === "on_hold"
+      ? holdTight
+        ? `On hold · getting tight · ${days}d left`
+        : `On hold · ${days}d left`
+      : status === "unmeasurable"
+        ? `Pace unknown · ${days}d left`
+        : status === "slipping"
+          ? `Slipping · ${days}d left`
+          : status === "not_started"
+            ? `Not started · ${days}d left`
+            : status === "ahead"
+              ? `Ahead · ${days}d left`
+              : `On pace · ${days}d left`;
   return {
     projectId,
     facet: "deadline",

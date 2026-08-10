@@ -100,7 +100,9 @@ export function buildPromptContext(rows: RawScheduleRows, inputs: ScheduleInputs
   });
 
   const hourlyProjects = rows.projects
-    .filter((p) => p.weekly_min_min)
+    // Not one on hold: nothing is scheduled for it, so listing it as competing
+    // for time contradicts snapshot.projects[].onHold in the same payload.
+    .filter((p) => p.weekly_min_min && !p.on_hold_at)
     .sort((a, b) => (a.research_ord ?? 5) - (b.research_ord ?? 5));
 
   const labelById = new Map(rows.categories.map((c) => [c.id, c.name]));
@@ -141,7 +143,14 @@ export function buildPromptContext(rows: RawScheduleRows, inputs: ScheduleInputs
   const streakById = new Map(
     computeStreaks({
       logged: facts?.logged ?? [],
-      commitments: inputs.projects.map((p) => ({ id: p.id, weeklyMinMin: p.weeklyMinMin, createdAt: null })),
+      commitments: inputs.projects.map((p) => ({
+          id: p.id,
+          // The remembered rate, or a paused commitment's whole history reads as
+          // "nothing to measure against" — see streaks.ts heldSince.
+          weeklyMinMin: p.weeklyMinMin ?? p.weeklyMinMinOnHold,
+          createdAt: null,
+          heldSince: p.onHoldAt ?? null,
+        })),
       now: new Date(),
     }).map((s) => [s.projectId, s]),
   );
@@ -173,6 +182,17 @@ export function buildPromptContext(rows: RawScheduleRows, inputs: ScheduleInputs
       target: `${t.pct}% of ${(t.capacityMin / 60).toFixed(1)}h available = ${(t.targetMin / 60).toFixed(1)}h`,
       plannedHrs: +(t.plannedMin / 60).toFixed(1),
       shortfallHrs: +Math.max(0, (t.targetMin - t.plannedMin) / 60).toFixed(1),
+      // The two figures that turn "Research is 1.6h short" into something
+      // actionable, and which this mapping used to drop.
+      //
+      // askedMin vs targetMin separates a week with no room from hours that
+      // don't divide into usable blocks — opposite fixes: clear the week, or
+      // change a number. Without it the model can only guess which it is.
+      askedHrs: +(t.askedMin / 60).toFixed(1),
+      // ...and WHICH commitment went quiet. A project whose share came out
+      // below its own minimum chunk gets nothing at all rather than an unusable
+      // sliver, which is invisible in the label total it disappears from.
+      gotNothingThisWeek: t.belowFloor,
     })),
     // A task's DEADLINE was missing here, which read as the deadline never
     // having been saved: asked about three tasks, the planner reported all

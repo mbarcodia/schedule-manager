@@ -30,7 +30,13 @@ import {
   setCommitmentOnHold,
   setTargetHit,
 } from "@/lib/planner/board-actions";
-import { hoursValue, parseHours, validateCommitmentForm, type TargetDraft } from "@/lib/planner/commitment-form";
+import {
+  hoursValue,
+  parseHours,
+  validateCommitmentForm,
+  weeklyHoursValue,
+  type TargetDraft,
+} from "@/lib/planner/commitment-form";
 import { paceSentence, type CommitmentPace } from "@/lib/scheduling/pace";
 import type { ScheduleData } from "@/lib/scheduling/fetch-schedule-data";
 import type { Category, Project, Target } from "@/lib/scheduling/types";
@@ -77,7 +83,7 @@ export function CommitmentPanel({
 }) {
   const [title, setTitle] = useState(project?.title ?? "");
   const [estimateText, setEstimateText] = useState(hoursValue(project?.effortEstimateMin));
-  const [weeklyText, setWeeklyText] = useState(hoursValue(project?.weeklyMinMin));
+  const [weeklyText, setWeeklyText] = useState(weeklyHoursValue(project));
   const [deadlineDate, setDeadlineDate] = useState(dateValue(project?.deadlineDate));
   const [deadlineKind, setDeadlineKind] = useState<"hard" | "goal">(project?.deadlineKind ?? "hard");
   const [activeFrom, setActiveFrom] = useState(dateValue(project?.activeFrom));
@@ -287,7 +293,7 @@ export function CommitmentPanel({
           </div>
           <div className={hint}>
             {onHold
-              ? "On hold: nothing is being scheduled — not these hours and not its tasks. The figure is kept, and picking it back up resumes at exactly this rate."
+              ? "On hold: nothing is being scheduled — not these hours and not its tasks. The rate above is the one it resumes at; change it here to change that."
               : "These get found and protected on the calendar. Empty books nothing."}
           </div>
 

@@ -25,6 +25,17 @@ export function parseHours(text: string): { minutes: number | null; error: strin
 export const hoursValue = (minutes: number | null | undefined): string =>
   minutes == null ? "" : String(+(minutes / 60).toFixed(2));
 
+/** The weekly rate to show in the panel, for a commitment that may be on hold.
+ *
+ * A HOLD NULLS weeklyMinMin — that nulling IS the pause mechanism (from-db) —
+ * and the declared figure moves to weeklyMinMinOnHold. Reading only the first
+ * showed an EMPTY hours box for a paused commitment, and saving the panel then
+ * wrote that empty box back as null, destroying the very rate the hold exists to
+ * preserve. Editing the title of a paused project silently un-set its hours. */
+export const weeklyHoursValue = (
+  project: { weeklyMinMin?: number | null; weeklyMinMinOnHold?: number | null } | null | undefined,
+): string => hoursValue(project?.weeklyMinMin ?? project?.weeklyMinMinOnHold);
+
 export interface TargetDraft {
   /** Absent for a row being added. */
   id?: string;

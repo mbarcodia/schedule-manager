@@ -53,7 +53,17 @@ export interface StreakInputs {
    * to — null for routines and unlinked work, which still prove the week was a
    * working one. */
   logged: { occurredDate: Date; projectId: string | null; minutes: number }[];
-  commitments: { id: string; weeklyMinMin?: number | null; createdAt?: Date | null }[];
+  commitments: {
+    id: string;
+    weeklyMinMin?: number | null;
+    createdAt?: Date | null;
+    /** When this commitment was put on hold, if it is. Weeks from that week
+     * onward are time off rather than misses: nothing is scheduled for a paused
+     * commitment, so failing to hit hours it isn't being given is not a failure.
+     * Weeks BEFORE it are untouched — a hold pauses the record, it doesn't
+     * rewrite it. */
+    heldSince?: Date | null;
+  }[];
   now: Date;
   weeks?: number;
 }
@@ -88,6 +98,8 @@ export function computeStreaks(inputs: StreakInputs): CommitmentStreak[] {
       const wk = ws.getTime();
       // Before the commitment existed there is nothing to have kept up with.
       if (c.createdAt && weekStart(c.createdAt).getTime() > wk) return "before";
+      // Paused from this week on: time off, not a miss.
+      if (c.heldSince && weekStart(c.heldSince).getTime() <= wk) return "skipped";
       if (!anyWorkInWeek.has(wk)) return "skipped";
       if (!min) return "skipped"; // no minimum set — nothing to measure against
       return (byWeekProject.get(`${wk}:${c.id}`) ?? 0) >= min ? "hit" : "missed";

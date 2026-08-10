@@ -61,8 +61,18 @@ export function bookableMinForWeek({ capacityMin, meetingsMin, routinesMin, rese
  * has no meetings on it yet and its emptiness means nothing.
  *
  * Routines are counted from the rules rather than from placed blocks for the
- * same reason: this is about a week nobody has planned yet. Mon-Fri only,
- * matching the days the engine places routines on. */
+ * same reason: this is about a week nobody has planned yet, and routines are
+ * only ever placed Mon-Fri — so the routine term counts weekdays only.
+ *
+ * CAPACITY, deliberately, does NOT: it sums every day the account works,
+ * weekends included. The two are asymmetric on purpose. A commitment's weekly
+ * hours are fenced to Mon-Fri by the engine, but an ordinary task is not — the
+ * slot search walks the whole horizon — so for an account with Saturday hours
+ * those hours are real bookable time even though no weekly-hours chunk will
+ * land in them. Narrowing this to Mon-Fri would understate what such an account
+ * can take on, which is the question this figure is asked. The cost is that
+ * pace's "more than a normal week has free" warning is correspondingly slower
+ * to fire for weekend workers. */
 export function typicalBookableWeekMin(
   weeklyHours: Record<number, { start: number; end: number } | null>,
   routines: { days: number[]; length: number }[],

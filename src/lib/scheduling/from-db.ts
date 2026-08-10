@@ -175,6 +175,7 @@ export function buildScheduleInputs(
     weeklyMinMin: p.on_hold_at ? null : p.weekly_min_min,
     onHold: p.on_hold_at != null,
     weeklyMinMinOnHold: p.on_hold_at ? p.weekly_min_min : null,
+    onHoldAt: p.on_hold_at ? new Date(p.on_hold_at) : null,
     ...timePrefFor(p.category_id, p.time_of_day, p.prefer_morning),
     activeFromAbs: p.active_from ? dateToAbs(p.active_from, false) : null,
     activeUntilAbs: p.active_until ? dateToAbs(p.active_until, true) : null,

@@ -38,6 +38,12 @@ export default function PlannerPage() {
    * or a board card. Read from the URL on mount rather than via
    * useSearchParams, which would need a Suspense boundary to prerender. */
   const [focusItem, setFocusItem] = useState<string | null>(null);
+  /** The same idea for the Progress board: a task or a commitment to open on
+   * arrival, when a calendar block linked here. Two params rather than one,
+   * because they are ids from different tables opening different panels — see
+   * lib/planner/board-links.ts. */
+  const [focusTask, setFocusTask] = useState<string | null>(null);
+  const [focusCommitment, setFocusCommitment] = useState<string | null>(null);
   // Bumped by board mutations (drops, star/archive toggles) so the notes
   // sidebar can refetch if a linked trackable changes.
   const [refreshKey, setRefreshKey] = useState(0);
@@ -49,6 +55,8 @@ export default function PlannerPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (requested && VIEWS.some((v) => v.id === requested)) setView(requested as BoardView);
     setFocusItem(params.get("item"));
+    setFocusTask(params.get("task"));
+    setFocusCommitment(params.get("commitment"));
   }, []);
 
   return (
@@ -87,7 +95,14 @@ export default function PlannerPage() {
       <WeeklyReviewCard scheduleData={scheduleData} />
       <div className="flex-1 flex min-h-0">
         {view === "week" && <WeekView scheduleData={scheduleData} />}
-        {view === "kanban" && <KanbanBoard scheduleData={scheduleData} onMutated={onMutated} />}
+        {view === "kanban" && (
+          <KanbanBoard
+            scheduleData={scheduleData}
+            onMutated={onMutated}
+            focusTask={focusTask}
+            focusCommitment={focusCommitment}
+          />
+        )}
         {view === "eisenhower" && <EisenhowerBoard scheduleData={scheduleData} onMutated={onMutated} />}
         {view === "timeline" && <Timeline scheduleData={scheduleData} />}
         {view === "todos" && <TodoView onMutated={onMutated} focusItem={focusItem} />}

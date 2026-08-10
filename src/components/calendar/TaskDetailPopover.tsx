@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { todoItemHref, type TodoLink } from "@/lib/planner/todo-links";
+import { plannerCommitmentHref, plannerTaskHref } from "@/lib/planner/board-links";
 import { fmtMin } from "@/lib/scheduling/time";
 import type { ScheduleBlock } from "@/lib/scheduling/types";
 
@@ -150,6 +151,25 @@ export function TaskDetailPopover({ block, top, onClose, onSetProgress }: TaskDe
           ↗ Open on your {todoLink.listName} list
         </Link>
       )}
+
+      {/* The way back to where this block can be CHANGED. Which panel depends on
+         what the block is, and only the id can tell you: a weekly-hours block
+         carries the synthetic `research-<projectId>-w<n>`, so it edits the
+         COMMITMENT, while a plain block edits its task. block.projectId can't be
+         used to tell them apart — the engine sets it on task blocks too. */}
+      {block.taskId &&
+        (() => {
+          const { subjectType, subjectId } = subjectFromTaskId(block.taskId);
+          const research = subjectType === "research";
+          return (
+            <Link
+              href={research ? plannerCommitmentHref(subjectId) : plannerTaskHref(subjectId)}
+              className="block px-2.5 py-1.5 text-[10.5px] text-accent-text hover:underline border-b border-white/10"
+            >
+              ↗ {research ? "Edit this commitment on the board" : "Edit this task on the board"}
+            </Link>
+          );
+        })()}
 
       {taskStarted && (
         <div className="flex flex-col">

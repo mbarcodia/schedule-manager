@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { DndContext, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { PlusIcon } from "@phosphor-icons/react";
 import { KanbanCard, type TaskRow } from "./KanbanCard";
@@ -58,9 +58,13 @@ interface KanbanBoardProps {
   scheduleData: UseScheduleDataResult;
   /** Fires after any board mutation (drop, star, archive) has been written. */
   onMutated?: () => void;
+  /** Arriving from a calendar block: open this thing's panel once the board's
+   * data has loaded. See lib/planner/board-links.ts. */
+  focusTask?: string | null;
+  focusCommitment?: string | null;
 }
 
-export function KanbanBoard({ scheduleData, onMutated }: KanbanBoardProps) {
+export function KanbanBoard({ scheduleData, onMutated, focusTask, focusCommitment }: KanbanBoardProps) {
   // Which of these tasks came from a to-do, so each card can link home.
   const [todoLinks, setTodoLinks] = useState<Map<string, TodoLink>>(new Map());
   useEffect(() => {
@@ -78,6 +82,28 @@ export function KanbanBoard({ scheduleData, onMutated }: KanbanBoardProps) {
   const [justBacklogged, setJustBacklogged] = useState<string | null>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
+  // Open the linked panel once, when the data it needs has arrived.
+  //
+  // Guarded by a ref rather than by state because `data` is a NEW OBJECT after
+  // every refresh: without it, saving the panel would close it and this would
+  // immediately reopen it, which is a drawer you cannot get out of.
+  //
+  // The existence check is load-bearing, not defensive. TaskPanel treats a null
+  // task as "new task", so a link to a deleted or archived row would silently
+  // open a blank creation form; CommitmentPanelHost renders nothing for an
+  // unresolved id, so that half would fail silently instead. Saying so is
+  // better than either.
+  const focusHandled = useRef(false);
+  useEffect(() => {
+    if (!data || focusHandled.current) return;
+    if (!focusTask && !focusCommitment) return;
+    focusHandled.current = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (focusCommitment && data.projects.some((p) => p.id === focusCommitment)) setOpenCommitment(focusCommitment);
+    else if (focusTask && data.rawTasks.some((t) => t.id === focusTask)) setOpenTask(focusTask);
+    else setNotice("That isn't on the board any more — it may have been archived or deleted. Try the Archive tab.");
+  }, [data, focusTask, focusCommitment]);
+
   // Stable per mount, as Timeline does it — `new Date()` inside a data memo is
   // impure, never recomputes, and stops the React Compiler optimising the file.
   const now = useMemo(() => new Date(), []);
@@ -93,7 +119,14 @@ export function KanbanBoard({ scheduleData, onMutated }: KanbanBoardProps) {
     const streaks = new Map(
       computeStreaks({
         logged: data.progressFacts.logged,
-        commitments: data.projects.map((p) => ({ id: p.id, weeklyMinMin: p.weeklyMinMin, createdAt: null })),
+        commitments: data.projects.map((p) => ({
+          id: p.id,
+          // The remembered rate, or a paused commitment's whole history reads as
+          // "nothing to measure against" — see streaks.ts heldSince.
+          weeklyMinMin: p.weeklyMinMin ?? p.weeklyMinMinOnHold,
+          createdAt: null,
+          heldSince: p.onHoldAt ?? null,
+        })),
         now,
       }).map((s) => [s.projectId, s]),
     );

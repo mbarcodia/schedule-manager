@@ -5,6 +5,7 @@
 // still look plausible: a missed block counting as work, a logged day landing in
 // the wrong week, and a past week being given a target it can't have.
 
+import { zonedDateKey } from "../src/lib/scheduling/time.ts";
 import { buildWeekReview, cumulativeTarget } from "../src/lib/scheduling/week-review.ts";
 
 let failures = 0;
@@ -262,6 +263,26 @@ check(
   const line = cumulativeTarget(r, 960);
   check("a closed midweek day flattens the line across it", line[1] === line[2], true);
   check("and the week still totals its target", line[6], 960);
+}
+
+// ------------------------------------------------ civil dates in a named zone
+//
+// zonedDateKey exists because localDateKey is the WRONG helper on the server:
+// it formats in the runtime's zone, which on Vercel is UTC. The weekly-summary
+// cron bounded occurred_date — a civil date in the USER's zone — with
+// toISOString().slice(0,10), so an 8pm New York digest ran after midnight UTC
+// and silently dropped the oldest logged day from the week it reported.
+{
+  const NY = "America/New_York";
+  const BERLIN = "Europe/Berlin";
+  // 22:00 in New York is 02:00 UTC the NEXT day.
+  const evening = new Date("2026-08-07T02:00:00Z");
+  check("an evening in New York is still that day", zonedDateKey(NY, evening), "2026-08-06");
+  check("and UTC would have called it tomorrow", evening.toISOString().slice(0, 10), "2026-08-07");
+  // 01:00 in Berlin is 23:00 UTC the PREVIOUS day.
+  const earlyBerlin = new Date("2026-08-06T23:00:00Z");
+  check("an early hour in Berlin is already the next day", zonedDateKey(BERLIN, earlyBerlin), "2026-08-07");
+  check("and UTC would have called it yesterday", earlyBerlin.toISOString().slice(0, 10), "2026-08-06");
 }
 
 console.log(`\n${checks - failures}/${checks} checks passed`);

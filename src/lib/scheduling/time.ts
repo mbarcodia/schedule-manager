@@ -165,6 +165,20 @@ export function localDateKey(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+/** The same key, but in a NAMED timezone rather than the runtime's own.
+ *
+ * Which of the two to reach for: `localDateKey` is right in the browser, where
+ * "local" is the user sitting in front of it. It is WRONG on the server, where
+ * the runtime's zone is UTC and has nothing to do with the account — a weekly
+ * digest firing at 8pm New York runs after midnight UTC, and bounding a civil
+ * date column with `localDateKey` there silently shifts the window a day. The
+ * trap is that localDateKey LOOKS like the right answer in both places. */
+export function zonedDateKey(timeZone: string, d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const z = zonedNow(timeZone, d);
+  return `${z.year}-${pad(z.month)}-${pad(z.day)}`;
+}
+
 /** Monday of the week `at` falls in, at local midnight — the Date form of gday 0.
  *
  * `getDay()` counts from Sunday, so the shift is `(day + 6) % 7`: Monday moves

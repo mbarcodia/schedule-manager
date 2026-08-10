@@ -157,6 +157,11 @@ export interface Project {
   onHold?: boolean;
   /** The weekly minutes it will return to. Only set when onHold. */
   weeklyMinMinOnHold?: number | null;
+  /** WHEN it was paused. Needed because "on hold" is not a fact about the whole
+   * of history: weeks before it were real weeks that were met or missed, and
+   * only the weeks after it are time off. Without the date, consistency either
+   * blanks the entire run or marks the paused weeks as failures. */
+  onHoldAt?: Date | null;
 }
 
 /** A date inside a project that consumes no calendar time. Deliberately

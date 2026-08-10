@@ -16,6 +16,9 @@
 
 import { computePace, paceSentence } from "../src/lib/scheduling/pace.ts";
 import { computeSchedule } from "../src/lib/scheduling/engine.ts";
+import { computeStreaks } from "../src/lib/scheduling/streaks.ts";
+import { computeTrackableChips } from "../src/lib/scheduling/trackables.ts";
+import { weeklyHoursValue } from "../src/lib/planner/commitment-form.ts";
 
 const H = 60;
 const NOW = new Date(2026, 7, 7, 10, 0);
@@ -143,6 +146,68 @@ check(
   paceOf({ effortEstimateMin: null, deadlineDate: new Date(2026, 10, 30) }).status,
   "on_hold",
 );
+
+// ------------------------------------------------- what the panel shows (BUG)
+//
+// The hold NULLS weeklyMinMin — that is the pause mechanism — so a panel reading
+// only that field showed an EMPTY hours box, and saving it wrote the empty box
+// back over the remembered rate. Editing the title of a paused commitment
+// silently un-set its hours, destroying the one thing a hold promises to keep.
+console.log("\n== the panel shows the rate it will resume at ==");
+check("a paused commitment shows its remembered rate", weeklyHoursValue({ weeklyMinMin: null, weeklyMinMinOnHold: 2 * H }), "2");
+check("a running one shows its live rate", weeklyHoursValue({ weeklyMinMin: 4 * H, weeklyMinMinOnHold: null }), "4");
+check("one with neither shows empty", weeklyHoursValue({ weeklyMinMin: null, weeklyMinMinOnHold: null }), "");
+check("and a missing project is empty, not a crash", weeklyHoursValue(null), "");
+
+// -------------------------------------------------------- the chips (BUG)
+console.log("\n== the chips say 'on hold', not 'on pace' ==");
+const HOURS = Object.fromEntries(
+  Array.from({ length: 7 }, (_, d) => [d, d > 4 ? null : { start: 9 * H, end: 17 * H }]),
+);
+const chipsFor = (over = {}) => {
+  const project = { ...base, deadlineDate: new Date(2026, 10, 30), ...over };
+  const pace = computePace({ projects: [project], targets: [], loggedByProject: {}, weeklyHours: HOURS, now: NOW });
+  return computeTrackableChips([project], [], { blocks: [], weeklyTargetMinByProject: {} }, NOW, HOURS, pace);
+};
+
+const deadlineChipOf = (over) => chipsFor(over).find((c) => c.facet === "deadline");
+// Far from its date: a hold is not an alarm, and it must not read "On pace".
+const calm = deadlineChipOf({});
+check("a far-off hold says so", calm?.statusText?.startsWith("On hold ·"), true);
+check("and does not claim to be on pace", calm?.statusText?.includes("On pace"), false);
+check("and is not counted as needing attention", calm?.needsAttention ?? false, false);
+
+// Tight: 26h left, weeks away, paused at 2h/wk.
+const urgent = deadlineChipOf({ deadlineDate: new Date(2026, 8, 4) });
+check("a hold whose date got tight says that too", urgent?.statusText?.includes("getting tight"), true);
+check("and does count as needing attention", urgent?.needsAttention, true);
+
+// No deadline and no live hours: the cadence chip used to read "no dates set".
+const cadence = chipsFor({ deadlineDate: null }).find((c) => c.facet === "cadence");
+check("an undated hold says 'On hold', not 'no dates set'", cadence?.statusText, "On hold");
+check("and its tooltip names the resume rate", cadence?.tooltip?.includes("resumes at 2h/wk"), true);
+check("a paused commitment gets no weekly-hours chip", chipsFor({}).some((c) => c.facet === "weekly"), false);
+
+// ------------------------------------------------------ the streak row (BUG)
+//
+// Putting something on hold used to blank its whole eight-week history, because
+// the nulled rate made every week "nothing to measure against". The hold's DATE
+// is what separates the two halves: real marks before it, time off after.
+console.log("\n== a hold pauses the record, it doesn't rewrite it ==");
+const weekAgo = (n) => new Date(NOW.getTime() - n * 7 * 86400000);
+const streakOf = (heldSince) =>
+  computeStreaks({
+    logged: [0, 1, 2, 3].map((n) => ({ occurredDate: weekAgo(n), projectId: "p1", minutes: 3 * H })),
+    commitments: [{ id: "p1", weeklyMinMin: 2 * H, heldSince }],
+    now: NOW,
+    weeks: 5,
+  })[0];
+
+check("with no hold, the met weeks are marks", streakOf(null).marks.slice(-4), ["hit", "hit", "hit", "hit"]);
+const paused = streakOf(weekAgo(1));
+check("weeks before the hold keep their real marks", paused.marks.slice(-5, -2), ["skipped", "hit", "hit"]);
+check("weeks from the hold onward are time off, not misses", paused.marks.slice(-2), ["skipped", "skipped"]);
+check("so the run that was built is still visible", paused.best >= 2, true);
 
 console.log(`\n${checks - failures}/${checks} checks passed`);
 if (failures) process.exit(1);

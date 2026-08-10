@@ -9,7 +9,7 @@ import { KanbanCard, type TaskRow } from "./KanbanCard";
 import { fetchTodoLinks, type TodoLink } from "@/lib/planner/todo-links";
 import { setTaskImportant, setCommitmentImportant, setTaskArchived } from "@/lib/planner/board-actions";
 import { quadrantFor, commitmentQuadrant, type Quadrant } from "@/lib/planner/eisenhower";
-import { computePace, type CommitmentPace } from "@/lib/scheduling/pace";
+import { paceFromData, type CommitmentPace } from "@/lib/scheduling/pace";
 import { computeStreaks, type CommitmentStreak } from "@/lib/scheduling/streaks";
 import { projectTotalMin } from "@/lib/scheduling/calibration";
 import { CommitmentCard } from "./CommitmentCard";
@@ -61,13 +61,10 @@ export function EisenhowerBoard({ scheduleData, onMutated }: EisenhowerBoardProp
   const commitments = useMemo(() => {
     const groups: Record<Quadrant, CommitmentPace[]> = { do: [], schedule: [], delegate: [], eliminate: [] };
     if (!data) return groups;
-    const pace = computePace({
-      projects: data.projects,
-      targets: data.targets,
-      loggedByProject: data.progressFacts.byProject,
-      weeklyHours: data.inputs.weeklyHours,
-      now,
-    });
+    // Through the shared entry point, like every other view: building the
+    // argument list here left this board the only one without the weekly
+    // reserve, so "more than a week has free" never fired on it.
+    const pace = paceFromData(data, now);
     for (const p of pace) {
       const project = data.projects.find((x) => x.id === p.projectId);
       groups[
@@ -89,7 +86,14 @@ export function EisenhowerBoard({ scheduleData, onMutated }: EisenhowerBoardProp
     const streaks = new Map(
       computeStreaks({
         logged: data.progressFacts.logged,
-        commitments: data.projects.map((p) => ({ id: p.id, weeklyMinMin: p.weeklyMinMin, createdAt: null })),
+        commitments: data.projects.map((p) => ({
+          id: p.id,
+          // The remembered rate, or a paused commitment's whole history reads as
+          // "nothing to measure against" — see streaks.ts heldSince.
+          weeklyMinMin: p.weeklyMinMin ?? p.weeklyMinMinOnHold,
+          createdAt: null,
+          heldSince: p.onHoldAt ?? null,
+        })),
         now,
       }).map((s) => [s.projectId, s]),
     );

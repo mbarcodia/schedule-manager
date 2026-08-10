@@ -4,10 +4,13 @@
 
 import { CHAT_MODES, DEFAULT_CHAT_MODE, isChatMode, modeInstruction } from "../src/lib/planner/modes.ts";
 import { pickTurnModel } from "../src/lib/planner/model-routing.ts";
+import { buildPlannerPersonaPrompt } from "../src/lib/planner/system-prompt.ts";
 
 const BIG = "claude-opus-4-8";
 const quick = modeInstruction("quick");
 const planning = modeInstruction("planning");
+
+const persona = buildPlannerPersonaPrompt();
 
 const checks = [
   ["default mode is quick", DEFAULT_CHAT_MODE === "quick", DEFAULT_CHAT_MODE],
@@ -23,6 +26,25 @@ const checks = [
   ["planning never downgrades a short imperative", pickTurnModel("add a task for grading", BIG, "planning") === BIG, pickTurnModel("add a task for grading", BIG, "planning")],
   ["quick still downgrades that same message", pickTurnModel("add a task for grading", BIG, "quick") === "claude-sonnet-5", pickTurnModel("add a task for grading", BIG, "quick")],
   ["omitting mode behaves as quick (back-compat)", pickTurnModel("add a task for grading", BIG) === "claude-sonnet-5", pickTurnModel("add a task for grading", BIG)],
+  // The persona is the CACHED prefix — a rule naming snapshot keys belongs there,
+  // but per-turn or mode-specific text must not, or the cache prefix breaks.
+  ["the persona tells the planner to report shortfalls unprompted", /REPORT WHAT FELL SHORT/.test(persona), "rule missing"],
+  [
+    "it tests labelTargets by shortfallHrs, not by the array being non-empty",
+    /shortfallHrs/.test(persona),
+    "wrong test — that array is populated whenever any label has a target",
+  ],
+  [
+    "it keeps horizon-deferred work out of didNotFit",
+    /startsBeyondThePlannedHorizon is not part of this/.test(persona),
+    "would report work that starts later as work that didn't fit",
+  ],
+  [
+    "NO FILLER no longer forbids the report it now requires",
+    /naming what the snapshot says fell short is not that/.test(persona),
+    "the two rules contradict",
+  ],
+  ["no mode text leaked into the cached persona", !/MODE:/.test(persona), "mode text in the cached half"],
 ];
 
 let failed = 0;

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/server";
-import { zonedNow } from "@/lib/scheduling/time";
+import { zonedDateKey, zonedNow } from "@/lib/scheduling/time";
 import { targetUtcHour } from "@/lib/notifications/time-match";
 import { sendPushToUser } from "@/lib/notifications/send";
 import { queryScheduleRows } from "@/lib/scheduling/query-rows";
@@ -46,8 +46,13 @@ export async function GET(request: Request) {
   let sent = 0;
   let archived = 0;
   for (const p of matched) {
-    const weekAgoDate = new Date(now.getTime() - 7 * DAY_MS).toISOString().slice(0, 10);
-    const todayDate = now.toISOString().slice(0, 10);
+    // occurred_date is a CIVIL date in this user's timezone, so the window has
+    // to be built in it. toISOString() is UTC: an 8pm New York digest runs after
+    // midnight UTC, which moved both bounds a day forward and silently dropped
+    // the oldest logged day from the total. localDateKey is the wrong helper
+    // here too — it formats in the RUNTIME's zone, which on Vercel is UTC.
+    const weekAgoDate = zonedDateKey(p.timezone, new Date(now.getTime() - 7 * DAY_MS));
+    const todayDate = zonedDateKey(p.timezone, now);
 
     const [{ data: log }, { data: projects }, rows] = await Promise.all([
       supabase
@@ -64,8 +69,11 @@ export async function GET(request: Request) {
         .not("weekly_min_min", "is", null)
         // Nothing is scheduled for an archived commitment, so reporting it as
         // having missed its weekly hours would be a notification about a
-        // commitment the user has finished with.
-        .is("archived_at", null),
+        // commitment the user has finished with. The same is true of one on
+        // hold, where a weekly "0h / 6h" is a reminder that the user is doing
+        // exactly what they decided to do.
+        .is("archived_at", null)
+        .is("on_hold_at", null),
       queryScheduleRows(supabase, p.id, now),
     ]);
 

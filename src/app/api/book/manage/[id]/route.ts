@@ -7,6 +7,7 @@ import { deleteBookingEvent, updateBookingEventTime } from "@/lib/google/calenda
 import { sendPushToUser } from "@/lib/notifications/send";
 import { bookingDescription, bookingTitle, joinUrl, locationText, manageUrlFor } from "@/lib/booking/details";
 import { buildIcs } from "@/lib/booking/ics";
+import { logWrite } from "@/lib/planner/write";
 
 // PUBLIC route (middleware-exempt): the booking id IS the capability — a
 // v4 uuid nobody can guess, handed only to the guest (confirmation page +
@@ -117,11 +118,25 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (parsed.data.action === "cancel") {
     // Keep the row (history) but release the slot: the live-bookings partial
     // unique index only covers status='confirmed'.
-    await admin
+    // CHECKED, and checked FIRST. This is what actually cancels the meeting —
+    // it releases the slot (the live-bookings unique index only covers
+    // 'confirmed') and it is what both parties are told happened. Unchecked, a
+    // failed update returned a cheerful "cancelled" to whoever clicked it while
+    // the booking stayed live and the calendar block was deleted anyway.
+    const { error: cancelError } = await admin
       .from("bookings")
       .update({ status: "cancelled", cancelled_at: new Date().toISOString(), last_changed_by: actor })
       .eq("id", booking.id);
-    if (booking.event_id) await admin.from("events").delete().eq("id", booking.event_id);
+    if (cancelError) {
+      console.error(`[booking] cancel failed for ${booking.id}: ${cancelError.message}`);
+      return NextResponse.json({ error: "Couldn't cancel that booking — please try again." }, { status: 500 });
+    }
+    if (booking.event_id) {
+      await logWrite(
+        `booking ${booking.id}: removing its calendar block`,
+        admin.from("events").delete().eq("id", booking.event_id),
+      );
+    }
     if (booking.google_event_id) {
       try {
         const accessToken = await getAccessToken(admin, booking.user_id);
@@ -165,10 +180,15 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const { startIso } = parsed.data;
   // Availability excludes this booking's own slot (its event row still exists),
   // so drop the old event first, then validate the new time.
-  if (booking.event_id) await admin.from("events").delete().eq("id", booking.event_id);
+  if (booking.event_id) {
+    await logWrite(
+      `booking ${booking.id}: clearing its old block before the move`,
+      admin.from("events").delete().eq("id", booking.event_id),
+    );
+  }
   if (!(await isSlotFree(admin, link, startIso, booking.duration_min))) {
     // Restore the original block so a failed move doesn't lose the meeting.
-    const { data: restored } = await admin
+    const { data: restored, error: restoreError } = await admin
       .from("events")
       .insert({
         user_id: booking.user_id,
@@ -182,13 +202,25 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       })
       .select("id")
       .single();
-    if (restored) await admin.from("bookings").update({ event_id: restored.id }).eq("id", booking.id);
+    if (restored) {
+      await logWrite(
+        `booking ${booking.id}: re-pointing at the restored block`,
+        admin.from("bookings").update({ event_id: restored.id }).eq("id", booking.id),
+      );
+    } else {
+      // The move was rejected AND the original block could not be put back, so
+      // the meeting is now missing from the owner's calendar while the booking
+      // still says it is on. Nothing here can fix that; it must not be silent.
+      console.error(
+        `[booking] ${booking.id}: slot taken and the original block could not be restored: ${restoreError?.message ?? "no row returned"}`,
+      );
+    }
     return NextResponse.json({ error: "slot_taken" }, { status: 409 });
   }
 
   const startsAt = new Date(startIso);
   const endsAt = new Date(startsAt.getTime() + booking.duration_min * 60000);
-  const { data: event } = await admin
+  const { data: event, error: eventError } = await admin
     .from("events")
     .insert({
       user_id: booking.user_id,
@@ -202,6 +234,11 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     })
     .select("id")
     .single();
+
+  // A null event_id is tolerated below (the booking is the source of truth and
+  // the block can be re-created), but it means the meeting won't appear on the
+  // owner's calendar — so it gets a log line rather than passing as normal.
+  if (eventError) console.error(`[booking] ${booking.id}: new block not created: ${eventError.message}`);
 
   const { error: moveError } = await admin
     .from("bookings")

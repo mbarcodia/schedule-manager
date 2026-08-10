@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AllDayMode, CalendarProvider, Database, EventSource } from "@/lib/supabase/database.types";
 import { fetchIcsEvents } from "./ics";
 import { HORIZON_WEEKS } from "@/lib/scheduling/horizon";
+import { logWrite } from "@/lib/planner/write";
 
 const SOURCE_BY_PROVIDER: Record<CalendarProvider, EventSource> = {
   outlook_ics: "outlook",
@@ -80,18 +81,27 @@ export async function syncConnection(
       if (insertError) throw insertError;
     }
 
-    await supabase
-      .from("calendar_connections")
-      .update({ last_synced_at: new Date().toISOString(), last_sync_error: null, last_sync_event_count: events.length })
-      .eq("id", connection.id);
+    await logWrite(
+      `sync: recording success for connection ${connection.id}`,
+      supabase
+        .from("calendar_connections")
+        .update({ last_synced_at: new Date().toISOString(), last_sync_error: null, last_sync_event_count: events.length })
+        .eq("id", connection.id),
+    );
 
     return { ok: true, count: events.length };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    await supabase
-      .from("calendar_connections")
-      .update({ last_synced_at: new Date().toISOString(), last_sync_error: message })
-      .eq("id", connection.id);
+    // Recording the FAILURE is the one that matters most: last_sync_error is
+    // what Settings and the calendar's Sync button read to say a feed is broken,
+    // so dropping it turns a visible breakage into a silent one.
+    await logWrite(
+      `sync: recording failure for connection ${connection.id}`,
+      supabase
+        .from("calendar_connections")
+        .update({ last_synced_at: new Date().toISOString(), last_sync_error: message })
+        .eq("id", connection.id),
+    );
     return { ok: false, error: message };
   }
 }

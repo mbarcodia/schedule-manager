@@ -11,6 +11,7 @@ import { createHmac, timingSafeEqual } from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
 import { sendPushToUser } from "@/lib/notifications/send";
+import { logWrite } from "@/lib/planner/write";
 
 const AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
@@ -126,7 +127,12 @@ export async function getAccessToken(admin: SupabaseClient<Database>, userId: st
       // non-JSON error body — treat by status alone
     }
     if (error === "invalid_grant" || res.status === 400 || res.status === 401) {
-      await admin.from("google_credentials").update({ needs_reconnect: true }).eq("user_id", userId);
+      // The flag is the only thing that surfaces the disconnection in Settings.
+      // Unrecorded, invites simply stop sending and nothing ever says why.
+      await logWrite(
+        `google: flagging ${userId} as needing reconnection`,
+        admin.from("google_credentials").update({ needs_reconnect: true }).eq("user_id", userId),
+      );
       await sendPushToUser(admin, userId, {
         title: "Google Calendar disconnected",
         body: "Bookings still work, but Google invites won't send until you reconnect in Settings.",

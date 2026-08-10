@@ -1,6 +1,7 @@
 import webpush from "web-push";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
+import { logWrite } from "@/lib/planner/write";
 
 /** null = not yet checked. Cached so the warning logs at most once. */
 let vapidReady: boolean | null = null;
@@ -56,7 +57,12 @@ export async function sendPushToUser(
         const body = (err as { body?: string }).body;
         console.error(`[push] send failed sub=${sub.id} status=${statusCode} body=${body} err=${err}`);
         if (statusCode === 404 || statusCode === 410) {
-          await supabase.from("push_subscriptions").delete().eq("id", sub.id);
+          // Pruning an endpoint the push service has declared dead. If this
+          // fails it is retried on every notification, forever.
+          await logWrite(
+            `push: pruning dead subscription ${sub.id}`,
+            supabase.from("push_subscriptions").delete().eq("id", sub.id),
+          );
         }
       }
     }),

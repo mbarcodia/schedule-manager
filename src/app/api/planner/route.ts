@@ -12,6 +12,7 @@ import { runRelayTurnStream } from "@/lib/planner/relay-runner";
 import { resolvePlannerCredential, NO_CREDENTIAL_MESSAGE } from "@/lib/ai/credentials";
 import { describeAnthropicError } from "@/lib/ai/errors";
 import { zonedNow } from "@/lib/scheduling/time";
+import { logWrite } from "@/lib/planner/write";
 
 // Planning turns run a strong model over a large snapshot with up to 12 tool
 // iterations — give the function room beyond the platform default.
@@ -31,7 +32,10 @@ export async function POST(request: Request) {
   const mode = isChatMode(body?.mode) ? body.mode : DEFAULT_CHAT_MODE;
 
   // Persist the user's message immediately (planner history survives reloads).
-  await supabase.from("planner_messages").insert({ user_id: user.id, role: "user", content: message });
+  await logWrite(
+    "planner: saving the user's message to history",
+    supabase.from("planner_messages").insert({ user_id: user.id, role: "user", content: message }),
+  );
 
   const credential = await resolvePlannerCredential(user.id);
   const mutationTracker = { mutated: false };
@@ -125,7 +129,13 @@ export async function POST(request: Request) {
         controller.enqueue(encoder.encode(reply));
       }
 
-      await supabase.from("planner_messages").insert({ user_id: user.id, role: "assistant", content: reply });
+      // The reply has already streamed to the screen by now, so losing this row
+      // costs the history rather than the answer — but silently losing half a
+      // conversation is exactly the kind of thing that gets blamed on the model.
+      await logWrite(
+        "planner: saving the assistant's reply to history",
+        supabase.from("planner_messages").insert({ user_id: user.id, role: "assistant", content: reply }),
+      );
       controller.close();
     },
   });

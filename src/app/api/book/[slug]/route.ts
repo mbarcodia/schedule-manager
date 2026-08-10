@@ -7,6 +7,7 @@ import { insertBookingEvent } from "@/lib/google/calendar";
 import { sendPushToUser } from "@/lib/notifications/send";
 import { buildIcs } from "@/lib/booking/ics";
 import { bookingDescription, bookingTitle, joinUrl, locationText, manageUrlFor } from "@/lib/booking/details";
+import { logWrite } from "@/lib/planner/write";
 
 // PUBLIC route (middleware-exempt). Creates a booking: local event row
 // (instant slot-blocking + calendar display), booking record, best-effort
@@ -118,10 +119,22 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
     .select("id")
     .single();
   if (eventError || !event) {
-    await admin.from("bookings").delete().eq("id", booking.id);
+    // The compensating delete for a booking whose calendar block failed. If it
+    // ALSO fails the row survives as 'confirmed', which the live-bookings unique
+    // index treats as holding the slot — so the visitor is told the booking
+    // failed and then finds the time permanently unbookable.
+    await logWrite(
+      `booking ${booking.id}: rolling back after its block failed`,
+      admin.from("bookings").delete().eq("id", booking.id),
+    );
     return NextResponse.json({ error: "Booking failed" }, { status: 500 });
   }
-  await admin.from("bookings").update({ event_id: event.id }).eq("id", booking.id);
+  // Without this link the booking and its calendar block exist independently,
+  // and cancelling later leaves the block behind.
+  await logWrite(
+    `booking ${booking.id}: linking it to its calendar block`,
+    admin.from("bookings").update({ event_id: event.id }).eq("id", booking.id),
+  );
 
   // Best-effort Google event — failure must never fail the booking.
   let googleOk = false;
@@ -137,8 +150,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
       visitorName: name,
       visitorEmail: email,
     });
-    await admin.from("bookings").update({ google_event_id: googleEventId }).eq("id", booking.id);
-    googleOk = true;
+    // googleOk is only true if the id was actually stored: the invite exists
+    // either way, but without the id nothing can cancel or move it afterwards,
+    // which is not a state to report as a working Google booking.
+    googleOk = await logWrite(
+      `booking ${booking.id}: storing its Google event id`,
+      admin.from("bookings").update({ google_event_id: googleEventId }).eq("id", booking.id),
+    );
   } catch (e) {
     if (!(e instanceof GoogleDisconnectedError)) {
       console.error("[booking] google insert failed:", e instanceof Error ? e.message : e);

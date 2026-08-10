@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/server";
 import { sendPushToUser } from "@/lib/notifications/send";
 import { formatDue, leadAnchor } from "@/lib/scheduling/all-day-due";
+import { logWrite } from "@/lib/planner/write";
 
 /** Fires reminder notifications whose lead time has arrived.
  *
@@ -92,10 +93,15 @@ export async function GET(request: Request) {
 
     // Mark it fired even when no device accepted, so a user without push
     // enabled doesn't accumulate a backlog that all arrives at once later.
-    await supabase
-      .from("todo_items")
-      .update({ sent_leads: [...r.sent_leads, lead] })
-      .eq("id", r.id);
+    // Unchecked, a failure here re-fires the same nudge every hour until the
+    // due date passes — the loudest possible way for a silent write to fail.
+    await logWrite(
+      `reminders: recording the ${lead}m lead for "${r.text}"`,
+      supabase
+        .from("todo_items")
+        .update({ sent_leads: [...r.sent_leads, lead] })
+        .eq("id", r.id),
+    );
     if (ok) sent++;
   }
 

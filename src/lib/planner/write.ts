@@ -22,3 +22,24 @@ export async function writeError(
   const { error } = await write;
   return error ? `${what}: ${error.message}` : null;
 }
+
+/** The same await, for writes with NOBODY on the other end — cron jobs, webhook
+ * handlers, bookkeeping that happens after the response has already streamed.
+ *
+ * These want a log line, not a banner: there is no screen to put a sentence on,
+ * and failing the whole job because one status column didn't update would be a
+ * worse outcome than the missed update. What they must not do is stay silent,
+ * which is what an unchecked `await supabase.from(...).update(...)` does — the
+ * hourly job goes on reporting success while, say, `last_chased_at` never moves
+ * and the same list is chased every hour forever.
+ *
+ * Prefixed `[write]` so every one of them is greppable in the Vercel logs as a
+ * single class. Returns whether it landed, for the callers that can act on it. */
+export async function logWrite(
+  what: string,
+  write: PromiseLike<{ error: { message: string } | null }>,
+): Promise<boolean> {
+  const { error } = await write;
+  if (error) console.error(`[write] ${what}: ${error.message}`);
+  return !error;
+}

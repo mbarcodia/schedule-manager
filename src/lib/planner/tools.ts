@@ -10,6 +10,7 @@ import { buildTools, findTrackableId, markMutated, type ToolContext } from "@/li
 import { findByTitle } from "@/lib/assistant/nlp-dates";
 import { buildTodoReminderTools } from "./todo-reminder-tools";
 import type { Database } from "@/lib/supabase/database.types";
+import { writeError } from "./write";
 
 type NoteRow = Database["public"]["Tables"]["notes"]["Row"];
 type NoteUpdate = Database["public"]["Tables"]["notes"]["Update"];
@@ -268,7 +269,11 @@ function archiveTools(ctx: ToolContext) {
         return `"${title}" matches more than one thing: ${result.ambiguous.map((t) => t.title).join(", ")}. Say which one (use its exact title).`;
       }
       if (!result.match) return `No active task matching "${title}".`;
-      await supabase.from("tasks").update({ archived_at: new Date().toISOString() }).eq("id", result.match.id);
+      const failed = await writeError(
+        `Couldn't archive "${result.match.title}"`,
+        supabase.from("tasks").update({ archived_at: new Date().toISOString() }).eq("id", result.match.id),
+      );
+      if (failed) return failed;
       markMutated(ctx);
       return `Archived "${result.match.title}" — off the schedule, history kept. It can be restored from the board's Archive view.`;
     },

@@ -26,6 +26,11 @@ import { allDayDueAt } from "@/lib/scheduling/all-day-due";
 import { computeSchedule } from "@/lib/scheduling/engine";
 import { buildScheduleInputs } from "@/lib/scheduling/from-db";
 import { queryScheduleRows } from "@/lib/scheduling/query-rows";
+// The same helper the board views use. A tool's run() already returns a string,
+// so a failed write has somewhere honest to go — and a tool that says "Marked it
+// done" over a write that didn't land is the worst version of this bug, because
+// the logged hours it invents then drive pace, streaks and the weekly digest.
+import { writeError } from "@/lib/planner/write";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, RoutineAnchor } from "@/lib/supabase/database.types";
 import type { ScheduleInputs, Task, WeeklyHours } from "@/lib/scheduling/types";
@@ -589,11 +594,21 @@ export function buildTools(ctx: ToolContext) {
           return `Archived "${c.title}" — it's off the boards and nothing more is scheduled for it, but its logged hours, dates and estimate are kept. Restore it from the Archive tab, or say so here.`;
         }
 
-        await Promise.all([
+        // Checked, and ABORTING rather than logging: this is the cleanup that
+        // runs BEFORE the project row is deleted, and the reply below enumerates
+        // it as done. A failure here that let the delete proceed would leave
+        // progress_log rows whose subject_id points at nothing — orphans that
+        // still count toward logged hours, for a project that no longer exists
+        // to explain them. Better to remove nothing and say so.
+        const cleanup = await Promise.all([
           supabase.from("progress_log").delete().match({ user_id: userId, subject_type: "research", subject_id: c.id }),
           supabase.from("pinned_chunks").delete().match({ user_id: userId, subject_type: "research", subject_id: c.id }),
           supabase.from("tasks").update({ project_id: null }).eq("project_id", c.id),
         ]);
+        const cleanupError = cleanup.find((r) => r.error)?.error;
+        if (cleanupError) {
+          return `Couldn't remove "${c.title}": its logged hours and pinned time wouldn't clear (${cleanupError.message}). Nothing was deleted.`;
+        }
         // Targets are children of the project, so they go with it (the
         // foreign key cascades) — worth saying out loud in the reply.
         const targetCount = (targets ?? []).length
@@ -1248,35 +1263,47 @@ export function buildTools(ctx: ToolContext) {
       const occurred_date = `${gdayDate.getFullYear()}-${String(gdayDate.getMonth() + 1).padStart(2, "0")}-${String(gdayDate.getDate()).padStart(2, "0")}`;
 
       if (fully_done || (minutes_done != null && minutes_done >= len)) {
-        await supabase.from("progress_log").upsert(
-          { user_id: userId, subject_type: subjectType, subject_id: subjectId, occurred_date, start_min: c.start, end_min: c.end, minutes_done: null },
-          { onConflict: "user_id,subject_type,subject_id,occurred_date,start_min" },
+        const failed = await writeError(
+          `Couldn't log the "${c.title}" block`,
+          supabase.from("progress_log").upsert(
+            { user_id: userId, subject_type: subjectType, subject_id: subjectId, occurred_date, start_min: c.start, end_min: c.end, minutes_done: null },
+            { onConflict: "user_id,subject_type,subject_id,occurred_date,start_min" },
+          ),
         );
+        if (failed) return failed;
         markMutated(ctx);
         return `Marked the "${c.title}" block (${len}m) done.`;
       }
       if (minutes_done == null) return `How much of the ${len}m block did you complete?`;
       if (minutes_done <= 0) {
-        await supabase
-          .from("progress_log")
-          .delete()
-          .match({ user_id: userId, subject_type: subjectType, subject_id: subjectId, occurred_date, start_min: c.start });
+        const failed = await writeError(
+          `Couldn't mark the "${c.title}" block missed`,
+          supabase
+            .from("progress_log")
+            .delete()
+            .match({ user_id: userId, subject_type: subjectType, subject_id: subjectId, occurred_date, start_min: c.start }),
+        );
+        if (failed) return failed;
         markMutated(ctx);
         return `Marked the "${c.title}" block missed — all ${len}m rescheduled later this week.`;
       }
       const mins = Math.max(15, Math.round(minutes_done / 15) * 15);
-      await supabase.from("progress_log").upsert(
-        {
-          user_id: userId,
-          subject_type: subjectType,
-          subject_id: subjectId,
-          occurred_date,
-          start_min: c.start,
-          end_min: c.end,
-          minutes_done: Math.min(mins, len - 15),
-        },
-        { onConflict: "user_id,subject_type,subject_id,occurred_date,start_min" },
+      const partialFailed = await writeError(
+        `Couldn't log time on "${c.title}"`,
+        supabase.from("progress_log").upsert(
+          {
+            user_id: userId,
+            subject_type: subjectType,
+            subject_id: subjectId,
+            occurred_date,
+            start_min: c.start,
+            end_min: c.end,
+            minutes_done: Math.min(mins, len - 15),
+          },
+          { onConflict: "user_id,subject_type,subject_id,occurred_date,start_min" },
+        ),
       );
+      if (partialFailed) return partialFailed;
       markMutated(ctx);
       return `Logged ${mins}m of ${len}m on "${c.title}" — the remaining ${len - mins}m is rescheduled later this week.`;
     },
@@ -1322,10 +1349,14 @@ export function buildTools(ctx: ToolContext) {
       if (inp.clear) {
         const pin = resolvePin(ctx, inp.date ?? "today", inp.time ?? "noon");
         if (typeof pin === "string") return `Couldn't clear the pin: ${pin}`;
-        await supabase
-          .from("research_pins")
-          .delete()
-          .match({ user_id: userId, project_id: match.id, pinned_date: pin!.pinned_date });
+        const failed = await writeError(
+          `Couldn't clear the ${match.title} research time`,
+          supabase
+            .from("research_pins")
+            .delete()
+            .match({ user_id: userId, project_id: match.id, pinned_date: pin!.pinned_date }),
+        );
+        if (failed) return failed;
         markMutated(ctx);
         return `Cleared the fixed ${match.title} research time on ${pin!.pinned_date} — it auto-schedules freely again.`;
       }
@@ -1338,16 +1369,20 @@ export function buildTools(ctx: ToolContext) {
       const conflict = await pinConflict(ctx, pin, length);
       if (conflict) return `Couldn't pin ${match.title}: ${conflict}`;
 
-      await supabase.from("research_pins").upsert(
-        {
-          user_id: userId,
-          project_id: match.id,
-          pinned_date: pin.pinned_date,
-          start_min: pin.pinned_start_min,
-          length_min: length,
-        },
-        { onConflict: "user_id,project_id,pinned_date" },
+      const pinFailed = await writeError(
+        `Couldn't pin ${match.title}`,
+        supabase.from("research_pins").upsert(
+          {
+            user_id: userId,
+            project_id: match.id,
+            pinned_date: pin.pinned_date,
+            start_min: pin.pinned_start_min,
+            length_min: length,
+          },
+          { onConflict: "user_id,project_id,pinned_date" },
+        ),
       );
+      if (pinFailed) return pinFailed;
       markMutated(ctx);
       const notResearch = !match.weekly_min_min
         ? ` Note: ${match.title} has no weekly research minimum set, so this time is additive rather than filling a quota.`
@@ -1535,11 +1570,19 @@ export function buildTools(ctx: ToolContext) {
             matches.map((m) => `  - "${m.note}"`).join("\n")
           );
         }
-        await supabase.from("preference_notes").delete().eq("id", matches[0].id);
+        const failed = await writeError(
+          "Couldn't forget that rule",
+          supabase.from("preference_notes").delete().eq("id", matches[0].id),
+        );
+        if (failed) return failed;
         markMutated(ctx);
         return `Forgot: "${matches[0].note}".`;
       }
-      await supabase.from("preference_notes").insert({ user_id: userId, note });
+      const failed = await writeError(
+        "Couldn't save that rule",
+        supabase.from("preference_notes").insert({ user_id: userId, note }),
+      );
+      if (failed) return failed;
       markMutated(ctx);
       return `Remembered: "${note}". I'll honor this from now on.`;
     },

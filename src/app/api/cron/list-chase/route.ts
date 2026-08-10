@@ -4,6 +4,7 @@ import { sendPushToUser } from "@/lib/notifications/send";
 import { zonedNow } from "@/lib/scheduling/time";
 import { isPeriodEnd, periodStart } from "@/lib/notifications/chase";
 import type { ChaseCadence } from "@/lib/supabase/database.types";
+import { logWrite } from "@/lib/planner/write";
 
 /** Chases whatever is still unticked when a list's period runs out.
  *
@@ -52,7 +53,10 @@ export async function GET(request: Request) {
     if (!open?.length) {
       // Nothing outstanding is worth recording as handled, so the list doesn't
       // get re-examined every hour for the rest of the evening.
-      await supabase.from("todo_lists").update({ last_chased_at: now.toISOString() }).eq("id", list.id);
+      await logWrite(
+        `list-chase: marking "${list.name}" handled`,
+        supabase.from("todo_lists").update({ last_chased_at: now.toISOString() }).eq("id", list.id),
+      );
       continue;
     }
 
@@ -63,7 +67,12 @@ export async function GET(request: Request) {
       body: `${titles.slice(0, 3).join(", ")}${titles.length > 3 ? `, and ${titles.length - 3} more` : ""} — the ${period} is nearly over.`,
       url: "/planner",
     });
-    await supabase.from("todo_lists").update({ last_chased_at: now.toISOString() }).eq("id", list.id);
+    // If this doesn't land the same list is chased again next hour, and every
+    // hour after, so it is worth a log line rather than nothing at all.
+    await logWrite(
+      `list-chase: marking "${list.name}" chased`,
+      supabase.from("todo_lists").update({ last_chased_at: now.toISOString() }).eq("id", list.id),
+    );
     chased++;
   }
 

@@ -106,14 +106,21 @@ export function BookingSection({ categories }: { categories: CategoryRow[] }) {
       data: { user },
     } = await supabase.auth.getUser();
     if (!user) return;
-    await supabase
-      .from("profiles")
-      .update({
-        booking_meeting_url: meetingUrl.trim() || null,
-        display_name: displayName.trim() || null,
-        office_location: officeLocation.trim() || null,
-      })
-      .eq("id", user.id);
+    // The button flips to "Saved" immediately below, so an unchecked write here
+    // was the confirmation lying — the one place in this file that skipped the
+    // writeError/banner pair every other write already used.
+    const message = await writeError(
+      "Couldn't save those details",
+      supabase
+        .from("profiles")
+        .update({
+          booking_meeting_url: meetingUrl.trim() || null,
+          display_name: displayName.trim() || null,
+          office_location: officeLocation.trim() || null,
+        })
+        .eq("id", user.id),
+    );
+    if (message) return setError(message);
     setProfileSaved(true);
     setTimeout(() => setProfileSaved(false), 2000);
   }

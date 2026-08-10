@@ -419,7 +419,7 @@ export default function SettingsPage() {
       data: { user },
     } = await supabase.auth.getUser();
     if (!user) return;
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("categories")
       .insert({
         user_id: user.id,
@@ -431,6 +431,10 @@ export default function SettingsPage() {
       })
       .select()
       .single();
+    // Without this, a refused insert (a duplicate name is the likely one — the
+    // table has a unique constraint on it) simply did nothing: the suggestion
+    // stayed on offer and no label appeared, with nothing said either way.
+    if (error) return setSaveError(`Couldn't add the ${suggestion.name} label: ${error.message}`);
     if (data) setCategories((prev) => [...prev, data]);
   }
 

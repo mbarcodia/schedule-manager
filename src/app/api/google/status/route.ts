@@ -37,6 +37,13 @@ export async function DELETE() {
     .eq("user_id", user.id)
     .maybeSingle();
   if (data) await revokeToken(data.refresh_token);
-  await admin.from("google_credentials").delete().eq("user_id", user.id);
+  // Checked: the response below tells the UI the account is disconnected, and
+  // reporting that over a failed delete would leave a live refresh token behind
+  // while she believes access was revoked.
+  const { error } = await admin.from("google_credentials").delete().eq("user_id", user.id);
+  if (error) {
+    console.error(`[google] disconnect failed for ${user.id}: ${error.message}`);
+    return NextResponse.json({ error: "Couldn't disconnect Google — please try again." }, { status: 500 });
+  }
   return NextResponse.json({ connected: false });
 }

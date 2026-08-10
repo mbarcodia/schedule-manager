@@ -58,6 +58,12 @@ export async function DELETE() {
   if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
 
   const admin = createAdminClient();
-  await admin.from("planner_credentials").delete().eq("user_id", user.id);
+  // Same reasoning as the Google disconnect: "hasSecret: false" over a failed
+  // delete claims a stored credential is gone when it is still there.
+  const { error } = await admin.from("planner_credentials").delete().eq("user_id", user.id);
+  if (error) {
+    console.error(`[planner] credential delete failed for ${user.id}: ${error.message}`);
+    return NextResponse.json({ error: "Couldn't remove that credential — please try again." }, { status: 500 });
+  }
   return NextResponse.json({ hasSecret: false });
 }

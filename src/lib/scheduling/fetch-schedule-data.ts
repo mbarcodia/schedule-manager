@@ -8,6 +8,7 @@ import { queryScheduleRows } from "./query-rows";
 import type { WeeklyReserve } from "./reserve";
 import type { Category, Project, ScheduleInputs, Target } from "./types";
 import type { ProgressFacts } from "./logged-hours";
+import { logWrite } from "@/lib/planner/write";
 
 export interface ScheduleData {
   inputs: ScheduleInputs;
@@ -44,7 +45,12 @@ export async function fetchScheduleData(): Promise<ScheduleData> {
     .eq("id", user.id)
     .single();
   if (currentProfile && currentProfile.timezone !== detectedTz) {
-    await supabase.from("profiles").update({ timezone: detectedTz }).eq("id", user.id);
+    // Every civil date in the app is resolved through this, so a silently
+    // failed update means the whole schedule keeps being drawn in the old zone.
+    await logWrite(
+      `profile: moving timezone to ${detectedTz}`,
+      supabase.from("profiles").update({ timezone: detectedTz }).eq("id", user.id),
+    );
   }
 
   const now = new Date();

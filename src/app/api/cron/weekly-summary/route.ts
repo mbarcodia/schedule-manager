@@ -7,6 +7,7 @@ import { queryScheduleRows } from "@/lib/scheduling/query-rows";
 import { buildScheduleInputs } from "@/lib/scheduling/from-db";
 import { computeSchedule } from "@/lib/scheduling/engine";
 import { deriveBoardStatuses, boardStatusFor } from "@/lib/planner/board-status";
+import { logWrite } from "@/lib/planner/write";
 
 const DAY_MS = 86400000;
 
@@ -107,14 +108,20 @@ export async function GET(request: Request) {
     const doneTasks = liveTasks.filter((t, i) => statuses[i] === "done");
     const finished = doneTasks.filter((t) => !hasLaterBlocks.has(t.id));
     if (finished.length) {
-      await supabase
-        .from("tasks")
-        .update({ archived_at: now.toISOString() })
-        .in(
-          "id",
-          finished.map((t) => t.id),
-        );
-      archived += finished.length;
+      // Counted only when it actually landed. `archived` is what the route
+      // reports back, so incrementing regardless made the response state a
+      // number of archived tasks that might all still be sitting on the board.
+      const ok = await logWrite(
+        `weekly-summary: archiving ${finished.length} finished task(s)`,
+        supabase
+          .from("tasks")
+          .update({ archived_at: now.toISOString() })
+          .in(
+            "id",
+            finished.map((t) => t.id),
+          ),
+      );
+      if (ok) archived += finished.length;
     }
 
     const taskLine = liveTasks.length

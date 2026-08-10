@@ -31,6 +31,16 @@ export async function DELETE(request: Request) {
   const { endpoint } = await request.json();
   if (!endpoint) return NextResponse.json({ error: "Missing endpoint" }, { status: 400 });
 
-  await supabase.from("push_subscriptions").delete().eq("endpoint", endpoint).eq("user_id", user.id);
+  // Checked: "ok: true" over a failed delete tells someone they have
+  // unsubscribed while the notifications carry on arriving.
+  const { error } = await supabase
+    .from("push_subscriptions")
+    .delete()
+    .eq("endpoint", endpoint)
+    .eq("user_id", user.id);
+  if (error) {
+    console.error(`[push] unsubscribe failed for ${user.id}: ${error.message}`);
+    return NextResponse.json({ error: "Couldn't turn notifications off — please try again." }, { status: 500 });
+  }
   return NextResponse.json({ ok: true });
 }

@@ -17,6 +17,7 @@ import { findCategoryId, markMutated, type ToolContext } from "@/lib/assistant/t
 import { parseDeadlineDate, parseTimeInText, findByTitle } from "@/lib/assistant/nlp-dates";
 import { allDayDueAt, formatDue } from "@/lib/scheduling/all-day-due";
 import { zonedTimeToUtc } from "@/lib/scheduling/time";
+import { writeError } from "@/lib/planner/write";
 import type { Database } from "@/lib/supabase/database.types";
 
 /** Named lead times so the model doesn't have to do minute arithmetic. */
@@ -200,10 +201,14 @@ export function buildTodoReminderTools(ctx: ToolContext) {
         return `"${text}" matches several items: ${found.ambiguous.map((i) => i.text).join(", ")}. Which one?`;
       }
       if (!found.match) return `No open to-do matching "${text}".`;
-      await supabase
-        .from("todo_items")
-        .update({ done: true, completed_at: new Date().toISOString() })
-        .eq("id", found.match.id);
+      const failed = await writeError(
+        `Couldn't tick off "${found.match.text}"`,
+        supabase
+          .from("todo_items")
+          .update({ done: true, completed_at: new Date().toISOString() })
+          .eq("id", found.match.id),
+      );
+      if (failed) return failed;
       markMutated(ctx);
       return `Ticked off "${found.match.text}".`;
     },
@@ -343,7 +348,11 @@ export function buildTodoReminderTools(ctx: ToolContext) {
         return `"${title}" matches several: ${found.ambiguous.map((r) => r.title).join(", ")}. Which one?`;
       }
       if (!found.match) return `No dated to-do matching "${title}".`;
-      await supabase.from("todo_items").update({ lead_minutes: [], sent_leads: [] }).eq("id", found.match.id);
+      const failed = await writeError(
+        `Couldn't turn notifications off for "${found.match.title}"`,
+        supabase.from("todo_items").update({ lead_minutes: [], sent_leads: [] }).eq("id", found.match.id),
+      );
+      if (failed) return failed;
       markMutated(ctx);
       return `Notifications off for "${found.match.title}". It's still on its list.`;
     },
@@ -448,7 +457,17 @@ export function buildTodoReminderTools(ctx: ToolContext) {
         );
       }
 
-      if (Object.keys(patch).length) await supabase.from("todo_items").update(patch).eq("id", item.id);
+      // The worst one to drop. `patch` carries the task_id of a row that has
+      // ALREADY been inserted, so a silent failure here leaves booked hours on
+      // the calendar with nothing linking them back to the to-do — an orphan
+      // that ticking the item off can no longer clear.
+      if (Object.keys(patch).length) {
+        const failed = await writeError(
+          `Booked the time, but couldn't attach it to "${item.text}"`,
+          supabase.from("todo_items").update(patch).eq("id", item.id),
+        );
+        if (failed) return failed;
+      }
       markMutated(ctx);
       return `Booked ${done.join(" and ")} for "${item.text}". It stays on its list; ticking it off there will clear the time again.`;
     },

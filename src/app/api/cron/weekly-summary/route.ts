@@ -98,8 +98,13 @@ export async function GET(request: Request) {
       schedule.blocks.filter((b) => b.type === "task" && b.taskId && b.gday >= 7).map((b) => b.taskId as string),
     );
 
-    const statuses = rows.tasks.map((t) => boardStatusFor(index, t.id));
-    const doneTasks = rows.tasks.filter((t, i) => statuses[i] === "done");
+    // Tasks under a paused commitment are withheld from the engine by design,
+    // so counting them would report "2/9 done" against work that was never
+    // going to be scheduled — and the denominator is the whole point of the line.
+    const heldProjects = new Set((rows.projects ?? []).filter((p) => p.on_hold_at).map((p) => p.id));
+    const liveTasks = rows.tasks.filter((t) => !(t.project_id && heldProjects.has(t.project_id)));
+    const statuses = liveTasks.map((t) => boardStatusFor(index, t.id));
+    const doneTasks = liveTasks.filter((t, i) => statuses[i] === "done");
     const finished = doneTasks.filter((t) => !hasLaterBlocks.has(t.id));
     if (finished.length) {
       await supabase
@@ -112,8 +117,8 @@ export async function GET(request: Request) {
       archived += finished.length;
     }
 
-    const taskLine = rows.tasks.length
-      ? `Tasks: ${doneTasks.length}/${rows.tasks.length} done this week, ${schedule.missed.length} missed${
+    const taskLine = liveTasks.length
+      ? `Tasks: ${doneTasks.length}/${liveTasks.length} done this week, ${schedule.missed.length} missed${
           finished.length ? ` · ${finished.length} archived` : ""
         }`
       : null;

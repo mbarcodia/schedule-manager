@@ -287,10 +287,23 @@ export function buildTools(ctx: ToolContext) {
 
       // Dedupe on exact (normalized) title — re-declaring a task with the
       // same title updates it in place instead of creating a duplicate.
-      const { data: existingTasks } = await supabase.from("tasks").select("id,title").eq("user_id", userId);
+      //
+      // Archived ones are INCLUDED and brought back, exactly as add_trackable
+      // does for a commitment: asking for a task by name plainly means you want
+      // it. Selecting them without un-archiving was the bug — the update landed
+      // on the archived row, which stays invisible, so the task simply never
+      // appeared and the tool said it had been saved.
+      const { data: existingTasks } = await supabase
+        .from("tasks")
+        .select("id,title,archived_at")
+        .eq("user_id", userId);
       const dupe = (existingTasks ?? []).find((t) => normTitle(t.title) === normTitle(inp.title));
       if (dupe) {
-        const { error } = await supabase.from("tasks").update(payload).eq("id", dupe.id);
+        const wasArchived = dupe.archived_at != null;
+        const { error } = await supabase
+          .from("tasks")
+          .update(wasArchived ? { ...payload, archived_at: null } : payload)
+          .eq("id", dupe.id);
         if (error) return `Couldn't update "${dupe.title}": ${error.message}`;
         markMutated(ctx);
         console.log(`[assistant] add_task upsert: id=${dupe.id} title=${JSON.stringify(dupe.title)}`);
@@ -352,7 +365,15 @@ export function buildTools(ctx: ToolContext) {
       required: ["title"],
     },
     run: async (inp) => {
-      const { data: tasks } = await supabase.from("tasks").select("id,title,chunk_min,duration_min").eq("user_id", userId);
+      // Archived tasks are out of the schedule, so editing one would write to
+      // something the user cannot see and report success. "Nothing matching
+      // that" is the honest answer — add_task is what brings one back. Same
+      // reasoning findTrackableId already applies to commitments.
+      const { data: tasks } = await supabase
+        .from("tasks")
+        .select("id,title,chunk_min,duration_min")
+        .eq("user_id", userId)
+        .is("archived_at", null);
       const { match, ambiguous } = findByTitle(tasks ?? [], inp.title);
       if (ambiguous.length) {
         return `"${inp.title}" matches more than one thing: ${ambiguous.map((t) => t.title).join(", ")}. Say which one (use its exact title).`;
@@ -661,19 +682,33 @@ export function buildTools(ctx: ToolContext) {
       // commitment with the same name whose history lives on the first, and
       // re-declaring one you had put away plainly means you are working on it
       // again, so it comes back rather than being updated while still invisible.
-      const { data: existing } = await supabase.from("projects").select("id,title,archived_at").eq("user_id", userId);
+      const { data: existing } = await supabase
+        .from("projects")
+        .select("id,title,archived_at,on_hold_at")
+        .eq("user_id", userId);
       const dupe = (existing ?? []).find((p) => normTitle(p.title) === normTitle(inp.title));
       if (dupe) {
         const wasArchived = dupe.archived_at != null;
+        // Re-declaring one that is on hold takes it OFF hold, on the same
+        // argument that un-archives: describing the work you want done means
+        // you want it done. Unless this very call is what put it on hold.
+        const wasHeld = dupe.on_hold_at != null && inp.on_hold !== true;
         const { error } = await supabase
           .from("projects")
-          .update(wasArchived ? { ...patch, archived_at: null } : patch)
+          .update({
+            ...patch,
+            ...(wasArchived ? { archived_at: null } : {}),
+            ...(wasHeld ? { on_hold_at: null } : {}),
+          })
           .eq("id", dupe.id);
         if (error) return `Couldn't update the project: ${error.message}`;
         markMutated(ctx);
         console.log(`[assistant] add_trackable upsert: project id=${dupe.id} title=${JSON.stringify(dupe.title)} restored=${wasArchived}`);
         if (wasArchived) {
           return `"${dupe.title}" was archived — brought it back with its logged hours, dates and estimate intact${summary}`;
+        }
+        if (wasHeld) {
+          return `"${dupe.title}" was on hold — took it off hold, so its weekly hours are being scheduled again${summary}`;
         }
         return `"${dupe.title}" already existed — updated it instead of creating a duplicate${summary}`;
       }
@@ -1177,15 +1212,23 @@ export function buildTools(ctx: ToolContext) {
       required: ["project"],
     },
     run: async (inp) => {
+      // Archived is excluded outright; on hold is fetched so the refusal below
+      // can name the reason. Pinning either wrote a research_pin the engine
+      // then ignored — the hours are stripped for a hold and the commitment
+      // isn't queried at all once archived — and reported success.
       const { data: projects } = await supabase
         .from("projects")
-        .select("id,title,weekly_min_min")
-        .eq("user_id", userId);
+        .select("id,title,weekly_min_min,on_hold_at")
+        .eq("user_id", userId)
+        .is("archived_at", null);
       const { match, ambiguous } = findByTitle(projects ?? [], inp.project);
       if (ambiguous.length) {
         return `"${inp.project}" matches multiple projects: ${ambiguous.map((p) => p.title).join(", ")}. Say which one.`;
       }
       if (!match) return `No project matching "${inp.project}". Projects: ${(projects ?? []).map((p) => p.title).join(", ") || "none"}.`;
+      if (match.on_hold_at) {
+        return `"${match.title}" is on hold, so nothing is scheduled for it and a pinned slot would sit empty. Take it off hold first (add_trackable with on_hold=false) if you want to work on it.`;
+      }
 
       if (inp.clear) {
         const pin = resolvePin(ctx, inp.date ?? "today", inp.time ?? "noon");

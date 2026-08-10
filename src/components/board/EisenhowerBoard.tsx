@@ -67,6 +67,12 @@ export function EisenhowerBoard({ scheduleData, onMutated }: EisenhowerBoardProp
     const pace = paceFromData(data, now);
     for (const p of pace) {
       const project = data.projects.find((x) => x.id === p.projectId);
+      // A commitment on hold has no place on a grid about what to act on now:
+      // urgency is read from its dates, so a paused one with a near date sorted
+      // straight into "do", telling the user to do the thing they had stopped.
+      // It stays visible on Progress (its own column) and on the Timeline,
+      // where an approaching date is still worth seeing.
+      if (project?.onHold) continue;
       groups[
         commitmentQuadrant(
           { important: p.important, deadlineDate: project?.deadlineDate ?? null },

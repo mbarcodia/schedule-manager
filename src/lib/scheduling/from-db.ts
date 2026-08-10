@@ -245,7 +245,13 @@ export function buildScheduleInputs(
       priority: t.priority,
       duration: t.duration_min,
       chunk: t.chunk_min,
-      minChunk: minChunkFor(t.category_id),
+      // The task's own minimum OVERRIDES its label's, in both directions — see
+      // migration 0042. Deliberately not `Math.max` of the two: a label's floor
+      // is a default for a kind of work, and "this particular job is different"
+      // is the entire reason the field exists. The panels warn at the point of
+      // setting one shorter, so it is never a silent divergence.
+      minChunk: t.min_chunk_min ?? minChunkFor(t.category_id),
+      splitMode: t.split_mode,
       ...timePrefFor(t.category_id, t.time_of_day),
       dependsOn: t.depends_on,
       deadline,

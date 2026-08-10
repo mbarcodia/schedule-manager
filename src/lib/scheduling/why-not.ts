@@ -7,6 +7,8 @@
 //   its window is impossible     a deadline earlier than its earliest start
 //   it cannot start yet          nothing to fix; it begins later than we plan
 //   it is locked to half a day   morning-only, and the mornings are full
+//   it needs one unbroken run    the hours exist, in the wrong shape
+//   it needs one single day      the same, spread across days instead
 //   its active window has passed weekly hours that no longer apply
 //   the horizon really is full   the only one that means "your calendar is full"
 //
@@ -131,6 +133,67 @@ function halfDayRoom(
   return free;
 }
 
+/** The best any single day in the task's window can offer it: the most free
+ * minutes on one day, and the longest UNBROKEN free run on one day.
+ *
+ * The two answer the two hard split modes, and they are genuinely different
+ * numbers — a day with a free morning and a free late afternoon has plenty of
+ * total room and no long run. Both respect the same things the engine did: the
+ * day's working window, a hard half-of-day restriction, the earliest start and
+ * the deadline. maxPerDayMin caps the day total, since the engine would not
+ * exceed it either.
+ *
+ * Returns the best over all eligible days, so "there is nowhere with room" is a
+ * checked fact rather than an inference from the work having failed. */
+function bestDayRoom(
+  inputs: ScheduleInputs,
+  schedule: ComputeScheduleResult,
+  task: Task,
+): { freeOnBestDay: number; longestRun: number } {
+  const busy = new Set<number>();
+  for (const b of schedule.blocks) {
+    if (b.allDay || b.gday < 0) continue;
+    // A block belonging to this very task is not an obstacle to it — those
+    // minutes are the part that DID get placed, and counting them as occupied
+    // would understate the room by exactly the amount already used.
+    if (b.taskId === task.id) continue;
+    for (let m = b.start; m < b.end; m++) busy.add(b.gday * 1440 + m);
+  }
+
+  let freeOnBestDay = 0;
+  let longestRun = 0;
+  for (let gday = 0; gday < inputs.horizonWeeks * 7; gday++) {
+    if ((gday + 1) * 1440 <= task.floor) continue;
+    if (task.deadline !== NO_DEADLINE && gday * 1440 >= task.deadline) break;
+    const win = resolveDayWindow(gday, inputs.weeklyHours, inputs.dayOverrides, inputs.allDayBlocks);
+    if (!win) continue;
+    const from = task.timeOfDay === "afternoon" ? Math.max(win.start, 720) : win.start;
+    const to = task.timeOfDay === "morning" ? Math.min(win.end, 720) : win.end;
+
+    let free = 0;
+    let run = 0;
+    let bestRunToday = 0;
+    for (let m = from; m < to; m++) {
+      const abs = gday * 1440 + m;
+      const usable =
+        !busy.has(abs) && abs >= task.floor && (task.deadline === NO_DEADLINE || abs < task.deadline);
+      if (usable) {
+        free++;
+        run++;
+        if (run > bestRunToday) bestRunToday = run;
+      } else {
+        run = 0;
+      }
+    }
+    if (task.maxPerDayMin) free = Math.min(free, task.maxPerDayMin);
+    if (free > freeOnBestDay) freeOnBestDay = free;
+    if (bestRunToday > longestRun) longestRun = bestRunToday;
+  }
+  // A run longer than the daily cap allows is not a run this task could use.
+  if (task.maxPerDayMin) longestRun = Math.min(longestRun, task.maxPerDayMin);
+  return { freeOnBestDay, longestRun };
+}
+
 /** Why this task has minutes the scheduler couldn't place. Null when it has none. */
 export function whyNotTask(
   task: Task,
@@ -170,6 +233,31 @@ export function whyNotTask(
         fix: label?.timePref?.endsWith("_only")
           ? `Change ${label.name}'s time of day to "prefer" instead of "only", or set this task's own.`
           : `Clear this task's time-of-day restriction, or make it a preference.`,
+        benign: false,
+      };
+    }
+  }
+
+  // The two hard split modes, checked against what the days actually offer.
+  // Reported BEFORE the general "no room" line because they are the opposite
+  // situation: the hours usually exist and are the wrong SHAPE, so "every
+  // working hour is taken" would be false as well as unhelpful.
+  if (task.splitMode === "one_block" || task.splitMode === "one_day") {
+    const { freeOnBestDay, longestRun } = bestDayRoom(inputs, schedule, task);
+    const need = task.duration;
+    if (task.splitMode === "one_block" && longestRun < need) {
+      return {
+        text: `It has to be done in one sitting of ${hrs(need)}, and the longest unbroken gap in its window is ${longestRun === 0 ? "nothing" : hrs(longestRun)} — the time exists, but not in one piece.`,
+        fix: `Allow it to be split, or clear a ${hrs(need)} run.`,
+        benign: false,
+      };
+    }
+    if (task.splitMode === "one_day" && freeOnBestDay < need) {
+      return {
+        text: `Its ${hrs(need)} all has to fall on one day, and the emptiest day in its window has only ${freeOnBestDay === 0 ? "nothing" : hrs(freeOnBestDay)} free — spread over the week there is room, on any single day there isn't.`,
+        fix: task.maxPerDayMin
+          ? `Allow it across days, or raise its ${hrs(task.maxPerDayMin)}-a-day cap.`
+          : "Allow it across days, or clear a day.",
         benign: false,
       };
     }

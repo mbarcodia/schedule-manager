@@ -8,6 +8,8 @@ export type PlannerCredentialProvider = "api_key" | "oauth_token";
 export type NoteKind = "idea" | "todo" | "paper" | "update" | "other";
 export type Priority = "high" | "medium" | "low";
 export type TaskTimeOfDay = "morning" | "afternoon";
+/** tasks.split_mode — how far a task may be spread out. See migration 0042. */
+export type SplitMode = "free" | "one_day" | "one_block";
 /** Whether a date is externally imposed or self-set. Scheduling treats them
  * identically; the consequence of missing one differs. */
 export type DateKind = "hard" | "goal";
@@ -268,6 +270,8 @@ export interface Database {
           time_of_day: TaskTimeOfDay | null;
           important: boolean;
           archived_at: string | null;
+          split_mode: SplitMode;
+          min_chunk_min: number | null;
         },
         {
           id?: string;
@@ -290,6 +294,8 @@ export interface Database {
           time_of_day?: TaskTimeOfDay | null;
           important?: boolean;
           archived_at?: string | null;
+          split_mode?: SplitMode;
+          min_chunk_min?: number | null;
         },
         Partial<{
           title: string;
@@ -310,6 +316,8 @@ export interface Database {
           time_of_day: TaskTimeOfDay | null;
           important: boolean;
           archived_at: string | null;
+          split_mode: SplitMode;
+          min_chunk_min: number | null;
         }>
       >;
       recurring_rules: Table<

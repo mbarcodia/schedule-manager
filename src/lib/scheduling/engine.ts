@@ -378,12 +378,20 @@ interface Slot {
   abs: AbsMinute;
 }
 
+/** Everything findSlot needs of the busy set. Widened from `Set` so a
+ * SPECULATIVE placement run — "could this whole task fit on Tuesday?" — can
+ * layer its trial chunks over the real set without copying it per candidate day.
+ * See placeAllOnOneDay. */
+interface BusyView {
+  has(minute: AbsMinute): boolean;
+}
+
 function findSlot(
   inputs: ScheduleInputs,
   floorAbs: AbsMinute,
   lengthMin: number,
   constrainNoon: boolean,
-  busy: Set<AbsMinute>,
+  busy: BusyView,
   dayOk: ((gday: GDay) => boolean) | null,
   ceilAbs?: AbsMinute,
   constrainAfternoon?: boolean,
@@ -475,25 +483,38 @@ function runScheduler(
     const floor = Math.max(t.floor || 0, floorMin || 0);
     let chunkLen = 0; // set from the chosen placement below
 
-    const tryLen = (len: number, ceil: number | undefined): Slot | null => {
-      const dayOk = t.maxPerDayMin
-        ? (d: GDay) => ((perDay[t.id] || {})[d] || 0) + len <= t.maxPerDayMin!
-        : null;
-      if (t.timeOfDay === "afternoon") return findSlot(inputs, floor, len, false, busy, dayOk, ceil, true);
-      if (t.timeOfDay === "morning") return findSlot(inputs, floor, len, true, busy, dayOk, ceil);
+    /** Finds a slot honouring the task's half-of-day rules.
+     *
+     * `view` and `extraDayOk` exist for the one-day trial run, which searches
+     * against the real busy set PLUS its own provisional chunks and confines
+     * every candidate to a single day. Both default to the live search. */
+    const tryLen = (
+      len: number,
+      ceil: number | undefined,
+      view: BusyView = busy,
+      extraDayOk: ((gday: GDay) => boolean) | null = null,
+      usedToday: Record<number, number> = perDay[t.id] || {},
+    ): Slot | null => {
+      const capOk = t.maxPerDayMin ? (d: GDay) => (usedToday[d] || 0) + len <= t.maxPerDayMin! : null;
+      const dayOk =
+        capOk && extraDayOk
+          ? (d: GDay) => capOk(d) && extraDayOk(d)
+          : (capOk ?? extraDayOk);
+      if (t.timeOfDay === "afternoon") return findSlot(inputs, floor, len, false, view, dayOk, ceil, true);
+      if (t.timeOfDay === "morning") return findSlot(inputs, floor, len, true, view, dayOk, ceil);
       // A soft nudge takes the wrong half of the day over leaving the work
       // unscheduled — that's the whole difference from the constraints above.
       if (t.preferMorning)
         return (
-          findSlot(inputs, floor, len, true, busy, dayOk, ceil) ||
-          findSlot(inputs, floor, len, false, busy, dayOk, ceil)
+          findSlot(inputs, floor, len, true, view, dayOk, ceil) ||
+          findSlot(inputs, floor, len, false, view, dayOk, ceil)
         );
       if (t.preferAfternoon)
         return (
-          findSlot(inputs, floor, len, false, busy, dayOk, ceil, true) ||
-          findSlot(inputs, floor, len, false, busy, dayOk, ceil)
+          findSlot(inputs, floor, len, false, view, dayOk, ceil, true) ||
+          findSlot(inputs, floor, len, false, view, dayOk, ceil)
         );
-      return findSlot(inputs, floor, len, false, busy, dayOk, ceil);
+      return findSlot(inputs, floor, len, false, view, dayOk, ceil);
     };
 
     // Capped by maxPerDayMin as well: "no block under 90 minutes" and "at most
@@ -501,9 +522,18 @@ function runScheduler(
     // the floor would make the pair unschedulable rather than picking the
     // tighter one.
     const chunkFloor = Math.min(t.minChunk ?? 30, t.duration, t.maxPerDayMin ?? Infinity);
+    /** The lengths this task's next block may take, longest first.
+     *
+     * "One block" collapses that to a single candidate — the whole of what's
+     * left. Not expressible as a very large minimum chunk, because
+     * chunkLengthsToTry caps the floor at `remaining` and would go on offering
+     * shorter lengths beneath it. */
+    const lengthsFor = (left: number): number[] =>
+      t.splitMode === "one_block" ? [left] : chunkLengthsToTry(left, t.chunk ?? 0, chunkFloor);
+
     /** Places the chunk under a ceiling, trying shorter viable lengths to fit. */
     const placeUnder = (ceil: number | undefined): { slot: Slot; len: number } | null => {
-      for (const len of chunkLengthsToTry(t.remaining, t.chunk ?? 0, chunkFloor)) {
+      for (const len of lengthsFor(t.remaining)) {
         const found = tryLen(len, ceil);
         if (found) return { slot: found, len };
       }
@@ -519,6 +549,88 @@ function runScheduler(
     const deadlineCeil = t.deadline === NO_DEADLINE ? undefined : t.deadline;
     const withinDeadline =
       deadlineCeil == null ? undefined : t.ceilAbs == null ? deadlineCeil : Math.min(t.ceilAbs, deadlineCeil);
+
+    /** Every chunk of this task on ONE day, or nothing.
+     *
+     * Deliberately not "place the first chunk normally, then pin the rest to
+     * whatever day it landed on": the first chunk goes wherever it fits
+     * earliest, which is routinely a day with no room for the remainder, and
+     * that would refuse work a later day could have taken whole. So each day is
+     * TRIED IN FULL — provisionally, against a layered busy view — and only a
+     * day that can hold the entire duration is committed to. */
+    const placeAllOnOneDay = (ceil: number | undefined): { slot: Slot; len: number }[] | null => {
+      for (let g = 0; g < inputs.horizonWeeks * 7; g++) {
+        // A pinned chunk has already been placed on a fixed day and its minutes
+        // taken out of what's left here. The REST has to join it, or the pin
+        // itself becomes the thing that breaks the one-day rule — which is how
+        // dragging a task to "In progress" would have scattered it: the board
+        // pins one chunk to today and leaves the remainder to be placed freely.
+        if (t.pin && g !== t.pin.gday) continue;
+        if ((g + 1) * 1440 <= floor) continue; // whole day is before the earliest start
+        if (ceil != null && g * 1440 >= ceil) break;
+        const trial = new Set<AbsMinute>();
+        const view: BusyView = { has: (m) => busy.has(m) || trial.has(m) };
+        const onThisDay = (d: GDay) => d === g;
+        const usedToday: Record<number, number> = { ...(perDay[t.id] || {}) };
+        const placements: { slot: Slot; len: number }[] = [];
+        let left = t.remaining;
+        // Bounded by the shortest legal chunk, so a day can never be retried
+        // forever; 15 is findSlot's placement grid, the smallest step possible.
+        let dayGuard = 0;
+        while (left > 0 && dayGuard++ < 200) {
+          let got: { slot: Slot; len: number } | null = null;
+          for (const len of lengthsFor(left)) {
+            const found = tryLen(len, ceil, view, onThisDay, usedToday);
+            if (found) {
+              got = { slot: found, len };
+              break;
+            }
+          }
+          if (!got) break;
+          markBusy(got.slot.abs, got.len, trial);
+          usedToday[got.slot.gday] = (usedToday[got.slot.gday] || 0) + got.len;
+          placements.push(got);
+          left -= got.len;
+        }
+        if (left <= 0) return placements;
+      }
+      return null;
+    };
+
+    if (t.splitMode === "one_day") {
+      // Same two-step as below: prefer a day before the deadline, and fall back
+      // to a later one rather than refusing outright — being late is a reported
+      // outcome, whereas being split is the thing this mode forbids.
+      const spread = (withinDeadline != null ? placeAllOnOneDay(withinDeadline) : null) ?? placeAllOnOneDay(t.ceilAbs);
+      if (!spread) {
+        t.stuckAt = t.remaining;
+        t.remaining = -1;
+        continue;
+      }
+      let endAbs = 0;
+      for (const { slot, len } of spread) {
+        markBusy(slot.abs, len, busy);
+        perDay[t.id] = perDay[t.id] || {};
+        perDay[t.id][slot.gday] = (perDay[t.id][slot.gday] || 0) + len;
+        chunks.push({
+          type: "task",
+          taskId: t.id,
+          projectId: t.projectId || null,
+          categoryId: t.categoryId ?? null,
+          tagLabel: labelTag(inputs, t.categoryId),
+          title: t.title,
+          gday: slot.gday,
+          start: slot.start,
+          end: slot.start + len,
+          priority: t.priority,
+        });
+        t.remaining -= len;
+        endAbs = Math.max(endAbs, slot.abs + len);
+      }
+      doneSet.add(t.id);
+      t.finishedAbs = endAbs;
+      continue;
+    }
 
     let placed = withinDeadline != null ? placeUnder(withinDeadline) : null;
     // Nothing fits before the deadline even in the smallest pieces allowed —

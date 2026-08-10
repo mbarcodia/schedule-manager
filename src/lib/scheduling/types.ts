@@ -43,6 +43,13 @@ export interface Category {
  * than leaving the work unscheduled. */
 export type LabelTimePref = "prefer_morning" | "morning_only" | "prefer_afternoon" | "afternoon_only";
 
+/** How far a task may be spread out (tasks.split_mode, migration 0042).
+ *
+ * Distinct from `chunk`, which is only a PREFERENCE the engine shrinks below to
+ * fit a gap. These two are constraints the engine refuses to break, which is why
+ * "I need it in one sitting" could not be said with chunk alone. */
+export type SplitMode = "free" | "one_day" | "one_block";
+
 /** A "global day" index: 0 = Monday of the current week, 1 = Tuesday, ...
  * 7 = Monday of next week, etc. Day-of-week is `gday % 7` (0=Mon..6=Sun). */
 export type GDay = number;
@@ -62,10 +69,17 @@ export interface Task {
   /** Preferred chunk size in minutes; the engine may shrink a chunk to fit
    * a gap, down to minChunk (or 30m if unset). */
   chunk: number;
-  /** Hard floor for a shrunk chunk, in minutes — sourced from the task's/
-   * project's category. Defaults to 30 (the engine's original universal
-   * floor) when the category has none set. */
+  /** Hard floor for a shrunk chunk, in minutes — the task's OWN minimum where it
+   * sets one, otherwise its label's. Defaults to 30 (the engine's original
+   * universal floor) when neither does. See migration 0042: a task's own figure
+   * overrides its label's in both directions, so this may be shorter than the
+   * label's floor as well as longer. */
   minChunk?: number;
+  /** Whether this work may be spread out, and how far — see migration 0042.
+   * "one_day" still splits, but every piece lands on a single day; "one_block"
+   * is one unbroken sitting. Both are HARD: work that can't be placed under one
+   * is left unplaced rather than split anyway. Undefined behaves as "free". */
+  splitMode?: SplitMode;
   /** Half-of-day constraint the scheduler must honor — "morning" means before
    * noon, "afternoon" means noon or later. Comes from the work's own
    * time_of_day, or failing that from a "*_only" label. Undefined = no hard

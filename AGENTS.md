@@ -34,6 +34,12 @@ same change. This has bitten repeatedly (eight bugs in one August 2025 audit, on
 of them live data loss). Grep the table name; don't trust a mental model of where
 it's read.
 
+Apply migrations with **`npm run migrate`**, never a bare `supabase db push` — it
+chains a full backup first and refuses to push if the snapshot fails. Then deploy
+in this order, or the live app breaks rather than degrades: **migrate → `git push`
+(Vercel) → `flyctl deploy --now` (the relay)**. Code that reads a new column 400s
+on every request until the column exists.
+
 Destructive migrations need a `-- data-loss:` line saying what happens to the
 data. Say the true thing — `0003_weekly_hours.sql` really did reset people's
 custom hours, and the check records that rather than hiding it.

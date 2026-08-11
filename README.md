@@ -132,8 +132,9 @@ a single day's hours, and labels. The chat is never the only route to a field.
   wrong for a permanent delete, so the permanent path was removed rather than
   guarded
 - A write that fails says so on screen instead of quietly reloading the old value
-- `npm run backup` snapshots every table to a local JSON file — run it before
-  applying a migration, which is the other way data goes missing
+- `npm run migrate` takes a full local snapshot **before** applying any
+  migration, and refuses to migrate if the snapshot fails — a schema change is
+  the other way data goes missing, and Trash cannot help there
 - `npm run check` fails the build if any code path hard-deletes one of those
   tables, reads one without filtering out trashed rows, or adds a destructive
   migration without saying what happens to the data
@@ -575,21 +576,31 @@ website the equivalent is the **Sync fork** button on your fork's main page.
 
 ### After pulling, two things may be needed
 
-**0. Take a snapshot first.** `npm run backup` writes every table to a
-timestamped JSON file under `backups/` (git-ignored — it is the plaintext of
-everything you have written). A migration is the one moment the app can lose data
-without anyone watching, so this is the cheap insurance for the step below.
+**1. Run any new migrations — with `npm run migrate`.** This is the one that
+bites. If the update added a database column, your database doesn't have it yet,
+and the new code will fail on every request that touches it.
 
-**1. Run any new migrations.** This is the one that bites. If the update added a
-database column, your database doesn't have it yet, and the new code will fail on
-every request that touches it:
+```bash
+npm run migrate
+```
+
+That is `npm run backup && supabase db push`, in that order and deliberately
+chained: a migration is the one moment the app can lose data with nobody
+watching, and the push does not run if the snapshot fails. The snapshot lands in
+`backups/` as timestamped JSON (git-ignored — it is the plaintext of everything
+you have written).
+
+Already-applied migrations are skipped, so it's safe to run every time — and
+running it *before* the new code goes live avoids the gap entirely.
+
+If the CLI isn't linked to your project yet, run `supabase link` once, or pass
+the connection string explicitly (Project Settings → Database → Connection
+string → **Direct connection**, with your database password — which is the
+Postgres password from when you created the project, not your app login):
 
 ```bash
 supabase db push --db-url "postgresql://postgres:[YOUR-PASSWORD]@[YOUR-HOST]:5432/postgres"
 ```
-
-Already-applied migrations are skipped, so it's safe to run every time — and
-running it *before* the new code goes live avoids the gap entirely.
 
 **2. Redeploy the relay, if you use one.** Only relevant if you connected Claude
 through a Pro/Max subscription (see "Connecting Claude" above). The relay bundles its own copy

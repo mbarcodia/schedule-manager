@@ -53,15 +53,21 @@ export interface DeleteImpact {
   also: string[];
 }
 
-/** Renders an impact as the body of a confirmation. Shared so every prompt in
- * the app words this the same way. */
-export function describeImpact(impact: DeleteImpact): string {
-  const lines = [`Move "${impact.title}" to Trash?`];
-  if (impact.also.length) {
-    lines.push("", "This also goes with it:", ...impact.also.map((l) => `  • ${l}`));
-  }
-  lines.push("", "You can restore it from the Trash tab.");
-  return lines.join("\n");
+/** Turns an impact into the fields a confirmation dialog needs. Shared so every
+ * one of these is worded the same way, and structured rather than pre-joined so
+ * the consequences render as a list you can scan instead of a run-on string. */
+export function describeImpact(impact: DeleteImpact): {
+  title: string;
+  lines: string[];
+  footnote: string;
+  confirmLabel: string;
+} {
+  return {
+    title: `Move "${impact.title}" to Trash?`,
+    lines: impact.also,
+    footnote: "Nothing is destroyed — restore it from the Trash tab, and it comes back with everything listed here.",
+    confirmLabel: "Move to Trash",
+  };
 }
 
 /** A single row, no children. Returns null on success, a sentence on failure. */

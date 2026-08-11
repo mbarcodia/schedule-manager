@@ -19,6 +19,7 @@ import { ArrowCounterClockwiseIcon, TrashIcon } from "@phosphor-icons/react";
 import { createClient } from "@/lib/supabase/client";
 import { restore, restoreTodoList, restoreList, type TrashableTable } from "@/lib/db/soft-delete";
 import { emptyTrash } from "@/lib/db/purge-trash";
+import { useConfirmDialog } from "@/components/ui/useConfirmDialog";
 
 interface TrashRow {
   table: TrashableTable;
@@ -54,6 +55,7 @@ export function TrashView({ onMutated }: { onMutated?: () => void }) {
   const [rows, setRows] = useState<TrashRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [confirmDialog, ask] = useConfirmDialog();
 
   const load = useCallback(async () => {
     const supabase = createClient();
@@ -132,12 +134,20 @@ export function TrashView({ onMutated }: { onMutated?: () => void }) {
     // Typed rather than clicked. This is the only destructive action left in the
     // app, and a Delete button one careless click from an OK is not meaningfully
     // different from the hard deletes this whole change removed.
-    const typed = prompt(
-      `Permanently destroy all ${rows?.length ?? 0} items in the Trash?\n\n` +
-        `This is the one thing in this app that cannot be undone.\n\n` +
-        `Type EMPTY to confirm.`,
-    );
-    if (typed !== "EMPTY") return;
+    const n = rows?.length ?? 0;
+    const ok = await ask({
+      title: `Permanently destroy ${n} item${n === 1 ? "" : "s"} in the Trash?`,
+      lines: [
+        "Everything listed here is deleted from the database outright.",
+        "There is no second copy — this is not the same as removing it.",
+        "A backup taken before now would still have it (npm run backup).",
+      ],
+      footnote: "This is the only action in this app that cannot be undone.",
+      confirmLabel: "Empty Trash",
+      danger: true,
+      typeToConfirm: "EMPTY",
+    });
+    if (!ok) return;
     const supabase = createClient();
     const {
       data: { user },
@@ -153,6 +163,7 @@ export function TrashView({ onMutated }: { onMutated?: () => void }) {
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto p-4">
+      {confirmDialog}
       {error && (
         <div className="mb-2 text-[11px]" style={{ color: "#e5484d" }}>
           {error}

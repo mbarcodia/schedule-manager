@@ -18,6 +18,7 @@ import { createClient } from "@/lib/supabase/client";
 import { writeError } from "@/lib/planner/write";
 import { softDelete, softDeleteTodoList, todoListImpact, describeImpact } from "@/lib/db/soft-delete";
 import { setTaskArchived } from "@/lib/planner/board-actions";
+import { useConfirmDialog } from "@/components/ui/useConfirmDialog";
 import { TodoItemPanel } from "./TodoItemPanel";
 import type { ChaseCadence, Database } from "@/lib/supabase/database.types";
 import type { WeeklyHours } from "@/lib/scheduling/types";
@@ -76,6 +77,7 @@ export function TodoView({ onMutated, focusItem }: { onMutated?: () => void; foc
    * itself for no reason. */
   const [error, setError] = useState<string | null>(null);
   const [openItem, setOpenItem] = useState<string | null>(null);
+  const [confirmDialog, ask] = useConfirmDialog();
 
   const load = useCallback(async () => {
     const supabase = createClient();
@@ -240,7 +242,7 @@ export function TodoView({ onMutated, focusItem }: { onMutated?: () => void; foc
     // Counted before asking, because "and everything on it" is not a question
     // anyone can answer: a list of two and a list of forty read identically.
     const impact = await todoListImpact(supabase, list.id, list.name);
-    if (!confirm(describeImpact(impact))) return;
+    if (!(await ask(describeImpact(impact)))) return;
 
     // The booked time each item was holding. This is the step the old version
     // skipped: the foreign key cascaded todo_items away and left their tasks and
@@ -275,6 +277,7 @@ export function TodoView({ onMutated, focusItem }: { onMutated?: () => void; foc
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto p-4">
+      {confirmDialog}
       {error && (
         <div className="mb-2 text-[11px]" style={{ color: "#e5484d" }}>
           {error}{" "}

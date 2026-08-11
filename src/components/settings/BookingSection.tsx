@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { writeError } from "@/lib/planner/write";
+import { useConfirmDialog } from "@/components/ui/useConfirmDialog";
 import type { Database, BookingDayWindowsJson, BookingLocationMode } from "@/lib/supabase/database.types";
 
 type BookingLinkRow = Database["public"]["Tables"]["booking_links"]["Row"];
@@ -58,6 +59,7 @@ export function BookingSection({ categories }: { categories: CategoryRow[] }) {
   const [links, setLinks] = useState<BookingLinkRow[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmDialog, ask] = useConfirmDialog();
   const [copied, setCopied] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -126,7 +128,17 @@ export function BookingSection({ categories }: { categories: CategoryRow[] }) {
   }
 
   async function disconnectGoogle() {
-    if (!confirm("Disconnect Google Calendar? Future bookings will no longer create Google events or email invites.")) return;
+    const ok = await ask({
+      title: "Disconnect Google Calendar?",
+      lines: [
+        "New bookings stop appearing on your real Google Calendar.",
+        "Guests stop receiving Google's email invitations.",
+      ],
+      footnote:
+        "Bookings already on your Google Calendar stay there, and this app keeps taking bookings either way \u2014 guests just get an on-screen confirmation and an .ics file instead. Reconnect any time.",
+      confirmLabel: "Disconnect",
+    });
+    if (!ok) return;
     await fetch("/api/google/status", { method: "DELETE" });
     setGoogle({ connected: false });
   }
@@ -177,7 +189,17 @@ export function BookingSection({ categories }: { categories: CategoryRow[] }) {
   }
 
   async function deleteLink(id: string) {
-    if (!confirm("Delete this booking link? Its page stops working immediately (past bookings are kept).")) return;
+    const ok = await ask({
+      title: "Delete this booking link?",
+      lines: [
+        "Its public page stops working immediately \u2014 anyone holding the URL gets nothing.",
+        "Bookings already made through it are kept, and stay on your calendar.",
+      ],
+      footnote: "Unlike the rest of the app, a booking link is not recoverable from the Trash \u2014 you would create a new one, with a new URL.",
+      confirmLabel: "Delete link",
+      danger: true,
+    });
+    if (!ok) return;
     const supabase = createClient();
     const message = await writeError("Couldn't delete that link", supabase.from("booking_links").delete().eq("id", id));
     if (message) return setError(message);
@@ -193,6 +215,7 @@ export function BookingSection({ categories }: { categories: CategoryRow[] }) {
 
   return (
     <div className="mt-8 pt-5 border-t border-border">
+      {confirmDialog}
       <h2 id="booking" className="text-base font-medium mb-1 scroll-mt-4">Booking page</h2>
       {error && (
         <div className="mb-2 text-[11px]" style={{ color: "#e5484d" }}>

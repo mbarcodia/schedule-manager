@@ -13,6 +13,7 @@ import { EyeSlashIcon, EyeIcon } from "@phosphor-icons/react";
 import { createClient } from "@/lib/supabase/client";
 import { writeError } from "@/lib/planner/write";
 import { softDelete, softDeleteList, listImpact, describeImpact } from "@/lib/db/soft-delete";
+import { useConfirmDialog } from "@/components/ui/useConfirmDialog";
 import type { Database } from "@/lib/supabase/database.types";
 
 type ListRow = Database["public"]["Tables"]["lists"]["Row"];
@@ -28,6 +29,7 @@ export function ListsView() {
   /** A write that didn't land — see TodoView: every action reloads afterwards,
    * so a swallowed failure read as the change undoing itself. */
   const [error, setError] = useState<string | null>(null);
+  const [confirmDialog, ask] = useConfirmDialog();
 
   const load = useCallback(async () => {
     const supabase = createClient();
@@ -129,7 +131,7 @@ export function ListsView() {
   async function removeList(list: ListRow) {
     const supabase = createClient();
     const impact = await listImpact(supabase, list.id, list.title);
-    if (!confirm(describeImpact(impact))) return;
+    if (!(await ask(describeImpact(impact)))) return;
     const message = await softDeleteList(supabase, list.id);
     if (message) return setError(message);
     await load();
@@ -139,6 +141,7 @@ export function ListsView() {
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto p-4">
+      {confirmDialog}
       {error && (
         <div className="mb-2 text-[11px]" style={{ color: "#e5484d" }}>
           {error}{" "}

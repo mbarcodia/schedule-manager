@@ -673,6 +673,104 @@ try {
     check("and nothing is scheduled on it", onClosedDay.length, 0);
   }
 
+  // ------------------------------------------------------------------ trash
+  //
+  // Soft delete is the one feature whose correctness cannot be seen from the
+  // source. The scanner proves every query carries the filter; it cannot prove
+  // that a restore puts back the right rows, and the timestamp-grouping rule is
+  // subtle enough to get wrong in a way that only shows up against real data:
+  // restore too much and an item you deleted last month reappears, restore too
+  // little and a list comes back empty.
+  console.log("\n== trash ==");
+  {
+    const { data: tl } = await admin
+      .from("todo_lists")
+      .insert({ user_id: userId, name: "Trash test list" })
+      .select("id")
+      .single();
+    const items = [];
+    for (const text of ["alpha", "beta", "gamma"]) {
+      const { data } = await admin
+        .from("todo_items")
+        .insert({ user_id: userId, list_id: tl.id, text })
+        .select("id")
+        .single();
+      items.push(data.id);
+    }
+
+    // One item removed on its own, BEFORE the list goes. This is the row the
+    // grouping rule exists for: restoring the list must not bring it back.
+    const soloStamp = new Date(Date.now() - 60_000).toISOString();
+    await admin.from("todo_items").update({ deleted_at: soloStamp }).eq("id", items[0]);
+
+    const liveItems = async () =>
+      (await admin.from("todo_items").select("id").eq("list_id", tl.id).is("deleted_at", null)).data ?? [];
+    check("an individually trashed item leaves the live set", (await liveItems()).length, 2);
+
+    // Now the list, the way the UI does it: children stamped with the parent's
+    // exact timestamp.
+    const stamp = new Date().toISOString();
+    await admin.from("todo_items").update({ deleted_at: stamp }).eq("list_id", tl.id).is("deleted_at", null);
+    await admin.from("todo_lists").update({ deleted_at: stamp }).eq("id", tl.id);
+
+    check("trashing the list clears its live items", (await liveItems()).length, 0);
+    const { data: liveLists } = await admin
+      .from("todo_lists")
+      .select("id")
+      .eq("id", tl.id)
+      .is("deleted_at", null);
+    check("and the list itself is gone from live reads", liveLists?.length ?? 0, 0);
+
+    // The engine and the chat must not see trashed rows. An event is the row
+    // type both of them read, so it is the one worth asserting on.
+    const { data: ev } = await admin
+      .from("events")
+      .insert({
+        user_id: userId,
+        source: "manual",
+        title: "Trash test event",
+        starts_at: new Date(Date.now() + 3 * 3600_000).toISOString(),
+        ends_at: new Date(Date.now() + 4 * 3600_000).toISOString(),
+      })
+      .select("id")
+      .single();
+    {
+      const r = await recompute();
+      checkThat(
+        "a live event reaches the engine",
+        r.rows.events.some((e) => e.id === ev.id),
+        "not found in rows",
+      );
+    }
+    await admin.from("events").update({ deleted_at: new Date().toISOString() }).eq("id", ev.id);
+    {
+      const r = await recompute();
+      checkThat(
+        "a trashed event does not reach the engine",
+        !r.rows.events.some((e) => e.id === ev.id),
+        "still present after trashing",
+      );
+      const ctxAfter = buildPlannerDynamicContext(r.rows, r.inputs, r.schedule, []);
+      checkThat(
+        "and does not reach the chat's per-turn context",
+        !ctxAfter.includes("Trash test event"),
+        "leaked into the snapshot the model is billed for",
+      );
+    }
+
+    // Restore, matching on the stamp — the whole point of the grouping.
+    await admin.from("todo_items").update({ deleted_at: null }).eq("list_id", tl.id).eq("deleted_at", stamp);
+    await admin.from("todo_lists").update({ deleted_at: null }).eq("id", tl.id);
+
+    check("restoring the list brings back exactly its own items", (await liveItems()).length, 2);
+    const { data: stillGone } = await admin
+      .from("todo_items")
+      .select("id")
+      .eq("id", items[0])
+      .is("deleted_at", null);
+    check("and does NOT resurrect the one trashed separately", stillGone?.length ?? 0, 0);
+  }
+
   // ---------------------------------------------------------------- cleanup
   console.log("\n== cleanup ==");
 } catch (err) {

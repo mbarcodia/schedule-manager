@@ -38,6 +38,13 @@ keeps it visible and remembers its weekly rate but schedules nothing — for wor
 that is genuinely paused rather than abandoned; it warns only when its date gets
 tight. **Archived** takes it off the boards, keeping its hours and dates.
 
+**Removing is not destroying.** Notes, to-dos, lists, targets and events go to a
+**Trash** tab you can restore them from; tasks and projects are **archived**, which
+is different and deliberate — archived means *finished*, and its logged hours still
+count toward what you got done. Nothing in either expires or is cleaned up on a
+schedule. Emptying the Trash is the only action in the app that destroys anything,
+and the chat cannot do it.
+
 A **reminder** isn't a separate thing: it's a to-do with a date and one or more
 lead times. The **Lists** tab is separate again — that's for things you're
 keeping track of (a reading list, what to pack) rather than things you'll do, and
@@ -95,7 +102,7 @@ Everything below is built and working — this is the whole feature set, not a r
 - Keeps durable notes per project (kinds: idea, todo, paper, update, other), exportable as one Markdown file
 - Runs on your own Anthropic API key **or** your existing Claude Pro/Max subscription
 
-**Planner board** (seven views: the first four read the live schedule and can't drift from it, the last three are yours to write in). Each opens with a short "what am I looking at", collapsible and remembered.
+**Planner board** (eight views: the first four read the live schedule and can't drift from it, the next three are yours to write in, and the last two are what you have finished and what you have removed). Each opens with a short "what am I looking at", collapsible and remembered.
 - **Week** — three numbers per label, because they fail differently: TARGET (from its share of the week), BOOKED (what the scheduler placed), DONE (what you ticked). Target vs booked is a capacity problem; booked vs done is a follow-through problem. A travel week has less capacity, so its target shrinks with it
 - **Progress** — projects in columns read from reality, not a status you maintain: whether the work left fits the time left at the current weekly rate. Judging that needs an effort estimate and a date, so a project without them sits in **Needs setup** and names the missing figure rather than guessing. Tasks appear under their project; drag one to pin it to today, move it up the queue, or unpin it
 - **Priorities** — importance (you set it, on projects and tasks alike) against urgency (read from the nearest date). The two trap quadrants are the point
@@ -103,6 +110,7 @@ Everything below is built and working — this is the whole feature set, not a r
 - **To-Do** — an item starts as a plain line; open it to say what it is: just a line, due by a date, or happening at a set time. Either can gain reminders and booked hours whenever you decide it needs them — set an earlier finish-by to book preparation (those blocks are labelled "Prep:"). A list can notify you about whatever is still unticked when the week, month or year ends
 - **Lists** — reading lists, packing lists, standing agendas: a paragraph, a checklist, or both, with nothing scheduled or notified
 - **Archive** — finished work is archived, never deleted, so logged hours survive for "what did I get done this semester?"; Restore puts something back
+- **Trash** — everything you have *removed*, and the way back. Notes, to-dos, lists, targets and events all land here instead of being destroyed, grouped by the action that removed them: a list that took fourteen items with it is one entry that restores all fifteen rows. Nothing expires or is swept on a timer
 - A live weekly-review strip (done/total, work-in-progress limit, missed blocks, at-risk deadlines) and a guided "Time to plan" interview
 
 **Everything is settable two ways.** Anything you can say to the chat you can
@@ -115,6 +123,20 @@ a single day's hours, and labels. The chat is never the only route to a field.
 - Per-link rules, all in **Settings → Booking page** (each link summarises its own underneath it): meeting lengths, bookable days with an earliest/latest time per day, minimum notice before someone can book, a buffer around meetings, and a maximum number of bookings per day. These are intentionally UI-only rather than chat-editable — they control what strangers can do to your calendar.
 - Visitors choose video or in person when you offer both; bookings land on your calendar (and optionally your real Google Calendar, which emails them an invite)
 - Either side can cancel or reschedule from a private link
+
+**Nothing gets silently dropped**
+- Every destructive action says what it will take with it, counted: "14 items, 3
+  with booked hours on the calendar" rather than "and everything on it"
+- The chat can archive and trash but **cannot destroy anything**. It resolves what
+  you name by fuzzy match, which is right for "log 45 minutes on grading" and
+  wrong for a permanent delete, so the permanent path was removed rather than
+  guarded
+- A write that fails says so on screen instead of quietly reloading the old value
+- `npm run backup` snapshots every table to a local JSON file — run it before
+  applying a migration, which is the other way data goes missing
+- `npm run check` fails the build if any code path hard-deletes one of those
+  tables, reads one without filtering out trashed rows, or adds a destructive
+  migration without saying what happens to the data
 
 **Notifications**
 - Web push: end-of-day check-in and weekly review, at your chosen local hour
@@ -552,6 +574,11 @@ Pushing that to your own repo triggers your Vercel deploy as usual. On GitHub's
 website the equivalent is the **Sync fork** button on your fork's main page.
 
 ### After pulling, two things may be needed
+
+**0. Take a snapshot first.** `npm run backup` writes every table to a
+timestamped JSON file under `backups/` (git-ignored — it is the plaintext of
+everything you have written). A migration is the one moment the app can lose data
+without anyone watching, so this is the cheap insurance for the step below.
 
 **1. Run any new migrations.** This is the one that bites. If the update added a
 database column, your database doesn't have it yet, and the new code will fail on

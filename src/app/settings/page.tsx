@@ -753,6 +753,19 @@ export default function SettingsPage() {
           <p className="mt-3 text-[11px] text-muted-2 leading-relaxed">
             A reminder isn&apos;t a separate thing — it&apos;s a to-do with a date and a lead time.
           </p>
+          {/* The distinction people get wrong, said once, where the rest of the
+             vocabulary is defined. Both words mean "off my board" and they are
+             not interchangeable: one keeps the hours in the record and one says
+             the thing should never have existed. */}
+          <p className="mt-2 text-[11px] text-muted-2 leading-relaxed">
+            <span className="text-text">Archived</span> and <span className="text-text">deleted</span> are different, and
+            nothing is destroyed by either. Archiving is for work you have finished: a task or commitment leaves the
+            boards, stops being scheduled, and its logged hours still count toward what you got done — it lives in the
+            Archive tab. Deleting is for something that should not be there: notes, to-dos, lists, targets and events go
+            to the Trash tab and can be restored from it, grouped by the action that removed them, so restoring a list
+            brings back exactly the items it took with it. Neither is ever emptied on a timer. The only thing that
+            destroys a record is emptying the Trash yourself, and the chat cannot do it.
+          </p>
         </div>
 
         <h1 id="claude-access" className="text-base font-medium mb-1 scroll-mt-4">Claude access</h1>

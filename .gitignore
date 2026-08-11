@@ -34,6 +34,15 @@ yarn-error.log*
 .env*
 !.env.example
 
+# database snapshots from `npm run backup`.
+#
+# Ignored before the script that writes them existed, deliberately. A snapshot is
+# the full plaintext contents of every note, to-do, project and event in the
+# database — and this repo is a public self-host template. One `git add -A` on an
+# un-ignored backup directory publishes somebody's entire schedule to GitHub, and
+# a force-push does not un-publish it.
+/backups/
+
 # vercel
 .vercel
 

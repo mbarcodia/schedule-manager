@@ -5,10 +5,10 @@
 > commits. Expect rough edges if you deploy your own instance today.
 
 A personal scheduling app: a week calendar with your projects, tasks, and time
-budgets, an AI chat for quick edits ("push my gym block to 6pm"), and a Planner
-— a longer-horizon AI chat for thinking a semester through and keeping notes
-tied to your schedule. Built with Next.js, Supabase (Postgres + Auth), and deployed on
-Vercel.
+budgets; one AI chat beside it that handles both quick edits ("push my gym block
+to 6pm") and guided planning for a whole semester; and a planner board that
+reads the live schedule and tells you what's keeping up and what isn't. Built
+with Next.js, Supabase (Postgres + Auth), and deployed on Vercel.
 
 This repo is self-serve: everything you need to run your own independent
 instance is below. No account or access from the original author is required.
@@ -26,12 +26,17 @@ way, so you can say what you mean and be understood.
 | **Routine** | A standing weekly slot: email, lunch, gym, lab meeting. Repeats on its own. |
 | **Time block** | What any of the above looks like once it's on the calendar. It wears its label's name in the corner; a routine says "Routine". |
 | **To-do** | Something to do, on a list you name. Occupies no time by itself; can gain a date, reminders and booked hours whenever you decide it needs them. |
-| **Label** | A grouping you name yourself — Deep focus, Teaching, Admin. Add as many as you like. It colours the left edge of its time block and names it, and carries two scheduling settings: a minimum chunk length, and which half of the day that kind of work belongs in (a preference, or a hard rule). |
+| **Label** | A grouping you name yourself — Deep focus, Teaching, Admin. Add as many as you like. It colours the left edge of its time block and names it, and carries three scheduling settings: a minimum chunk length, which half of the day that kind of work belongs in (a preference, or a hard rule), and optionally a share of each week it should get. |
 
 A project's weekly hours can be given an **active window** — a course that
 only needs five hours a week from December, a project that pauses over a
 conference. Without one, the hours are booked from today onward, which is right
 for something already running and wrong for anything that starts later.
+
+A project is in one of three states. **Active** schedules normally. **On hold**
+keeps it visible and remembers its weekly rate but schedules nothing — for work
+that is genuinely paused rather than abandoned; it warns only when its date gets
+tight. **Archived** takes it off the boards, keeping its hours and dates.
 
 A **reminder** isn't a separate thing: it's a to-do with a date and one or more
 lead times. The **Lists** tab is separate again — that's for things you're
@@ -58,25 +63,52 @@ Everything below is built and working — this is the whole feature set, not a r
 - Projects can carry a weekly-hours target the scheduler defends, claiming
   mornings by priority — or afternoons, or only between two dates
 - Targets: dated checkpoints inside a project that consume no hours, so an
-  interim date doesn't have to be faked as a task with an invented duration
+  interim date doesn't have to be faked as a task with an invented duration.
+  Each can carry the hours due by it, so a checkpoint two weeks out is measured
+  against its own slice rather than the whole project
+- A task can be held to **one day** or **one unbroken block**, and carry its own
+  minimum chunk. Both are hard rules: if no gap is big enough it stays off the
+  calendar and says so rather than being split anyway
+- Routines can hold a set time, a window, the **start or end of the day**
+  (moving with your hours, with nothing scheduled past them), or anywhere that
+  day
+- A label can claim a **share of each week** — measured against the whole week,
+  or against what's left after meetings. The weekly hours on the projects
+  wearing it then act as a ratio between them rather than a total you keep in
+  sync by hand
+- **What the week keeps back**: tell it how much of a typical week goes to
+  meetings and miscellany, and "can I take this on?" is answered against the
+  hours you really have. Advisory — the scheduler still fills the week, but pace
+  stops recommending a rate no week could hold
+- Anything unscheduled says **why** in one line — restricted to a half-day with
+  no room, its hours not started yet, no free time left this week — and a benign
+  reason is greyed rather than flagged, so a correctly-configured project doesn't
+  look broken
 - Sliding view: show 1, 3, 5 or 7 days at a time and shift the window a day at
-  a time, so a "week" can start on any weekday
+  a time, so a "week" can start on any weekday; past weeks stay readable as a
+  record
 
 **Chat (beside the calendar)** — two explicit modes, chosen with a toggle so it's never ambiguous which you're in:
-- **Quick task** — one change, executed immediately, no questions: "push my gym block to 6pm", "add 3h of grading due Friday, max 1h/day". Routine one-liners are routed to a smaller model.
+- **Chat** — a question or one change, answered straight away: "how free is Thursday?", "push my gym block to 6pm", "add 3h of grading due Friday, max 1h/day". Routine one-liners are routed to a smaller model.
 - **Planning session** — a guided interview for a semester, a month, or a new project: it asks a few questions at a time and fills your planner boards as you answer, working outward from fixed projects to flexible work, and saves standing scheduling rules it learns. Always uses your chosen model.
 - Reads your real capacity either way, and pushes back when a stretch is overcommitted
 - Keeps durable notes per project (kinds: idea, todo, paper, update, other), exportable as one Markdown file
 - Runs on your own Anthropic API key **or** your existing Claude Pro/Max subscription
 
-**Planner board** (six views: the first three read the live schedule and can't drift from it, the last three are yours to write in)
-- **Progress** — Backlog / This Week / In Progress / Done, derived from what the schedule actually says; drag a card to change the schedule
-- **Priorities** — importance (you set it) against urgency (read from deadlines)
-- **Timeline** — six months of project deadlines with their targets marked along the way, coloured by whether booked hours can still cover them
-- **To-Do** — lists you name, holding anything from a one-line errand to a talk you must prepare for; any item can gain a date, notification lead times, booked hours with both a start and a finish-by (which is how you book preparation — those blocks are labelled “Prep:”), and a fixed slot held on the calendar as an event, at any point after you write it down, and a list can notify you about whatever is still unticked when the week, month or year ends
+**Planner board** (seven views: the first four read the live schedule and can't drift from it, the last three are yours to write in). Each opens with a short "what am I looking at", collapsible and remembered.
+- **Week** — three numbers per label, because they fail differently: TARGET (from its share of the week), BOOKED (what the scheduler placed), DONE (what you ticked). Target vs booked is a capacity problem; booked vs done is a follow-through problem. A travel week has less capacity, so its target shrinks with it
+- **Progress** — projects in columns read from reality, not a status you maintain: whether the work left fits the time left at the current weekly rate. Judging that needs an effort estimate and a date, so a project without them sits in **Needs setup** and names the missing figure rather than guessing. Tasks appear under their project; drag one to pin it to today, move it up the queue, or unpin it
+- **Priorities** — importance (you set it, on projects and tasks alike) against urgency (read from the nearest date). The two trap quadrants are the point
+- **Timeline** — six months of project dates with their targets marked along the way. A date is either **hard** (externally imposed) or a **goal** you set yourself — scheduled toward the same way, but only a goal is yours to move when it slips
+- **To-Do** — an item starts as a plain line; open it to say what it is: just a line, due by a date, or happening at a set time. Either can gain reminders and booked hours whenever you decide it needs them — set an earlier finish-by to book preparation (those blocks are labelled "Prep:"). A list can notify you about whatever is still unticked when the week, month or year ends
 - **Lists** — reading lists, packing lists, standing agendas: a paragraph, a checklist, or both, with nothing scheduled or notified
-- **Archive** — finished tasks are archived, never deleted, so logged hours survive for "what did I get done this semester?"
+- **Archive** — finished work is archived, never deleted, so logged hours survive for "what did I get done this semester?"; Restore puts something back
 - A live weekly-review strip (done/total, work-in-progress limit, missed blocks, at-risk deadlines) and a guided "Time to plan" interview
+
+**Everything is settable two ways.** Anything you can say to the chat you can
+also type into a panel, and vice versa: projects (hours, dates, targets, effort
+estimate, importance, active window, on hold, archive), tasks, events, routines,
+a single day's hours, and labels. The chat is never the only route to a field.
 
 **Public booking page** (Calendly-style, optional)
 - Share a link; visitors see a column per day with the available times listed under each, computed from your working hours, calendars, and protected labels
@@ -86,6 +118,9 @@ Everything below is built and working — this is the whole feature set, not a r
 
 **Notifications**
 - Web push: end-of-day check-in and weekly review, at your chosen local hour
+- Reminders on dated to-dos, at lead times you set per item
+- A warning before an un-ticked block's grace period runs out
+- End-of-week / month / year nudges for whatever a list still has unticked
 
 **Deliberately efficient AI use** — prompt caching, small-model routing for routine edits, and a no-filler output rule; see ["Running this efficiently"](#running-this-efficiently)
 
@@ -124,15 +159,16 @@ subscription instead of an API key.
 | **Option A — your own Anthropic API key** | typically **$3–15** | Depends entirely on how much you chat; see below |
 | **Option B — existing Claude Pro/Max subscription** | **$0 extra** | Uses quota you already pay for, shared with your normal Claude usage |
 
-Model rates on Option A (per million tokens, **as of July 2026** — check
+Model rates on Option A (per million tokens, **as of August 2026** — check
 [Anthropic's pricing page](https://platform.claude.com/docs/en/pricing) for
 current numbers):
 
 | Model | Input | Output | Good for |
 |---|---|---|---|
-| Claude Haiku 4.5 | $1 | $5 | Simple task capture |
-| Claude Sonnet 5 | $3 | $15 | Recommended default; strong on multi-step work |
-| Claude Opus 4.8 | $5 | $25 | Deepest planning conversations |
+| Claude Haiku 4.5 | $1 | $5 | Routine one-liners — used automatically, not selectable |
+| Claude Sonnet 5 | $3 | $15 | Cheaper; reliable on planning and multi-step tool use |
+| Claude Opus 4.8 | $5 | $25 | Recommended default; long-horizon planning and realism checks |
+| Claude Fable 5 | $10 | $50 | Most capable. API key only — not on subscription plans |
 
 A typical day of quick edits plus one real planning conversation lands in the
 low tens of cents. Three things in this app hold that down without degrading
@@ -257,24 +293,32 @@ in **Settings**, which has a jump-list down the left side.
    subscription token. Nothing AI-related works until this is set, and it's
    per-account: your credential is never shared with or billed to anyone else
    who uses your deployment.
-3. **Standard hours** — the working window for each weekday. Everything the
+3. **Standard hours** — the working window for each weekday, plus how much of a
+   typical week to keep back for meetings and miscellany. Everything the
    scheduler does is bounded by this, so it's worth getting roughly right
    before adding tasks.
-4. **Labels** — groupings you name yourself, for whatever your work actually is
+4. **Routines** — standing weekly slots, at a set time, in a window, at the
+   start or end of the day, or wherever they fit.
+5. **Labels** — groupings you name yourself, for whatever your work actually is
    (Deep focus, Teaching, Admin…). A label colours the left edge of its time
    block and names it, and sets how that kind of work is scheduled: a minimum
-   chunk length, and which half of the day it belongs in. The booking page can
-   also protect specific labels from being booked over.
-5. **Connected calendars** — paste the ICS feed URL from Outlook / Google /
+   chunk length, which half of the day it belongs in, and optionally a share of
+   each week. The booking page can also protect specific labels from being
+   booked over.
+6. **Connected calendars** — paste the ICS feed URL from Outlook / Google /
    iCloud so existing meetings block time. Read-only: nothing is written back.
-6. **Notifications** *(optional)* — turn on push and pick the end-of-day and
+7. **Notifications** *(optional)* — turn on push and pick the end-of-day and
    weekly-review hours.
-7. **Booking page** *(optional)* — add your name, a video-meeting URL and/or an
+8. **Booking page** *(optional)* — add your name, a video-meeting URL and/or an
    in-person location, then create a link. See ["Booking page"](#booking-page).
 
-Then just talk to the chat beside the calendar: *"I teach Tuesdays and
-Thursdays 9:30–10:45"*, *"add 6 hours of model analysis a week"*, *"3h grading
-due Friday, no more than 1h a day"*. It creates the projects, tasks, and
+Also there: **Standing rules** (free-text instructions the planner carries into
+every conversation), **Un-ticked blocks** (the grace period), and **Calendar
+view** (how many days at a time).
+
+Then just talk to the chat beside the calendar: *"I have a standing meeting
+Tuesdays at 10"*, *"add 6 hours a week of analysis, due mid-March"*, *"3h
+grading due Friday, no more than 1h a day"*. It creates the projects, tasks, and
 routines for you — you don't have to fill anything in by hand.
 
 After this, day-to-day use is just opening the app and logging in; sessions
@@ -421,8 +465,8 @@ planner works" explains each view and how it maps onto the real schedule.
   research time, archive finished tasks, and keep notes.
 - Each note has a kind (idea, todo, paper, update, other) and can be linked
   to a project or a task, or left unlinked.
-- Create and edit notes either by asking in chat ("add a note to the model study about
-  the new element we need to design") or directly in the sidebar.
+- Create and edit notes either by asking in chat ("add a note to the review
+  project about the section we still need to draft") or directly in the sidebar.
 - The sidebar groups notes under their linked project; **Export notes** in
   the sidebar header downloads everything as one Markdown file.
 - It reads your existing notes when relevant, so you don't need to re-explain
@@ -479,8 +523,8 @@ user), on a Google account you control:
 
 Because the app stays unverified by Google, each person connecting sees a
 one-time "Google hasn't verified this app" warning (**Advanced → Go to… →
-Allow**). That's expected for a self-hosted tool used by its own author;
-verification is only required past 100 users. The only scope requested is
+Allow**). That's expected for a self-hosted tool; verification is only required
+past 100 users. The only scope requested is
 calendar events — the app can create and update the meetings it books, and
 nothing else.
 

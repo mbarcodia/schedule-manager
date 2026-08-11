@@ -20,6 +20,7 @@
 //   falsify the end-of-day/weekly hour accounting.
 
 import { createClient } from "@/lib/supabase/client";
+import { softDelete } from "@/lib/db/soft-delete";
 import type { TaskRow } from "@/components/board/KanbanCard";
 
 export type DroppableColumn = "backlog" | "this_week" | "in_progress";
@@ -279,10 +280,13 @@ export async function setTargetHit(targetId: string, hit: boolean): Promise<stri
   return error?.message ?? null;
 }
 
-/** Deleting is for a checkpoint that shouldn't exist. Hitting one that has been
- * met is setTargetHit — that's a record, and pace still counts its hours. */
+/** Removing is for a checkpoint that shouldn't exist. Hitting one that has been
+ * met is setTargetHit — that's a record, and pace still counts its hours.
+ *
+ * Goes to Trash rather than being destroyed: a target carries a date and, since
+ * 0035, the hours due by it, so a mis-clicked delete silently changed what pace
+ * measured against with nothing to restore. */
 export async function deleteTarget(targetId: string): Promise<string | null> {
   const supabase = createClient();
-  const { error } = await supabase.from("targets").delete().eq("id", targetId);
-  return error?.message ?? null;
+  return softDelete(supabase, "targets", targetId, "Couldn't move that target to Trash");
 }

@@ -39,7 +39,7 @@ async function prepareTurnInput(userId: string, secret: string, model: string, m
 
   const [rows, { data: noteRows }] = await Promise.all([
     queryScheduleRows(admin, userId),
-    admin.from("notes").select("*").eq("user_id", userId).order("updated_at", { ascending: false }),
+    admin.from("notes").select("*").is("deleted_at", null).eq("user_id", userId).order("updated_at", { ascending: false }),
   ]);
   const { inputs } = buildScheduleInputs(rows);
   const schedule = computeSchedule(inputs);

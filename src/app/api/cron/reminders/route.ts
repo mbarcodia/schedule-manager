@@ -40,13 +40,14 @@ export async function GET(request: Request) {
   const { data: reminders, error } = await supabase
     .from("todo_items")
     .select("id,user_id,text,due_at,due_all_day,notes,lead_minutes,sent_leads,list_id,done")
+    .is("deleted_at", null)
     .eq("done", false)
     .not("due_at", "is", null)
     .gte("due_at", horizonPast);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   // List names are the heading a reminder arrives under.
-  const { data: lists } = await supabase.from("todo_lists").select("id,name");
+  const { data: lists } = await supabase.from("todo_lists").select("id,name").is("deleted_at", null);
   const listName = new Map((lists ?? []).map((l) => [l.id, l.name]));
 
   // Only for the accounts that actually have a reminder pending this run.

@@ -51,7 +51,7 @@ export async function queryScheduleRows(
     // and its targets are all kept, and it is invisible to scheduling, pace and
     // the boards until restored.
     supabase.from("projects").select("*").eq("user_id", userId).is("archived_at", null),
-    supabase.from("targets").select("*").eq("user_id", userId),
+    supabase.from("targets").select("*").eq("user_id", userId).is("deleted_at", null),
     // Archived tasks keep their rows + progress_log history forever, but are
     // invisible to scheduling and the board (the archive view queries them
     // separately with archived_at NOT null).
@@ -68,6 +68,7 @@ export async function queryScheduleRows(
       .from("events")
       .select("*")
       .eq("user_id", userId)
+      .is("deleted_at", null)
       .gte("starts_at", windowStart)
       .lte("starts_at", windowEnd),
     supabase

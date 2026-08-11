@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { CaretDownIcon, CaretRightIcon, TrashIcon } from "@phosphor-icons/react";
 import { createClient } from "@/lib/supabase/client";
+import { softDelete } from "@/lib/db/soft-delete";
 import { writeError } from "@/lib/planner/write";
 import type { Database, NoteKind } from "@/lib/supabase/database.types";
 
@@ -51,7 +52,7 @@ export function PlannerSidebar({ refreshKey }: PlannerSidebarProps) {
       // a heading for one here would be the only place it still appeared. Its
       // notes stay in the database and come back with it.
       supabase.from("projects").select("id,title").eq("user_id", user.id).is("archived_at", null),
-      supabase.from("notes").select("*").eq("user_id", user.id).order("updated_at", { ascending: false }),
+      supabase.from("notes").select("*").is("deleted_at", null).eq("user_id", user.id).order("updated_at", { ascending: false }),
     ]);
     setProjects(rows ?? []);
     setNotes(noteRows ?? []);
@@ -81,7 +82,7 @@ export function PlannerSidebar({ refreshKey }: PlannerSidebarProps) {
 
   async function deleteNote(note: NoteRow) {
     const supabase = createClient();
-    const message = await writeError("Couldn't delete that note", supabase.from("notes").delete().eq("id", note.id));
+    const message = await softDelete(supabase, "notes", note.id, "Couldn't move that note to Trash");
     if (message) return setError(message);
     setError(null);
     setOpenId(null);

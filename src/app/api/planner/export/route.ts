@@ -23,7 +23,7 @@ export async function GET() {
   if (!user) return new Response("Not signed in", { status: 401 });
 
   const [{ data: notes }, { data: projects }, { data: tasks }] = await Promise.all([
-    supabase.from("notes").select("*").eq("user_id", user.id).order("updated_at", { ascending: false }),
+    supabase.from("notes").select("*").is("deleted_at", null).eq("user_id", user.id).order("updated_at", { ascending: false }),
     // Archived commitments ARE included here, unlike everywhere else: this is a
     // take-everything-with-you export, and silently dropping the notes attached
     // to finished work is the one thing a backup must not do.

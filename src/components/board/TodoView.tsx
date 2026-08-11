@@ -16,6 +16,8 @@ import { useCallback, useEffect, useState } from "react";
 import { EyeSlashIcon, EyeIcon, CaretDownIcon, CaretUpIcon } from "@phosphor-icons/react";
 import { createClient } from "@/lib/supabase/client";
 import { writeError } from "@/lib/planner/write";
+import { softDelete, softDeleteTodoList, todoListImpact, describeImpact } from "@/lib/db/soft-delete";
+import { setTaskArchived } from "@/lib/planner/board-actions";
 import { TodoItemPanel } from "./TodoItemPanel";
 import type { ChaseCadence, Database } from "@/lib/supabase/database.types";
 import type { WeeklyHours } from "@/lib/scheduling/types";
@@ -83,12 +85,12 @@ export function TodoView({ onMutated, focusItem }: { onMutated?: () => void; foc
     if (!user) return;
     const [{ data: listRows }, { data: itemRows }, { data: catRows }, { data: taskRows }, { data: profile }, { data: eventRows }] =
       await Promise.all([
-        supabase.from("todo_lists").select("*").order("sort_order").order("name"),
-        supabase.from("todo_items").select("*").order("sort_order").order("created_at"),
+        supabase.from("todo_lists").select("*").is("deleted_at", null).order("sort_order").order("name"),
+        supabase.from("todo_items").select("*").is("deleted_at", null).order("sort_order").order("created_at"),
         supabase.from("categories").select("*").order("sort_order"),
         supabase.from("tasks").select("*").is("archived_at", null),
         supabase.from("profiles").select("weekly_hours").eq("id", user.id).maybeSingle(),
-        supabase.from("events").select("*").eq("source", "manual"),
+        supabase.from("events").select("*").is("deleted_at", null).eq("source", "manual"),
       ]);
     setLists(listRows ?? []);
     setItems(itemRows ?? []);
@@ -216,25 +218,52 @@ export function TodoView({ onMutated, focusItem }: { onMutated?: () => void; foc
 
   async function removeItem(item: ItemRow) {
     const supabase = createClient();
-    // The booked time first: deleting the to-do while its task survived would
-    // leave hours on the calendar belonging to nothing.
+    // The booked time first: trashing the to-do while its task stayed live would
+    // leave hours on the calendar belonging to nothing. The task is archived
+    // rather than trashed — it already has that state, and archiving keeps its
+    // logged hours in the record where they belong.
     if (item.task_id) {
-      const message = await writeError("Couldn't remove its booked time", supabase.from("tasks").delete().eq("id", item.task_id));
+      const message = await setTaskArchived(item.task_id, true);
       if (message) return setError(message);
     }
     if (item.event_id) {
-      const message = await writeError("Couldn't remove its event", supabase.from("events").delete().eq("id", item.event_id));
+      const message = await softDelete(supabase, "events", item.event_id, "Couldn't remove its event");
       if (message) return setError(message);
     }
-    const message = await writeError("Couldn't remove that", supabase.from("todo_items").delete().eq("id", item.id));
+    const message = await softDelete(supabase, "todo_items", item.id, "Couldn't remove that");
     if (message) return setError(message);
     await refresh();
   }
 
   async function removeList(list: ListRow) {
-    if (!confirm(`Delete the "${list.name}" list and everything on it?`)) return;
     const supabase = createClient();
-    const message = await writeError("Couldn't delete that list", supabase.from("todo_lists").delete().eq("id", list.id));
+    // Counted before asking, because "and everything on it" is not a question
+    // anyone can answer: a list of two and a list of forty read identically.
+    const impact = await todoListImpact(supabase, list.id, list.name);
+    if (!confirm(describeImpact(impact))) return;
+
+    // The booked time each item was holding. This is the step the old version
+    // skipped: the foreign key cascaded todo_items away and left their tasks and
+    // events on the calendar, belonging to a to-do that no longer existed and
+    // reachable from nowhere in the UI. Nothing is cascaded now, so the cleanup
+    // has to be explicit — and it matches what removeItem does one item at a time.
+    const { data: items } = await supabase
+      .from("todo_items")
+      .select("id,task_id,event_id")
+      .eq("list_id", list.id)
+      .is("deleted_at", null);
+    for (const item of items ?? []) {
+      if (item.task_id) {
+        const message = await setTaskArchived(item.task_id, true);
+        if (message) return setError(message);
+      }
+      if (item.event_id) {
+        const message = await softDelete(supabase, "events", item.event_id, "Couldn't remove an item's event");
+        if (message) return setError(message);
+      }
+    }
+
+    const message = await softDeleteTodoList(supabase, list.id);
     if (message) return setError(message);
     await refresh();
   }

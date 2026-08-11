@@ -51,10 +51,11 @@ export function TaskDetailPopover({ block, top, onClose, onSetProgress }: TaskDe
         const { data: item } = await supabase
           .from("todo_items")
           .select("id,text,list_id")
+          .is("deleted_at", null)
           .eq("task_id", subjectId)
           .maybeSingle();
         if (item && !ignore) {
-          const { data: list } = await supabase.from("todo_lists").select("name").eq("id", item.list_id).maybeSingle();
+          const { data: list } = await supabase.from("todo_lists").select("name").is("deleted_at", null).eq("id", item.list_id).maybeSingle();
           setTodoLink({ itemId: item.id, itemText: item.text, listName: list?.name ?? "" });
         }
       }

@@ -17,8 +17,8 @@ export interface TodoLink {
 export async function fetchTodoLinks(): Promise<Map<string, TodoLink>> {
   const supabase = createClient();
   const [{ data: items }, { data: lists }] = await Promise.all([
-    supabase.from("todo_items").select("id,text,task_id,list_id").not("task_id", "is", null),
-    supabase.from("todo_lists").select("id,name"),
+    supabase.from("todo_items").select("id,text,task_id,list_id").is("deleted_at", null).not("task_id", "is", null),
+    supabase.from("todo_lists").select("id,name").is("deleted_at", null),
   ]);
   const listName = new Map((lists ?? []).map((l) => [l.id, l.name]));
   const out = new Map<string, TodoLink>();

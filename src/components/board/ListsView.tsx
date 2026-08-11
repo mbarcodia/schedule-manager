@@ -12,6 +12,7 @@ import { useCallback, useEffect, useState } from "react";
 import { EyeSlashIcon, EyeIcon } from "@phosphor-icons/react";
 import { createClient } from "@/lib/supabase/client";
 import { writeError } from "@/lib/planner/write";
+import { softDelete, softDeleteList, listImpact, describeImpact } from "@/lib/db/soft-delete";
 import type { Database } from "@/lib/supabase/database.types";
 
 type ListRow = Database["public"]["Tables"]["lists"]["Row"];
@@ -35,8 +36,8 @@ export function ListsView() {
     } = await supabase.auth.getUser();
     if (!user) return;
     const [{ data: listRows }, { data: itemRows }] = await Promise.all([
-      supabase.from("lists").select("*").order("sort_order").order("created_at"),
-      supabase.from("list_items").select("*").order("sort_order").order("created_at"),
+      supabase.from("lists").select("*").is("deleted_at", null).order("sort_order").order("created_at"),
+      supabase.from("list_items").select("*").is("deleted_at", null).order("sort_order").order("created_at"),
     ]);
     setLists(listRows ?? []);
     setItems(itemRows ?? []);
@@ -120,15 +121,16 @@ export function ListsView() {
 
   async function removeItem(id: string) {
     const supabase = createClient();
-    const message = await writeError("Couldn't remove that", supabase.from("list_items").delete().eq("id", id));
+    const message = await softDelete(supabase, "list_items", id, "Couldn't remove that");
     if (message) return setError(message);
     await load();
   }
 
   async function removeList(list: ListRow) {
-    if (!confirm(`Delete "${list.title}" and everything on it?`)) return;
     const supabase = createClient();
-    const message = await writeError("Couldn't delete that list", supabase.from("lists").delete().eq("id", list.id));
+    const impact = await listImpact(supabase, list.id, list.title);
+    if (!confirm(describeImpact(impact))) return;
+    const message = await softDeleteList(supabase, list.id);
     if (message) return setError(message);
     await load();
   }

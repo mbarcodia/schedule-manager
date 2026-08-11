@@ -25,6 +25,7 @@ async function findNote(ctx: ToolContext, needle: string): Promise<NoteLookup> {
   const { data: notes } = await ctx.supabase
     .from("notes")
     .select("id,title,content,kind,project_id,task_id,created_at,updated_at,user_id")
+    .is("deleted_at", null)
     .eq("user_id", ctx.userId);
   const result = findByTitle((notes ?? []) as NoteRow[], needle);
   if (result.match) {
@@ -201,18 +202,23 @@ function notesTools(ctx: ToolContext) {
 
   const delete_note = betaTool({
     name: "delete_note",
-    description: "Delete a note by title.",
+    description:
+      "Move a note to Trash by title. The note is hidden everywhere but not destroyed — the user can restore it from the Trash tab. You cannot permanently delete a note.",
     inputSchema: { type: "object", properties: { title: { type: "string" } }, required: ["title"] },
     run: async ({ title }) =>
       serialize(async () => {
         const { match: note, ambiguous } = await findNote(ctx, title);
         if (ambiguous.length) return ambiguousNoteMsg(title, ambiguous);
         if (!note) return `No note matching "${title}".`;
-        const { error } = await supabase.from("notes").delete().eq("id", note.id);
-        if (error) return `Couldn't delete the note: ${error.message}`;
+        const { error } = await supabase
+          .from("notes")
+          .update({ deleted_at: new Date().toISOString() })
+          .eq("id", note.id)
+          .is("deleted_at", null);
+        if (error) return `Couldn't move the note to Trash: ${error.message}`;
         markMutated(ctx);
         console.log(`[planner] delete_note: id=${note.id} title=${JSON.stringify(note.title)}`);
-        return `Deleted note "${note.title}".`;
+        return `Moved note "${note.title}" to Trash — restore it from the Trash tab if that was the wrong one.`;
       }),
   });
 
@@ -226,6 +232,7 @@ function notesTools(ctx: ToolContext) {
         let query = supabase
           .from("notes")
           .select("title,kind,updated_at,project_id,task_id")
+          .is("deleted_at", null)
           .eq("user_id", userId)
           .order("updated_at", { ascending: false });
         if (linked_to) {

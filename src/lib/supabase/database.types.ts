@@ -228,6 +228,7 @@ export interface Database {
           date_kind: DateKind;
           effort_estimate_min: number | null;
           created_at: string;
+          deleted_at: string | null;
         },
         {
           id?: string;
@@ -238,6 +239,7 @@ export interface Database {
           completed_at?: string | null;
           date_kind?: DateKind;
           effort_estimate_min?: number | null;
+          deleted_at?: string | null;
         },
         Partial<{
           title: string;
@@ -245,6 +247,7 @@ export interface Database {
           completed_at: string | null;
           date_kind: DateKind;
           effort_estimate_min: number | null;
+          deleted_at: string | null;
         }>
       >;
       tasks: Table<
@@ -373,6 +376,7 @@ export interface Database {
           kind: NoteKind;
           created_at: string;
           updated_at: string;
+          deleted_at: string | null;
         },
         {
           id?: string;
@@ -382,6 +386,7 @@ export interface Database {
           title: string;
           content?: string;
           kind?: NoteKind;
+          deleted_at?: string | null;
         },
         Partial<{
           project_id: string | null;
@@ -390,6 +395,7 @@ export interface Database {
           content: string;
           kind: NoteKind;
           updated_at: string;
+          deleted_at: string | null;
         }>
       >;
       planner_messages: Table<
@@ -441,6 +447,7 @@ export interface Database {
           location: string | null;
           meeting_url: string | null;
           created_at: string;
+          deleted_at: string | null;
         },
         {
           id?: string;
@@ -455,6 +462,7 @@ export interface Database {
           description?: string | null;
           location?: string | null;
           meeting_url?: string | null;
+          deleted_at?: string | null;
         },
         // all_day and location joined title/times when manual events became
         // editable from the calendar. Still narrower than the row: source,
@@ -467,6 +475,7 @@ export interface Database {
           ends_at: string;
           all_day: boolean;
           location: string | null;
+          deleted_at: string | null;
         }>
       >;
       calendar_connections: Table<
@@ -585,6 +594,7 @@ export interface Database {
           show_completed: boolean;
           sort_order: number;
           created_at: string;
+          deleted_at: string | null;
         },
         {
           id?: string;
@@ -593,6 +603,7 @@ export interface Database {
           chase?: ChaseCadence | null;
           show_completed?: boolean;
           sort_order?: number;
+          deleted_at?: string | null;
         },
         Partial<{
           name: string;
@@ -600,6 +611,7 @@ export interface Database {
           last_chased_at: string | null;
           show_completed: boolean;
           sort_order: number;
+          deleted_at: string | null;
         }>
       >;
       todo_items: Table<
@@ -620,6 +632,7 @@ export interface Database {
           event_id: string | null;
           sort_order: number;
           created_at: string;
+          deleted_at: string | null;
         },
         {
           id?: string;
@@ -633,6 +646,7 @@ export interface Database {
           sent_leads?: number[];
           notes?: string | null;
           sort_order?: number;
+          deleted_at?: string | null;
         },
         Partial<{
           text: string;
@@ -648,6 +662,7 @@ export interface Database {
           event_id: string | null;
           sort_order: number;
           list_id: string;
+          deleted_at: string | null;
         }>
       >;
       /** The Lists tab: things you're keeping track of, never scheduled. */
@@ -660,9 +675,10 @@ export interface Database {
           show_completed: boolean;
           sort_order: number;
           created_at: string;
+          deleted_at: string | null;
         },
-        { id?: string; user_id: string; title: string; body?: string; sort_order?: number },
-        Partial<{ title: string; body: string; show_completed: boolean; sort_order: number }>
+        { id?: string; user_id: string; title: string; body?: string; sort_order?: number ; deleted_at?: string | null;},
+        Partial<{ title: string; body: string; show_completed: boolean; sort_order: number ; deleted_at: string | null;}>
       >;
       list_items: Table<
         {
@@ -675,9 +691,10 @@ export interface Database {
           hidden: boolean;
           sort_order: number;
           created_at: string;
+          deleted_at: string | null;
         },
-        { id?: string; user_id: string; list_id: string; text: string; done?: boolean; sort_order?: number },
-        Partial<{ text: string; done: boolean; completed_at: string | null; hidden: boolean; sort_order: number }>
+        { id?: string; user_id: string; list_id: string; text: string; done?: boolean; sort_order?: number ; deleted_at?: string | null;},
+        Partial<{ text: string; done: boolean; completed_at: string | null; hidden: boolean; sort_order: number ; deleted_at: string | null;}>
       >;
       reminders: Table<
         {

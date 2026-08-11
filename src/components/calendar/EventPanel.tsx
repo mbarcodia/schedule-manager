@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { XIcon, TrashIcon } from "@phosphor-icons/react";
 import { createClient } from "@/lib/supabase/client";
+import { softDelete } from "@/lib/db/soft-delete";
 import type { Database } from "@/lib/supabase/database.types";
 
 type EventRow = Database["public"]["Tables"]["events"]["Row"];
@@ -56,7 +57,7 @@ export function EventPanel({
   const load = useCallback(async () => {
     if (!eventId) return;
     const supabase = createClient();
-    const { data } = await supabase.from("events").select("*").eq("id", eventId).maybeSingle();
+    const { data } = await supabase.from("events").select("*").is("deleted_at", null).eq("id", eventId).maybeSingle();
     setEvent(data ?? null);
     setLoading(false);
     if (!data) onClose();
@@ -164,10 +165,10 @@ function EventForm({
     setBusy(true);
     setError(null);
     const supabase = createClient();
-    const { error: err } = await supabase.from("events").delete().eq("id", event.id);
+    const err = await softDelete(supabase, "events", event.id, "Couldn't remove that event");
     if (err) {
       setBusy(false);
-      setError(`Couldn't remove that event: ${err.message}`);
+      setError(err);
       return;
     }
     await onSaved();

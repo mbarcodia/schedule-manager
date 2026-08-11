@@ -21,6 +21,7 @@
 
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { softDelete } from "@/lib/db/soft-delete";
 import { availableCapacity } from "@/lib/assistant/status";
 import { SPLIT_MODES, blankTaskDraft, labelMinChunkClash, type SplitMode } from "@/lib/planner/task-form";
 import type { WeeklyHours } from "@/lib/scheduling/types";
@@ -395,8 +396,8 @@ export function TodoItemPanel({
         patch.event_id = made.id;
       }
     } else if (item.event_id) {
-      const { error: err } = await supabase.from("events").delete().eq("id", item.event_id);
-      if (err) return fail(`Couldn't remove the calendar entry: ${err.message}`);
+      const err = await softDelete(supabase, "events", item.event_id, "Couldn't remove the calendar entry");
+      if (err) return fail(err);
       patch.event_id = null;
     }
 

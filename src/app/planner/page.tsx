@@ -10,6 +10,7 @@ import { CaretLeftIcon } from "@phosphor-icons/react";
 import { KanbanBoard } from "@/components/board/KanbanBoard";
 import { EisenhowerBoard } from "@/components/board/EisenhowerBoard";
 import { ArchiveView } from "@/components/board/ArchiveView";
+import { TrashView } from "@/components/board/TrashView";
 import { Timeline } from "@/components/board/Timeline";
 import { WeeklyReviewCard } from "@/components/board/WeeklyReviewCard";
 import { BoardViewIntro } from "@/components/board/BoardViewIntro";
@@ -19,7 +20,7 @@ import { WeekView } from "@/components/board/WeekView";
 import { PlannerSidebar } from "@/components/planner/PlannerSidebar";
 import { useScheduleData } from "@/hooks/useScheduleData";
 
-type BoardView = "week" | "kanban" | "eisenhower" | "timeline" | "todos" | "lists" | "archive";
+type BoardView = "week" | "kanban" | "eisenhower" | "timeline" | "todos" | "lists" | "archive" | "trash";
 
 const VIEWS: { id: BoardView; label: string }[] = [
   { id: "week", label: "Week" },
@@ -29,6 +30,7 @@ const VIEWS: { id: BoardView; label: string }[] = [
   { id: "todos", label: "To-Do" },
   { id: "lists", label: "Lists" },
   { id: "archive", label: "Archive" },
+  { id: "trash", label: "Trash" },
 ];
 
 export default function PlannerPage() {
@@ -111,6 +113,16 @@ export default function PlannerPage() {
           <ArchiveView
             onMutated={() => {
               // A restore puts the task back on the schedule — refetch it too.
+              void scheduleData.refresh();
+              onMutated();
+            }}
+          />
+        )}
+        {view === "trash" && (
+          <TrashView
+            onMutated={() => {
+              // A restored event or target is back on the calendar and back in
+              // pace, so the schedule has to be refetched, not just the board.
               void scheduleData.refresh();
               onMutated();
             }}

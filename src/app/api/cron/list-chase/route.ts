@@ -29,6 +29,7 @@ export async function GET(request: Request) {
   const { data: lists, error } = await supabase
     .from("todo_lists")
     .select("id,user_id,name,chase,last_chased_at")
+    .is("deleted_at", null)
     .not("chase", "is", null);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!lists?.length) return NextResponse.json({ lists: 0, chased: 0 });
@@ -47,6 +48,7 @@ export async function GET(request: Request) {
     const { data: open } = await supabase
       .from("todo_items")
       .select("text")
+      .is("deleted_at", null)
       .eq("list_id", list.id)
       .eq("done", false)
       .eq("hidden", false);

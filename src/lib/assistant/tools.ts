@@ -191,7 +191,7 @@ function resolvePin(ctx: ToolContext, dateStr?: string, timeStr?: string): Resol
  * engine can never bump. Everything else (other tasks/research) is fine to
  * displace. */
 async function pinConflict(ctx: ToolContext, pin: ResolvedPin, lengthMin: number): Promise<string | null> {
-  const { data: events } = await ctx.supabase.from("events").select("title,starts_at,ends_at").eq("user_id", ctx.userId);
+  const { data: events } = await ctx.supabase.from("events").select("title,starts_at,ends_at").is("deleted_at", null).eq("user_id", ctx.userId);
   const [y, mo, da] = pin.pinned_date.split("-").map(Number);
   const pinStart = zonedTimeToUtc(y, mo, da, Math.floor(pin.pinned_start_min / 60), pin.pinned_start_min % 60, ctx.timezone);
   const pinEnd = new Date(pinStart.getTime() + lengthMin * 60000);
@@ -526,28 +526,37 @@ export function buildTools(ctx: ToolContext) {
     },
   });
 
+  // Nothing this tool does is irreversible, and that is deliberate.
+  //
+  // It resolves a title by fuzzy match — the right behaviour for "log 45 minutes
+  // on grading" and the wrong behaviour for destroying a row. A needle scoring
+  // over 0.35 against exactly one candidate is acted on with no confirmation, so
+  // "remove the analysis" could once have permanently deleted a task nobody
+  // named, along with the hours logged against it. The match is unchanged; what
+  // changed is that being wrong is now recoverable.
+  //
+  // Tasks and projects archive. Targets and events go to Trash. The
+  // delete_permanently escape hatch is gone rather than gated: an escape hatch
+  // reachable by a model that has already mis-resolved the title is not a
+  // safeguard, and there is a Trash view for the case where the user genuinely
+  // wants a record gone.
   const remove_item = betaTool({
     name: "remove_item",
     description:
-      "Remove a task, project, target or event by title. Removing a PROJECT archives it: it comes off the boards and stops being scheduled, but its logged hours, its dates and its estimate are all kept and it can be restored from the Archive tab. That is almost always what is wanted for something finished or abandoned. Pass delete_permanently only if the user explicitly wants the record gone — that also destroys the hours logged against it, which nothing else in this app does.",
+      "Remove a task, project, target or event by title. Nothing is destroyed: a task or project is ARCHIVED (off the boards, no longer scheduled, logged hours and dates kept, restorable from the Archive tab), and a target or event goes to TRASH (hidden everywhere, restorable from the Trash tab). Both are reversible, so this is safe to run when the user asks to remove something. You cannot permanently delete anything — if the user wants a record gone for good, tell them to empty it from the Trash tab themselves.",
     inputSchema: {
       type: "object",
       properties: {
         title: { type: "string" },
-        delete_permanently: {
-          type: "boolean",
-          description:
-            "Projects only. Destroys the row, its logged hours and its dates instead of archiving. Irreversible — ask first, and say what will be lost.",
-        },
       },
       required: ["title"],
     },
-    run: async ({ title, delete_permanently }) => {
+    run: async ({ title }) => {
       const [{ data: tasks }, { data: projects }, { data: targets }, { data: events }] = await Promise.all([
         supabase.from("tasks").select("id,title").eq("user_id", userId),
         supabase.from("projects").select("id,title").eq("user_id", userId),
-        supabase.from("targets").select("id,title").eq("user_id", userId),
-        supabase.from("events").select("id,title").eq("user_id", userId),
+        supabase.from("targets").select("id,title").is("deleted_at", null).eq("user_id", userId),
+        supabase.from("events").select("id,title").is("deleted_at", null).eq("user_id", userId),
       ]);
 
       const tMatch = findByTitle(tasks ?? [], title);
@@ -555,25 +564,36 @@ export function buildTools(ctx: ToolContext) {
       const t = tMatch.match;
       if (t) {
         console.log(`[assistant] remove_item resolved: needle=${JSON.stringify(title)} -> task id=${t.id} title=${JSON.stringify(t.title)}`);
-        await Promise.all([
-          supabase.from("progress_log").delete().match({ user_id: userId, subject_type: "task", subject_id: t.id }),
-          supabase.from("pinned_chunks").delete().match({ user_id: userId, subject_type: "task", subject_id: t.id }),
-        ]);
-        const { data: deleted, error } = await supabase.from("tasks").delete().eq("id", t.id).select("id");
+        // Archived, not deleted — and its progress_log rows are left exactly
+        // where they are. Clearing them was the old behaviour and it destroyed
+        // the answer to "what did I get done this semester?" for any task that
+        // was later removed. An archived task is invisible to the scheduler and
+        // the boards; its hours still count in the record.
+        const { data: archived, error } = await supabase
+          .from("tasks")
+          .update({ archived_at: new Date().toISOString() })
+          .eq("id", t.id)
+          .is("archived_at", null)
+          .select("id");
         if (error) return `Couldn't remove "${t.title}": ${error.message}`;
-        if (!deleted || deleted.length === 0) return `Couldn't remove "${t.title}" — nothing was deleted, try again.`;
+        if (!archived || archived.length === 0) return `"${t.title}" was already archived.`;
         markMutated(ctx);
-        return `Removed "${t.title}" and its time blocks.`;
+        return `Archived "${t.title}" — it's off the calendar and the boards, its logged hours are kept, and you can restore it from the Archive tab.`;
       }
       const tgMatch = findByTitle(targets ?? [], title);
       if (tgMatch.ambiguous.length) return ambiguousMsg("targets", title, tgMatch.ambiguous);
       const tg = tgMatch.match;
       if (tg) {
-        const { data: deleted, error } = await supabase.from("targets").delete().eq("id", tg.id).select("id");
+        const { data: trashed, error } = await supabase
+          .from("targets")
+          .update({ deleted_at: new Date().toISOString() })
+          .eq("id", tg.id)
+          .is("deleted_at", null)
+          .select("id");
         if (error) return `Couldn't remove "${tg.title}": ${error.message}`;
-        if (!deleted || deleted.length === 0) return `Couldn't remove "${tg.title}" — nothing was deleted, try again.`;
+        if (!trashed || trashed.length === 0) return `"${tg.title}" was already in the Trash.`;
         markMutated(ctx);
-        return `Removed the target "${tg.title}".`;
+        return `Moved the target "${tg.title}" to Trash — restore it from the Trash tab if that was the wrong one.`;
       }
       const cMatch = findByTitle(projects ?? [], title);
       if (cMatch.ambiguous.length) return ambiguousMsg("projects", title, cMatch.ambiguous);
@@ -581,57 +601,34 @@ export function buildTools(ctx: ToolContext) {
       if (c) {
         console.log(`[assistant] remove_item resolved: needle=${JSON.stringify(title)} -> project id=${c.id} title=${JSON.stringify(c.title)}`);
 
-        // Archiving is the default because deleting a commitment took its
-        // progress_log rows and its targets with it — the one place in this app
-        // where finishing something destroyed the record of doing it.
-        if (!delete_permanently) {
-          const { error } = await supabase
-            .from("projects")
-            .update({ archived_at: new Date().toISOString() })
-            .eq("id", c.id);
-          if (error) return `Couldn't archive "${c.title}": ${error.message}`;
-          markMutated(ctx);
-          return `Archived "${c.title}" — it's off the boards and nothing more is scheduled for it, but its logged hours, dates and estimate are kept. Restore it from the Archive tab, or say so here.`;
-        }
-
-        // Checked, and ABORTING rather than logging: this is the cleanup that
-        // runs BEFORE the project row is deleted, and the reply below enumerates
-        // it as done. A failure here that let the delete proceed would leave
-        // progress_log rows whose subject_id points at nothing — orphans that
-        // still count toward logged hours, for a project that no longer exists
-        // to explain them. Better to remove nothing and say so.
-        const cleanup = await Promise.all([
-          supabase.from("progress_log").delete().match({ user_id: userId, subject_type: "research", subject_id: c.id }),
-          supabase.from("pinned_chunks").delete().match({ user_id: userId, subject_type: "research", subject_id: c.id }),
-          supabase.from("tasks").update({ project_id: null }).eq("project_id", c.id),
-        ]);
-        const cleanupError = cleanup.find((r) => r.error)?.error;
-        if (cleanupError) {
-          return `Couldn't remove "${c.title}": its logged hours and pinned time wouldn't clear (${cleanupError.message}). Nothing was deleted.`;
-        }
-        // Targets are children of the project, so they go with it (the
-        // foreign key cascades) — worth saying out loud in the reply.
-        const targetCount = (targets ?? []).length
-          ? (await supabase.from("targets").select("id").eq("commitment_id", c.id)).data?.length ?? 0
-          : 0;
-        const { data: deleted, error } = await supabase.from("projects").delete().eq("id", c.id).select("id");
-        if (error) return `Couldn't remove "${c.title}": ${error.message}`;
-        if (!deleted || deleted.length === 0) return `Couldn't remove "${c.title}" — nothing was deleted, try again.`;
+        // Archiving is the ONLY thing that happens here now. Deleting a
+        // commitment took its progress_log rows and its targets with it — the
+        // one place in this app where finishing something destroyed the record
+        // of doing it — and the permanent path has been removed rather than
+        // gated, because the title that got here was resolved by fuzzy match.
+        const { error } = await supabase
+          .from("projects")
+          .update({ archived_at: new Date().toISOString() })
+          .eq("id", c.id);
+        if (error) return `Couldn't archive "${c.title}": ${error.message}`;
         markMutated(ctx);
-        return `Permanently deleted the project "${c.title}", its weekly-hours blocks, its logged hours${
-          targetCount ? ` and its ${targetCount} target${targetCount > 1 ? "s" : ""}` : ""
-        }. Tasks that were linked to it stay, now unlinked. This cannot be undone.`;
+        return `Archived "${c.title}" — it's off the boards and nothing more is scheduled for it, but its logged hours, dates, targets and estimate are all kept. Restore it from the Archive tab, or say so here.`;
       }
       const evMatch = findByTitle(events ?? [], title);
       if (evMatch.ambiguous.length) return ambiguousMsg("events", title, evMatch.ambiguous);
       const ev = evMatch.match;
       if (ev) {
         console.log(`[assistant] remove_item resolved: needle=${JSON.stringify(title)} -> event id=${ev.id} title=${JSON.stringify(ev.title)}`);
-        const { data: deleted, error } = await supabase.from("events").delete().eq("id", ev.id).select("id");
+        const { data: trashed, error } = await supabase
+          .from("events")
+          .update({ deleted_at: new Date().toISOString() })
+          .eq("id", ev.id)
+          .is("deleted_at", null)
+          .select("id");
         if (error) return `Couldn't remove "${ev.title}": ${error.message}`;
-        if (!deleted || deleted.length === 0) return `Couldn't remove "${ev.title}" — nothing was deleted, try again.`;
+        if (!trashed || trashed.length === 0) return `"${ev.title}" was already in the Trash.`;
         markMutated(ctx);
-        return `Removed event "${ev.title}" — the freed time refills automatically.`;
+        return `Moved event "${ev.title}" to Trash — the freed time refills automatically, and you can restore it from the Trash tab.`;
       }
       const all = [...(tasks ?? []), ...(targets ?? []), ...(projects ?? [])];
       return `Nothing matching "${title}" found. Current items: ${all.map((x) => x.title).join(", ") || "none"}.`;
@@ -876,6 +873,7 @@ export function buildTools(ctx: ToolContext) {
       const { data: existing } = await supabase
         .from("targets")
         .select("id,title")
+        .is("deleted_at", null)
         .eq("commitment_id", lookup.projectId);
       // `hours != null`, not `if (inp.hours)`: 0 is a real instruction here —
       // erase the figure, which is what the panel's empty field stores. Testing
@@ -1014,6 +1012,7 @@ export function buildTools(ctx: ToolContext) {
         const { data: existing } = await supabase
           .from("targets")
           .select("id,title")
+          .is("deleted_at", null)
           .eq("commitment_id", lookup.projectId);
         // Keep the phase's hours, not just the date they imply. Pace needs them
         // to measure this checkpoint rather than the whole project against it,
@@ -1087,6 +1086,7 @@ export function buildTools(ctx: ToolContext) {
       const { data: targets } = await supabase
         .from("targets")
         .select("id,title,target_date")
+        .is("deleted_at", null)
         .eq("user_id", userId);
       const { match, ambiguous } = findByTitle(targets ?? [], inp.title);
       if (ambiguous.length) return ambiguousMsg("targets", inp.title, ambiguous);

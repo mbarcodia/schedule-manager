@@ -67,7 +67,7 @@ export async function POST(request: Request) {
         } else {
           const [rows, { data: noteRows }] = await Promise.all([
             queryScheduleRows(supabase, user.id),
-            supabase.from("notes").select("*").eq("user_id", user.id).order("updated_at", { ascending: false }),
+            supabase.from("notes").select("*").is("deleted_at", null).eq("user_id", user.id).order("updated_at", { ascending: false }),
           ]);
           const { inputs } = buildScheduleInputs(rows);
           const schedule = computeSchedule(inputs);

@@ -142,7 +142,7 @@ export function buildTodoReminderTools(ctx: ToolContext) {
       if (when && !dueAt) return `Couldn't understand the date "${when}" — try "november 10", "friday", or "in 2 weeks".`;
       const leadMinutes = dueAt && leads ? parseLeadMinutes(leads) : [];
       const listName = (list ?? "General").trim() || "General";
-      const { data: lists } = await supabase.from("todo_lists").select("id,name").eq("user_id", userId);
+      const { data: lists } = await supabase.from("todo_lists").select("id,name").is("deleted_at", null).eq("user_id", userId);
       const existing = findByTitle((lists ?? []).map((l) => ({ ...l, title: l.name })), listName).match;
 
       let listId = existing?.id;
@@ -188,9 +188,9 @@ export function buildTodoReminderTools(ctx: ToolContext) {
       required: ["text"],
     },
     run: async ({ text, list }) => {
-      let query = supabase.from("todo_items").select("id,text,list_id").eq("user_id", userId).eq("done", false);
+      let query = supabase.from("todo_items").select("id,text,list_id").is("deleted_at", null).eq("user_id", userId).eq("done", false);
       if (list) {
-        const { data: lists } = await supabase.from("todo_lists").select("id,name").eq("user_id", userId);
+        const { data: lists } = await supabase.from("todo_lists").select("id,name").is("deleted_at", null).eq("user_id", userId);
         const match = findByTitle((lists ?? []).map((l) => ({ ...l, title: l.name })), list).match;
         if (!match) return `No list matching "${list}".`;
         query = query.eq("list_id", match.id);
@@ -222,13 +222,14 @@ export function buildTodoReminderTools(ctx: ToolContext) {
       properties: { list: { type: "string", description: "just one list, by name" } },
     },
     run: async ({ list }) => {
-      const { data: lists } = await supabase.from("todo_lists").select("id,name").eq("user_id", userId).order("name");
+      const { data: lists } = await supabase.from("todo_lists").select("id,name").is("deleted_at", null).eq("user_id", userId).order("name");
       if (!lists?.length) return "No to-do lists yet.";
       const wanted = list ? [findByTitle(lists.map((l) => ({ ...l, title: l.name })), list).match].filter(Boolean) : lists;
       if (!wanted.length) return `No list matching "${list}".`;
       const { data: items } = await supabase
         .from("todo_items")
         .select("list_id,text,done")
+        .is("deleted_at", null)
         .eq("user_id", userId)
         .eq("done", false);
       return wanted
@@ -265,7 +266,7 @@ export function buildTodoReminderTools(ctx: ToolContext) {
       const leadMinutes = parseLeadMinutes(leads);
       const listName = (heading ?? "Reminders").trim() || "Reminders";
 
-      const { data: lists } = await supabase.from("todo_lists").select("id,name").eq("user_id", userId);
+      const { data: lists } = await supabase.from("todo_lists").select("id,name").is("deleted_at", null).eq("user_id", userId);
       const existing = findByTitle((lists ?? []).map((l) => ({ ...l, title: l.name })), listName).match;
       let listId = existing?.id;
       if (!listId) {
@@ -302,11 +303,12 @@ export function buildTodoReminderTools(ctx: ToolContext) {
       properties: { heading: { type: "string", description: "narrow to one list" } },
     },
     run: async ({ heading }) => {
-      const { data: lists } = await supabase.from("todo_lists").select("id,name").eq("user_id", userId);
+      const { data: lists } = await supabase.from("todo_lists").select("id,name").is("deleted_at", null).eq("user_id", userId);
       const nameById = new Map((lists ?? []).map((l) => [l.id, l.name]));
       let query = supabase
         .from("todo_items")
         .select("text,due_at,lead_minutes,list_id")
+        .is("deleted_at", null)
         .eq("user_id", userId)
         .eq("done", false)
         .not("due_at", "is", null)
@@ -341,6 +343,7 @@ export function buildTodoReminderTools(ctx: ToolContext) {
       const { data } = await supabase
         .from("todo_items")
         .select("id,text")
+        .is("deleted_at", null)
         .eq("user_id", userId)
         .not("due_at", "is", null);
       const found = findByTitle((data ?? []).map((r) => ({ ...r, title: r.text })), title);
@@ -393,6 +396,7 @@ export function buildTodoReminderTools(ctx: ToolContext) {
       const { data: items } = await supabase
         .from("todo_items")
         .select("id,text,due_at,due_all_day,task_id")
+        .is("deleted_at", null)
         .eq("user_id", userId)
         .eq("done", false);
       const found = findByTitle((items ?? []).map((i) => ({ ...i, title: i.text })), text);

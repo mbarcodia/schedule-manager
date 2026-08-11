@@ -6,7 +6,7 @@
 
 import { useEffect, useState } from "react";
 
-export type BoardViewId = "week" | "kanban" | "eisenhower" | "timeline" | "todos" | "lists" | "archive";
+export type BoardViewId = "week" | "kanban" | "eisenhower" | "timeline" | "todos" | "lists" | "archive" | "trash";
 
 const INTROS: Record<BoardViewId, { title: string; body: string }> = {
   week: {
@@ -38,6 +38,11 @@ const INTROS: Record<BoardViewId, { title: string; body: string }> = {
     title: "Lists — things you are keeping rather than doing",
     body:
       "A reading list, what to pack, the standing agenda for a recurring meeting. Each list holds a paragraph, a checklist, or both. Nothing here is ever scheduled or notified, and ticking something off has no consequence anywhere else — that is the whole difference from To-Do. Completed items grey out rather than vanishing.",
+  },
+  trash: {
+    title: "Trash — everything you have removed",
+    body:
+      "Removing something in this app moves it here instead of destroying it: notes, to-dos, lists, targets and events all land in the Trash, and Restore puts them back exactly where they were. Entries are grouped by the action that removed them, so a list that took fourteen items with it is one entry that restores all fifteen rows — not fifteen entries you would have to find and undo one at a time. Nothing here expires or is cleaned up on a schedule, because a timer that quietly removes things is the problem this exists to solve. Emptying the Trash is the only action in the app that destroys anything, and it asks you to type the word. Finished work is not clutter and does not come here — that is the Archive tab, and its logged hours still count.",
   },
   archive: {
     title: "Archive — everything you have finished",

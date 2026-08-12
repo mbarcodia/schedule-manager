@@ -259,6 +259,16 @@ export function Block({
           }}
         >
           {visual.tagLabel}
+          {/* One meeting that arrived down several feeds, drawn once. Sits with
+             the tag rather than as its own element so it inherits the same
+             fade-out at small block heights — at ultraCompact density there is
+             no room for either, and a count with no label reads as a mystery. */}
+          {block.onCalendars && block.onCalendars.length > 1 && (
+            <span title={`On ${block.onCalendars.length} calendars: ${block.onCalendars.join(", ")}`}>
+              {" "}
+              ×{block.onCalendars.length}
+            </span>
+          )}
         </div>
       )}
     </div>

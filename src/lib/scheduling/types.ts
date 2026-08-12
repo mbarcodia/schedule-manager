@@ -215,6 +215,11 @@ export interface CalendarEvent {
    * decided by the connection's all_day_mode and reaches the engine as
    * ScheduleInputs.allDayBlocks, not as busy time. */
   allDay?: boolean;
+  /** Every calendar carrying this same meeting, when more than one does — the
+   * duplicates were collapsed into this single event (see buildScheduleInputs).
+   * Absent for the ordinary one-calendar case. Kept as the labels rather than a
+   * count so the reason a meeting appears once can be shown, not just asserted. */
+  onCalendars?: string[];
 }
 
 /** Which end of the day a routine holds. See migration 0039: an anchored
@@ -326,6 +331,9 @@ export interface ScheduleBlock {
   meetingUrl?: string | null;
   connectionColor?: string | null;
   connectionLabel?: string | null;
+  /** Every calendar carrying this meeting, when more than one does. See
+   * CalendarEvent.onCalendars. */
+  onCalendars?: string[];
   /** UI-only: set when adjacent same-task chunks are visually merged into
    * one display block (see WeekGrid's mergeAdjacentTaskBlocks) — the
    * original chunks, needed to log progress against each one's own

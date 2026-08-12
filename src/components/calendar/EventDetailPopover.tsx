@@ -81,6 +81,16 @@ export function EventDetailPopover({ block, top, onClose, onEdit }: EventDetailP
             </span>
           )}
         </div>
+        {/* The same meeting arriving down more than one feed. Named rather than
+           silently collapsed: a meeting you know is on your work calendar
+           showing only your personal one's colour looks like the wrong row
+           survived, and this is the sentence that explains it. */}
+        {block.onCalendars && block.onCalendars.length > 1 && (
+          <div className="mt-1 text-[10.5px] text-muted-2">
+            Also on {block.onCalendars.length - 1} other calendar
+            {block.onCalendars.length > 2 ? "s" : ""}: {block.onCalendars.slice(1).join(", ")}
+          </div>
+        )}
         {block.location && <div className="mt-1 text-[10.5px] text-muted">📍 {block.location}</div>}
         {block.description && (
           <div className="mt-1.5 text-[10.5px] text-muted whitespace-pre-wrap leading-relaxed max-h-32 overflow-y-auto">

@@ -752,6 +752,7 @@ export function computeSchedule(
       meetingUrl: e.meetingUrl,
       connectionColor: e.connectionColor,
       connectionLabel: e.connectionLabel,
+      onCalendars: e.onCalendars,
     });
   });
 

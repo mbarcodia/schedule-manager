@@ -299,11 +299,71 @@ export function buildScheduleInputs(
   // the stricter reading is the safer default when someone has said they're out.
   const allDayBlocks: Record<number, "no_meetings" | "away"> = {};
 
-  const events: CalendarEvent[] = rows.events.map((e) => {
+  // ONE MEETING ON SEVERAL CALENDARS IS ONE MEETING.
+  //
+  // A meeting invited to two connected accounts arrives down both feeds as two
+  // rows, and every reader then treated them as two separate commitments. On
+  // screen that draws one block on top of another — which is indistinguishable
+  // from the scheduler having double-booked something, and was reported as
+  // exactly that. An audit of one real account found 36 overlapping pairs across
+  // a 145-day horizon, every one of them meeting-on-meeting, several of them the
+  // same standing meeting arriving down four feeds at once.
+  //
+  // Deduped HERE rather than in the sync, so both rows stay in the database:
+  // whichever feed happens to sync first would otherwise decide the surviving
+  // row's colour and source, and that would flip between hourly runs.
+  //
+  // THE KEY IS DELIBERATELY STRICT — identical title, identical start, identical
+  // end. Anything looser can hide a meeting that genuinely exists: two same-named
+  // slots at different times are a common, real thing (two sections of a class,
+  // back-to-back 1:1s), and a calendar that silently drops one is worse than a
+  // calendar that draws two. So a copy whose time differs by even a minute
+  // survives and stays visible, overlapping, which is the honest rendering of a
+  // feed that hasn't caught up with a moved invite.
+  //
+  // Capacity was never affected either way — freeHoursByDay marks busy MINUTES in
+  // a set, so the same minute blocked twice was always just blocked.
+  const dedupedRows: typeof rows.events = [];
+  /** For each surviving row, the labels of the other calendars carrying it, so
+   * the block can say "on 3 calendars" instead of quietly discarding the fact. */
+  const alsoOnByRowId = new Map<string, string[]>();
+  {
+    const seen = new Map<string, string>(); // dedupe key -> surviving row id
+    for (const e of rows.events) {
+      const key = `${e.title.trim().toLowerCase()}|${e.starts_at}|${e.ends_at}`;
+      const keptId = seen.get(key);
+      const labelOf = (row: typeof e) =>
+        (row.connection_id ? connectionById.get(row.connection_id)?.label : null) ?? "this app";
+      if (keptId == null) {
+        seen.set(key, e.id);
+        dedupedRows.push(e);
+        alsoOnByRowId.set(e.id, [labelOf(e)]);
+        continue;
+      }
+      // A duplicate. Record which calendar it also sits on, then decide which of
+      // the two rows survives: an event made in THIS APP wins over a synced
+      // mirror, because that is the one with a panel that can edit it. Losing
+      // that would make a meeting the user created uneditable.
+      alsoOnByRowId.get(keptId)!.push(labelOf(e));
+      if (!e.connection_id) {
+        const at = dedupedRows.findIndex((r) => r.id === keptId);
+        const labels = alsoOnByRowId.get(keptId)!;
+        alsoOnByRowId.delete(keptId);
+        alsoOnByRowId.set(e.id, labels);
+        seen.set(key, e.id);
+        if (at >= 0) dedupedRows[at] = e;
+      }
+    }
+  }
+
+  const events: CalendarEvent[] = dedupedRows.map((e) => {
     const s = timestampToParts(e.starts_at, timezone);
     const en = timestampToParts(e.ends_at, timezone);
     const gday = gdayForDate(timezone, s, now);
     const connection = e.connection_id ? connectionById.get(e.connection_id) : null;
+    // Only worth carrying when there IS more than one; the single-calendar case
+    // is almost every event and should cost nothing downstream.
+    const onCalendars = alsoOnByRowId.get(e.id) ?? [];
     return {
       id: e.id,
       title: e.title,
@@ -317,6 +377,7 @@ export function buildScheduleInputs(
       connectionColor: connection?.color ?? null,
       connectionLabel: connection?.label ?? null,
       allDay: e.all_day,
+      ...(onCalendars.length > 1 ? { onCalendars } : {}),
     };
   });
 

@@ -372,10 +372,10 @@ export function TodoView({ onMutated, focusItem }: { onMutated?: () => void; foc
           const openCount = all.filter((i) => !i.done).length;
           const hiddenCount = all.filter((i) => i.hidden).length;
           return (
-            <DragRow key={list.id} kind="list" id={list.id} index={listIndex} group="lists" className="rounded-lg">
+            <DragRow key={list.id} kind="list" id={list.id} index={listIndex} group="lists" orientation="horizontal" className="rounded-lg">
               {(listHandle) => (
             <div className="rounded-lg border border-border bg-panel p-3 flex flex-col min-h-[120px]">
-              <div className="flex items-baseline gap-1.5 mb-1">
+              <div className="flex items-center gap-1.5 mb-1">
                 {listHandle}
                 <span className="text-[12px] font-medium text-text truncate">{list.name}</span>
                 <span className="text-[10px] text-muted-2">{openCount}</span>

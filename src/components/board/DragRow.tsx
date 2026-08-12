@@ -35,6 +35,7 @@ export function DragRow({
   id,
   index,
   group,
+  orientation = "vertical",
   className,
   children,
 }: {
@@ -48,6 +49,11 @@ export function DragRow({
    * one id space, so without this you could drop a to-do onto another list's row
    * and it would silently reorder nothing. */
   group: string;
+  /** Which way this group flows, which decides where the insertion line goes.
+   * "vertical" = rows stacked down a column (a checklist), so the line is
+   * horizontal, above or below. "horizontal" = cards flowing across a wrapping
+   * grid, so the line is vertical, on the left or right edge. */
+  orientation?: "vertical" | "horizontal";
   className?: string;
   children: (handle: React.ReactNode) => React.ReactNode;
 }) {
@@ -56,6 +62,7 @@ export function DragRow({
     attributes,
     listeners,
     setNodeRef: setDragRef,
+    transform,
     isDragging,
   } = useDraggable({ id: composite, data: { kind, group, index } });
   const { setNodeRef: setDropRef, isOver, active } = useDroppable({ id: composite, data: { kind, group, index } });
@@ -69,7 +76,9 @@ export function DragRow({
     activeData.kind === kind &&
     activeData.group === group &&
     parseDragId(active!.id)?.id !== id;
-  const fromAbove = willAccept && (activeData?.index ?? 0) < index;
+  /** Coming from an earlier position, so it will settle AFTER this row — which
+   * puts the line on this row's far edge rather than its near one. */
+  const fromEarlier = willAccept && (activeData?.index ?? 0) < index;
 
   const handle = (
     <button
@@ -78,7 +87,12 @@ export function DragRow({
       {...listeners}
       aria-label="Reorder"
       title="Drag to reorder"
-      className="flex-none text-muted-2 opacity-0 group-hover/drag:opacity-100 hover:text-text"
+      // A fixed 16px box with the icon centred in it, rather than a bare 12px
+      // SVG. An icon dropped straight into a flex row has no text baseline, so it
+      // sat a pixel or two off from the checkbox and the first line of text and
+      // every row read as slightly out of true. h-4 matches the line box these
+      // rows use, so it lines up under both items-start and items-center.
+      className="flex-none flex items-center justify-center h-4 w-3 text-muted-2 opacity-0 group-hover/drag:opacity-100 hover:text-text"
       style={{ cursor: "grab", touchAction: "none" }}
     >
       <DotsSixVerticalIcon size={12} />
@@ -90,16 +104,44 @@ export function DragRow({
       ref={setDropRef}
       className={`group/drag ${className ?? ""}`}
       style={{
-        opacity: isDragging ? 0.4 : 1,
-        // A line on the edge the row will arrive at, rather than a box around the
-        // target — "it goes here" instead of "this one is selected".
-        boxShadow: willAccept
-          ? fromAbove
-            ? "inset 0 -2px 0 0 var(--color-accent, #9184d9)"
-            : "inset 0 2px 0 0 var(--color-accent, #9184d9)"
-          : undefined,
+        // Follows the pointer. Omitting this was the whole of "the grab feels
+        // weird": the row faded where it stood and nothing moved, so there was no
+        // way to tell a started drag from a misfired click. Same treatment as
+        // KanbanCard, and it must be paired with the raised z-index or the row
+        // slides UNDER its neighbours.
+        position: "relative",
+        ...(transform ? { transform: `translate(${transform.x}px, ${transform.y}px)`, zIndex: 30 } : null),
+        // Kept nearly opaque on purpose. At 0.4 the thing being dragged was
+        // almost invisible exactly while it needed watching.
+        opacity: isDragging ? 0.9 : 1,
       }}
     >
+      {/* An element, not an inset box-shadow. A shadow on this wrapper is painted
+         BEHIND its child, so any row whose content has an opaque background — a
+         list card is `bg-panel` — hid the line completely. That is why the line
+         showed for checklist rows and never for the cards. */}
+      {willAccept && (
+        <span
+          aria-hidden
+          style={{
+            position: "absolute",
+            background: "var(--color-accent, #9184d9)",
+            opacity: 0.5,
+            borderRadius: 2,
+            pointerEvents: "none",
+            zIndex: 40,
+            // Rows stack downward, so the gap is above or below. Cards flow
+            // left-to-right in a wrapping grid, where a horizontal line would
+            // point at the wrong seam entirely.
+            // Offsets put the line IN the gap between rows rather than on top of
+            // content: the checklist gap is 2px (gap-0.5) and the card gutter is
+            // 12px (gap-3), so -2 fills the former and -7 centres it in the latter.
+            ...(orientation === "vertical"
+              ? { left: 0, right: 0, height: 2, ...(fromEarlier ? { bottom: -2 } : { top: -2 }) }
+              : { top: 0, bottom: 0, width: 2, ...(fromEarlier ? { right: -7 } : { left: -7 }) }),
+          }}
+        />
+      )}
       {children(handle)}
     </div>
   );

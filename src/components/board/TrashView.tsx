@@ -39,6 +39,7 @@ const NOUN: Record<TrashableTable, string> = {
   list_items: "List item",
   targets: "Target",
   events: "Event",
+  routine_notes: "Routine note",
 };
 
 function ago(iso: string): string {
@@ -59,7 +60,7 @@ export function TrashView({ onMutated }: { onMutated?: () => void }) {
 
   const load = useCallback(async () => {
     const supabase = createClient();
-    const [notes, todoItems, todoLists, lists, listItems, targets, events] = await Promise.all([
+    const [notes, todoItems, todoLists, lists, listItems, targets, events, routineNotes] = await Promise.all([
       supabase.from("notes").select("id,title,deleted_at").not("deleted_at", "is", null),
       supabase.from("todo_items").select("id,text,deleted_at,list_id").not("deleted_at", "is", null),
       supabase.from("todo_lists").select("id,name,deleted_at").not("deleted_at", "is", null),
@@ -67,6 +68,10 @@ export function TrashView({ onMutated }: { onMutated?: () => void }) {
       supabase.from("list_items").select("id,text,deleted_at,list_id").not("deleted_at", "is", null),
       supabase.from("targets").select("id,title,deleted_at").not("deleted_at", "is", null),
       supabase.from("events").select("id,title,deleted_at").not("deleted_at", "is", null),
+      // Only ones explicitly removed reach here. A note whose window has closed
+      // is NOT deleted — it stays live on its routine and merely stops being
+      // surfaced (migration 0044), so it must never appear in the Trash.
+      supabase.from("routine_notes").select("id,body,deleted_at").not("deleted_at", "is", null),
     ]);
 
     const all: TrashRow[] = [];
@@ -78,6 +83,7 @@ export function TrashView({ onMutated }: { onMutated?: () => void }) {
     (lists.data ?? []).forEach((r) => push("lists", r.id, r.title, r.deleted_at));
     (targets.data ?? []).forEach((r) => push("targets", r.id, r.title, r.deleted_at));
     (events.data ?? []).forEach((r) => push("events", r.id, r.title, r.deleted_at));
+    (routineNotes.data ?? []).forEach((r) => push("routine_notes", r.id, r.body, r.deleted_at));
 
     // An item trashed AS PART OF its list is not listed separately — it is shown
     // as a count on the list, and restoring the list brings it back. An item

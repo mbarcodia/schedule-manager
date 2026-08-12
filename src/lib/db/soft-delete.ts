@@ -37,6 +37,11 @@ export const TRASHABLE = [
   "list_items",
   "targets",
   "events",
+  // A routine note EXPIRES on its own (0044) and that is not a delete — the row
+  // stays live and merely stops being surfaced. It is here for the other way one
+  // goes away: the chat removing it by fuzzy name match, which is precisely the
+  // failure mode this list exists to make survivable.
+  "routine_notes",
 ] as const;
 
 export type TrashableTable = (typeof TRASHABLE)[number];

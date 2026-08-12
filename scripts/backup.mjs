@@ -57,6 +57,10 @@ const TABLES = [
   "targets",
   "tasks",
   "recurring_rules",
+  // Worth backing up for a reason the other tables don't share: removing a
+  // routine hard-deletes its notes via the routine_id cascade, and they do not
+  // reach the Trash (migration 0044). A snapshot is the only way back.
+  "routine_notes",
   "preference_notes",
   "day_overrides",
   "events",
@@ -118,6 +122,17 @@ const outPath = join(dir, `${stamp}.json`);
 const snapshot = { taken_at: new Date().toISOString(), tables: {} };
 let total = 0;
 let failed = 0;
+/** Listed here and in a migration, but not in the live database yet — i.e. the
+ * migration about to be applied is the one that creates it.
+ *
+ * This is NOT an incomplete backup, and treating it as one deadlocks the only
+ * safe way to migrate: the completeness check above (rightly) demands the new
+ * table be listed, the live read then (rightly) fails because it doesn't exist,
+ * and `npm run migrate` can never run for any change that adds a table. The
+ * distinction that resolves it is that a table which doesn't exist holds nothing,
+ * so there is nothing it could be losing. A table that EXISTS and fails to read
+ * is still a hard stop. */
+const pending = [];
 
 for (const table of TABLES) {
   // Paged: a default select caps out and would truncate a large table into a
@@ -125,16 +140,29 @@ for (const table of TABLES) {
   const rows = [];
   let from = 0;
   const PAGE = 1000;
+  let missing = false;
   for (;;) {
     const { data, error } = await admin.from(table).select("*").range(from, from + PAGE - 1);
     if (error) {
-      console.error(`  !! ${table}: ${error.message}`);
-      failed++;
+      // PGRST205 is PostgREST's "no such table". Matched on the code rather than
+      // the message so a genuine permission or connection failure on an existing
+      // table can never be waved through as "not migrated yet".
+      if (error.code === "PGRST205" && from === 0) {
+        missing = true;
+        pending.push(table);
+      } else {
+        console.error(`  !! ${table}: ${error.message}`);
+        failed++;
+      }
       break;
     }
     rows.push(...data);
     if (data.length < PAGE) break;
     from += PAGE;
+  }
+  if (missing) {
+    console.log(`       -  ${table} (not created yet — this migration adds it)`);
+    continue;
   }
   snapshot.tables[table] = rows;
   total += rows.length;
@@ -143,8 +171,10 @@ for (const table of TABLES) {
 
 writeFileSync(outPath, JSON.stringify(snapshot, null, 2));
 
-console.log(`\n${total} rows from ${TABLES.length} tables -> backups/${stamp}.json`);
+console.log(`\n${total} rows from ${TABLES.length - pending.length} tables -> backups/${stamp}.json`);
 if (EXCLUDED.length) console.log(`(excluded, by design: ${EXCLUDED.join(", ")})`);
+if (pending.length)
+  console.log(`(not in the database yet, so nothing to snapshot: ${pending.join(", ")})`);
 
 if (failed) {
   console.error(

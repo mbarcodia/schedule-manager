@@ -27,6 +27,10 @@ export async function queryScheduleRows(
   const windowEnd = new Date(now.getTime() + HORIZON_WEEKS * 7 * DAY_MS).toISOString();
   const windowStartDate = windowStart.slice(0, 10);
   const windowEndDate = windowEnd.slice(0, 10);
+  /** Yesterday in UTC — the loose lower bound for anything keyed to "not past
+   * yet", covering every account timezone regardless of which side of the date
+   * line the server clock sits on. */
+  const cushionStartDate = new Date(now.getTime() - DAY_MS).toISOString().slice(0, 10);
 
   const factsPromise = fetchProgressFacts(supabase, userId);
 
@@ -37,6 +41,7 @@ export async function queryScheduleRows(
     targetsRes,
     tasksRes,
     rulesRes,
+    routineNotesRes,
     notesRes,
     overridesRes,
     eventsRes,
@@ -57,6 +62,21 @@ export async function queryScheduleRows(
     // separately with archived_at NOT null).
     supabase.from("tasks").select("*").eq("user_id", userId).is("archived_at", null),
     supabase.from("recurring_rules").select("*").eq("user_id", userId),
+    // Routine notes still worth saying: anything whose window hasn't closed and
+    // hasn't opened beyond the horizon. The bound here is deliberately one day
+    // loose on each side, because the account's timezone is in the profile row
+    // being fetched in this same batch and so isn't known yet — whether a note
+    // has expired "today" is decided later, in the account's own zone, where
+    // that is knowable (system-prompt.ts). A day of slack costs a handful of
+    // small rows; getting it wrong here would silently drop a note on its last
+    // day for anyone east of UTC.
+    supabase
+      .from("routine_notes")
+      .select("*")
+      .eq("user_id", userId)
+      .is("deleted_at", null)
+      .gte("ends_on", cushionStartDate)
+      .lte("starts_on", windowEndDate),
     supabase.from("preference_notes").select("*").eq("user_id", userId),
     supabase
       .from("day_overrides")
@@ -99,6 +119,7 @@ export async function queryScheduleRows(
     targetsRes,
     tasksRes,
     rulesRes,
+    routineNotesRes,
     notesRes,
     overridesRes,
     eventsRes,
@@ -119,6 +140,7 @@ export async function queryScheduleRows(
     targets: targetsRes.data ?? [],
     tasks: tasksRes.data ?? [],
     recurringRules: rulesRes.data ?? [],
+    routineNotes: routineNotesRes.data ?? [],
     preferenceNotes: notesRes.data ?? [],
     dayOverrides: overridesRes.data ?? [],
     events: eventsRes.data ?? [],

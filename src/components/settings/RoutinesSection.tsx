@@ -9,8 +9,10 @@
 // live in lib/planner/routine-form.ts so they can be tested without a browser.
 
 import { useCallback, useEffect, useState } from "react";
-import { PlusIcon, TrashIcon } from "@phosphor-icons/react";
+import { PlusIcon, TrashIcon, CheckIcon } from "@phosphor-icons/react";
 import { createClient } from "@/lib/supabase/client";
+import { writeError } from "@/lib/planner/write";
+import { softDelete } from "@/lib/db/soft-delete";
 import {
   ROUTINE_DAYS,
   describeRoutine,
@@ -20,6 +22,17 @@ import {
   type RoutineDraft,
   type RoutinePlacement,
 } from "@/lib/planner/routine-form";
+import {
+  describeWindow,
+  hasExpired,
+  isActiveOn,
+  nextWeekWindow,
+  validateNote,
+  windowFromText,
+  type RoutineNoteRow,
+} from "@/lib/planner/routine-notes";
+import { localDateKey } from "@/lib/scheduling/time";
+import { useConfirmDialog } from "@/components/ui/useConfirmDialog";
 import type { Database } from "@/lib/supabase/database.types";
 
 type RoutineRow = Database["public"]["Tables"]["recurring_rules"]["Row"];
@@ -47,14 +60,20 @@ const blankDraft = (): RoutineDraft => ({
 
 export function RoutinesSection({ categories }: { categories: CategoryRow[] }) {
   const [rows, setRows] = useState<RoutineRow[] | null>(null);
+  const [notes, setNotes] = useState<RoutineNoteRow[]>([]);
   const [draft, setDraft] = useState<RoutineDraft | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmDialog, ask] = useConfirmDialog();
 
   const load = useCallback(async () => {
     const supabase = createClient();
-    const { data } = await supabase.from("recurring_rules").select("*").order("created_at");
+    const [{ data }, { data: noteRows }] = await Promise.all([
+      supabase.from("recurring_rules").select("*").order("created_at"),
+      supabase.from("routine_notes").select("*").is("deleted_at", null).order("starts_on"),
+    ]);
     setRows(data ?? []);
+    setNotes(noteRows ?? []);
   }, []);
 
   useEffect(() => {
@@ -106,6 +125,24 @@ export function RoutinesSection({ categories }: { categories: CategoryRow[] }) {
   }
 
   async function remove(row: RoutineRow) {
+    // Its notes go with it and do NOT land in the Trash — recurring_rules has no
+    // deleted_at, so the routine_id cascade destroys them (migration 0044). Said
+    // with a count first, because this is the last path in the app that can
+    // silently lose typed text.
+    const attached = notes.filter((n) => n.routine_id === row.id).length;
+    if (attached > 0) {
+      const ok = await ask({
+        title: `Remove “${row.title}”?`,
+        lines: [
+          `${attached} note${attached === 1 ? "" : "s"} attached to it, destroyed with it`,
+        ],
+        footnote:
+          "Unlike everything else in this app, routine notes do not go to the Trash — this cannot be undone. A backup taken before now would still have them (npm run backup).",
+        confirmLabel: "Remove it",
+        danger: true,
+      });
+      if (!ok) return;
+    }
     setBusy(true);
     setError(null);
     const supabase = createClient();
@@ -121,6 +158,7 @@ export function RoutinesSection({ categories }: { categories: CategoryRow[] }) {
 
   return (
     <div className="mt-8 pt-5 border-t border-border">
+      {confirmDialog}
       <h2 id="routines" className="text-base font-medium mb-1 scroll-mt-4">
         Routines
       </h2>
@@ -149,36 +187,41 @@ export function RoutinesSection({ categories }: { categories: CategoryRow[] }) {
                 categories={categories}
               />
             ) : (
-              <div
-                key={row.id}
-                className="flex items-center gap-3 rounded-md border border-border bg-panel px-3 py-2"
-              >
-                <button
-                  onClick={() => setDraft(routineDraft(row))}
-                  className="flex-1 min-w-0 text-left"
-                  title="Change this routine"
-                >
-                  <div className="flex items-baseline gap-1.5">
-                    <span className="text-xs text-text">{row.title}</span>
-                    {(() => {
-                      const cat = categories.find((c) => c.id === row.category_id);
-                      return cat ? (
-                        <span className="text-[9.5px] tracking-wide uppercase" style={{ color: cat.color }}>
-                          {cat.name}
-                        </span>
-                      ) : null;
-                    })()}
-                  </div>
-                  <div className="text-[11px] text-muted">{describeRoutine(row)}</div>
-                </button>
-                <button
-                  onClick={() => void remove(row)}
-                  disabled={busy}
-                  title="Remove this routine"
-                  className="flex-none text-muted hover:text-text disabled:opacity-50"
-                >
-                  <TrashIcon size={13} />
-                </button>
+              <div key={row.id} className="rounded-md border border-border bg-panel px-3 py-2">
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => setDraft(routineDraft(row))}
+                    className="flex-1 min-w-0 text-left"
+                    title="Change this routine"
+                  >
+                    <div className="flex items-baseline gap-1.5">
+                      <span className="text-xs text-text">{row.title}</span>
+                      {(() => {
+                        const cat = categories.find((c) => c.id === row.category_id);
+                        return cat ? (
+                          <span className="text-[9.5px] tracking-wide uppercase" style={{ color: cat.color }}>
+                            {cat.name}
+                          </span>
+                        ) : null;
+                      })()}
+                    </div>
+                    <div className="text-[11px] text-muted">{describeRoutine(row)}</div>
+                  </button>
+                  <button
+                    onClick={() => void remove(row)}
+                    disabled={busy}
+                    title="Remove this routine"
+                    className="flex-none text-muted hover:text-text disabled:opacity-50"
+                  >
+                    <TrashIcon size={13} />
+                  </button>
+                </div>
+                <RoutineNotes
+                  routine={row}
+                  notes={notes.filter((n) => n.routine_id === row.id)}
+                  onChanged={load}
+                  onError={setError}
+                />
               </div>
             ),
           )}
@@ -214,6 +257,249 @@ export function RoutinesSection({ categories }: { categories: CategoryRow[] }) {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/** The notes on one routine: what to do in it, for a stretch of days.
+ *
+ * The panel half of add_routine_note. It exists because the chat must never be
+ * the only way to set something — but the two paths are not merely equivalent
+ * here, they parse identically: the quick buttons call windowFromText with the
+ * same phrases the chat accepts, so "next week" typed here and "next week" said
+ * to the chat cannot drift into meaning different weeks.
+ *
+ * Sorted by state rather than by date, because the question this list answers is
+ * "what am I about to be reminded of": what's live now, then what's coming, and
+ * the closed ones folded away behind a count since a note going quiet is the
+ * whole point of the feature and re-showing them would undo it. */
+function RoutineNotes({
+  routine,
+  notes,
+  onChanged,
+  onError,
+}: {
+  routine: RoutineRow;
+  notes: RoutineNoteRow[];
+  onChanged: () => Promise<void>;
+  onError: (message: string) => void;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [body, setBody] = useState("");
+  const [whenText, setWhenText] = useState("next week");
+  const [showPast, setShowPast] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const today = new Date();
+  const todayKey = localDateKey(today);
+  const live = notes.filter((n) => !n.done_at && !hasExpired(n, todayKey));
+  const past = notes.filter((n) => n.done_at || hasExpired(n, todayKey));
+  const window_ = windowFromText(whenText, today) ?? nextWeekWindow(today);
+  const problems = validateNote({ body, window: windowFromText(whenText, today) }, today);
+
+  async function save() {
+    const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return onError("You appear to be signed out — reload and try again.");
+    setBusy(true);
+    const message = await writeError(
+      "Couldn't save that note",
+      supabase.from("routine_notes").insert({
+        user_id: user.id,
+        routine_id: routine.id,
+        body: body.trim(),
+        starts_on: window_.startsOn,
+        ends_on: window_.endsOn,
+      }),
+    );
+    setBusy(false);
+    if (message) return onError(message);
+    setBody("");
+    setWhenText("next week");
+    setAdding(false);
+    await onChanged();
+  }
+
+  async function tick(note: RoutineNoteRow) {
+    const supabase = createClient();
+    const message = await writeError(
+      "Couldn't tick that off",
+      supabase.from("routine_notes").update({ done_at: new Date().toISOString() }).eq("id", note.id),
+    );
+    if (message) return onError(message);
+    await onChanged();
+  }
+
+  async function drop(note: RoutineNoteRow) {
+    const supabase = createClient();
+    const message = await softDelete(supabase, "routine_notes", note.id, "Couldn't remove that note");
+    if (message) return onError(message);
+    await onChanged();
+  }
+
+  /** Does the routine actually run inside the note's window? A note on a Mon/Wed
+   * routine scoped to a Saturday can never be read out, and silence is precisely
+   * the failure this feature is meant to prevent — so it is flagged on the row. */
+  const unreachable = (note: RoutineNoteRow): boolean => {
+    const start = new Date(note.starts_on + "T00:00:00");
+    const end = new Date(note.ends_on + "T00:00:00");
+    for (const d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      if (routine.days.includes((d.getDay() + 6) % 7)) return false;
+    }
+    return true;
+  };
+
+  const field =
+    "rounded border border-border bg-surface px-1.5 py-1 text-text text-[11px] outline-none focus-visible:border-accent";
+
+  return (
+    <div className="mt-1.5 pl-0.5 flex flex-col gap-1">
+      {live.map((note) => (
+        <div key={note.id} className="group flex items-baseline gap-1.5">
+          <span
+            className="flex-none text-[9.5px] tracking-wide uppercase"
+            style={{
+              color: isActiveOn(note, todayKey) ? "var(--color-accent-text, #d2cefd)" : "var(--color-muted-2, #75798c)",
+            }}
+            title={
+              isActiveOn(note, todayKey)
+                ? "Being read back to you now"
+                : "Starts later — it stays quiet until then"
+            }
+          >
+            {describeWindow(note, today)}
+          </span>
+          <span className="text-[11px] text-text flex-1 min-w-0">{note.body}</span>
+          {unreachable(note) && (
+            <span
+              className="flex-none text-[9.5px]"
+              style={{ color: "#e0a94e" }}
+              title={`${routine.title} doesn't run on any day in that window, so this will never come up.`}
+            >
+              never comes up
+            </span>
+          )}
+          <button
+            onClick={() => void tick(note)}
+            title="I've done this — stop mentioning it, but keep it in the history"
+            className="flex-none text-muted-2 opacity-0 group-hover:opacity-100 hover:text-text"
+          >
+            <CheckIcon size={11} />
+          </button>
+          <button
+            onClick={() => void drop(note)}
+            title="Delete this note (goes to the Trash)"
+            className="flex-none text-[10px] text-muted-2 opacity-0 group-hover:opacity-100 hover:text-text"
+          >
+            ✕
+          </button>
+        </div>
+      ))}
+
+      {adding ? (
+        <div className="mt-0.5 flex flex-col gap-1.5 rounded border border-accent bg-surface px-2 py-1.5">
+          <input
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && !problems.errors.length && void save()}
+            placeholder={`what to do in ${routine.title} — e.g. "search foundation MHW grants"`}
+            autoFocus
+            className={field}
+          />
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-[10px] text-muted-2">when:</span>
+            {["next week", "this week", "tomorrow", "the next 3 weeks"].map((phrase) => (
+              <button
+                key={phrase}
+                onClick={() => setWhenText(phrase)}
+                className="rounded border px-1.5 py-0.5 text-[10px]"
+                style={
+                  whenText === phrase
+                    ? { borderColor: "var(--color-accent, #9184d9)", color: "var(--color-accent-text, #d2cefd)" }
+                    : { borderColor: "var(--color-border, #2a2d3d)", color: "var(--color-muted, #9397ab)" }
+                }
+              >
+                {phrase}
+              </button>
+            ))}
+            {/* Free text as well as the buttons: the same parser the chat uses,
+               so anything sayable there is typeable here ("the week of Aug 17",
+               "August 20", "next month"). */}
+            <input
+              value={whenText}
+              onChange={(e) => setWhenText(e.target.value)}
+              placeholder="or type a date"
+              className={`${field} w-[124px]`}
+            />
+          </div>
+          <div className="text-[10px] text-muted">
+            {windowFromText(whenText, today)
+              ? `Comes up in ${routine.title} ${describeWindow({ starts_on: window_.startsOn, ends_on: window_.endsOn }, today)}, then goes quiet on its own.`
+              : "Couldn't read those dates — try “next week”, “Tuesday”, or “Aug 17”."}
+          </div>
+          {problems.warnings.map((w) => (
+            <div key={w} className="text-[10px]" style={{ color: "#e0a94e" }}>
+              {w}
+            </div>
+          ))}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => void save()}
+              disabled={busy || problems.errors.length > 0}
+              className="rounded border border-accent text-accent px-2 py-0.5 text-[10px] font-medium hover:bg-accent/10 disabled:opacity-50"
+            >
+              {busy ? "Saving…" : "Add note"}
+            </button>
+            <button
+              onClick={() => {
+                setAdding(false);
+                setBody("");
+              }}
+              className="text-[10px] text-muted-2 hover:text-text"
+            >
+              cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setAdding(true)}
+            className="flex items-center gap-1 text-[10px] text-muted-2 hover:text-text"
+            title="Leave yourself a note for a particular week's run of this routine"
+          >
+            <PlusIcon size={10} /> note for a specific week
+          </button>
+          {past.length > 0 && (
+            <button
+              onClick={() => setShowPast((s) => !s)}
+              className="text-[10px] text-muted-2 hover:text-text"
+            >
+              {showPast ? "hide" : `${past.length} past`}
+            </button>
+          )}
+        </div>
+      )}
+
+      {showPast &&
+        past.map((note) => (
+          <div key={note.id} className="group flex items-baseline gap-1.5">
+            <span className="flex-none text-[9.5px] tracking-wide uppercase text-muted-2">
+              {describeWindow(note, today)}
+              {note.done_at ? " · done" : ""}
+            </span>
+            <span className="text-[11px] text-muted-2 flex-1 min-w-0 line-through">{note.body}</span>
+            <button
+              onClick={() => void drop(note)}
+              title="Delete this note (goes to the Trash)"
+              className="flex-none text-[10px] text-muted-2 opacity-0 group-hover:opacity-100 hover:text-text"
+            >
+              ✕
+            </button>
+          </div>
+        ))}
     </div>
   );
 }

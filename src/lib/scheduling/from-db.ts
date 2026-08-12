@@ -36,6 +36,11 @@ export interface RawScheduleRows {
   targets: Row<"targets">[];
   tasks: Row<"tasks">[];
   recurringRules: Row<"recurring_rules">[];
+  /** Notes attached to those routines whose window covers today or a day still
+   * ahead (migration 0044). Optional because nothing in the scheduling engine
+   * reads them — they are context for the chat, not an input to placement — so
+   * the browser's own fetch path has no reason to carry them. */
+  routineNotes?: Row<"routine_notes">[];
   preferenceNotes: Row<"preference_notes">[];
   dayOverrides: Row<"day_overrides">[];
   events: Row<"events">[];

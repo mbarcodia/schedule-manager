@@ -36,6 +36,7 @@ export async function emptyTrash(supabase: Client, userId: string): Promise<Purg
     "targets",
     "notes",
     "events",
+    "routine_notes",
     "todo_lists",
     "lists",
   ];

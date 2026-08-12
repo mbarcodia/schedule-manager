@@ -126,6 +126,77 @@ export function parseTimeInText(text: string | null | undefined): number | null 
   return null;
 }
 
+/** A stretch of days, as the user said it — the range form of
+ * parseDeadlineDate, for things that are about a period rather than a moment.
+ *
+ * Exists because "next week" is the single most likely way to scope a routine
+ * note (migration 0044) and parseDeadlineDate cannot express it: that function
+ * returns one date, and a routine running Monday and Wednesday has two
+ * occurrences in the week being talked about. Asking which one would be asking
+ * the user to be more precise than they were.
+ *
+ * A WEEK RUNS MONDAY TO SUNDAY here, matching the gday grid the whole app is
+ * built on (startOfWeekMonday), so "next week" means the same seven days the
+ * calendar shows as next week.
+ *
+ * Anything this doesn't recognise as a range falls through to a single date via
+ * parseDeadlineDate, which makes "next Tuesday" and "August 17" work with no
+ * extra vocabulary. Returns null only when nothing at all parsed — the caller
+ * turns that into a question rather than guessing a window. */
+export function parseDateWindow(
+  rawLower: string,
+  today: Date,
+): { start: Date; end: Date } | null {
+  const lower = rawLower.toLowerCase().trim();
+  const civil = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const plus = (d: Date, days: number) => {
+    const out = civil(d);
+    out.setDate(out.getDate() + days);
+    return out;
+  };
+  // Monday of the week `d` falls in. Duplicated from scheduling/time.ts rather
+  // than imported: this module is the assistant's pure text layer and has no
+  // scheduling imports, and the expression is three lines.
+  const monday = (d: Date) => plus(d, -((d.getDay() + 6) % 7));
+
+  // "for the rest of this week" and "this week" are the same window: the point
+  // of a window is the days still to come, so it starts today either way rather
+  // than at a Monday already past.
+  if (/\b(this|current)\s+week\b/.test(lower) || /\brest\s+of\s+(the\s+|this\s+)?week\b/.test(lower)) {
+    return { start: civil(today), end: plus(monday(today), 6) };
+  }
+  if (/\b(next|coming|following)\s+week\b/.test(lower)) {
+    const start = plus(monday(today), 7);
+    return { start, end: plus(start, 6) };
+  }
+  // "the week of the 17th" / "week of Aug 17" — anchored on whatever date the
+  // inner phrase resolves to, then widened to that whole week.
+  const weekOf = lower.match(/\bweek\s+(?:of|beginning|starting|commencing)\s+(.+)$/);
+  if (weekOf) {
+    const anchor = parseDeadlineDate(weekOf[1].trim(), today);
+    if (anchor) return { start: monday(anchor), end: plus(monday(anchor), 6) };
+  }
+  // "for the next 3 weeks" / "the next 2 days" — from today, inclusive, so
+  // "the next 2 weeks" is 14 days and not 15.
+  const nextN = lower.match(/\b(?:the\s+)?next\s+(\d+)\s*(day|days|week|weeks)\b/);
+  if (nextN) {
+    const n = parseInt(nextN[1], 10);
+    const span = nextN[2].startsWith("week") ? n * 7 : n;
+    if (n > 0) return { start: civil(today), end: plus(today, span - 1) };
+  }
+  if (/\bnext\s+month\b/.test(lower)) {
+    const start = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+    return { start, end: new Date(today.getFullYear(), today.getMonth() + 2, 0) };
+  }
+  if (/\b(this|the\s+rest\s+of\s+(the|this))\s+month\b/.test(lower) || /\brest\s+of\s+the\s+month\b/.test(lower)) {
+    return { start: civil(today), end: new Date(today.getFullYear(), today.getMonth() + 1, 0) };
+  }
+
+  // Not a range phrase: one day, which is a legitimate window of length 1.
+  const single = parseDeadlineDate(lower, today);
+  return single ? { start: civil(single), end: civil(single) } : null;
+}
+
 /** Matches phrases meaning "start this immediately" — "now", "right now",
  * "immediately", "asap", "right away", "straight away". */
 export function isNowPhrase(s: string | null | undefined): boolean {

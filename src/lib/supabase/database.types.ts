@@ -696,6 +696,40 @@ export interface Database {
         { id?: string; user_id: string; list_id: string; text: string; done?: boolean; sort_order?: number ; deleted_at?: string | null;},
         Partial<{ text: string; done: boolean; completed_at: string | null; hidden: boolean; sort_order: number ; deleted_at: string | null;}>
       >;
+      /** What to do in a specific run of a routine, for a stretch of dates.
+       * Surfaced only while today is inside [starts_on, ends_on] — see
+       * migration 0044 for why the window is a pair of dates and why expiring
+       * deliberately isn't deleting. */
+      routine_notes: Table<
+        {
+          id: string;
+          user_id: string;
+          routine_id: string;
+          body: string;
+          starts_on: string;
+          ends_on: string;
+          done_at: string | null;
+          created_at: string;
+          deleted_at: string | null;
+        },
+        {
+          id?: string;
+          user_id: string;
+          routine_id: string;
+          body: string;
+          starts_on: string;
+          ends_on: string;
+          done_at?: string | null;
+          deleted_at?: string | null;
+        },
+        Partial<{
+          body: string;
+          starts_on: string;
+          ends_on: string;
+          done_at: string | null;
+          deleted_at: string | null;
+        }>
+      >;
       reminders: Table<
         {
           id: string;

@@ -21,7 +21,17 @@ import {
   parseRelativeMinutes,
 } from "./nlp-dates";
 import { statusReply } from "./status";
-import { dateForGday, gdayForDate, localDateKey, minToLabel, zonedTimeToUtc, zonedNow } from "@/lib/scheduling/time";
+import { dateForGday, gdayForDate, localDateKey, minToLabel, WEEKDAY_LABELS, zonedTimeToUtc, zonedNow } from "@/lib/scheduling/time";
+import {
+  dateFromKey,
+  describeWindow,
+  hasExpired,
+  isActiveOn,
+  validateNote,
+  windowFromText,
+  type NoteWindow,
+} from "@/lib/planner/routine-notes";
+import { softDelete } from "@/lib/db/soft-delete";
 import { allDayDueAt } from "@/lib/scheduling/all-day-due";
 import { computeSchedule } from "@/lib/scheduling/engine";
 import { buildScheduleInputs } from "@/lib/scheduling/from-db";
@@ -1426,10 +1436,22 @@ export function buildTools(ctx: ToolContext) {
 
       if (inp.remove) {
         if (!match) return `No recurring rule matching "${inp.title}".`;
+        // Counted BEFORE the delete, because the routine_id cascade takes them
+        // with it and recurring_rules has no Trash of its own (migration 0044).
+        // This is the app's one remaining path that destroys typed text outright,
+        // so the number is stated in the reply rather than left to be discovered.
+        const { count: noteCount } = await supabase
+          .from("routine_notes")
+          .select("id", { count: "exact", head: true })
+          .eq("routine_id", match.id)
+          .is("deleted_at", null);
         const { error } = await supabase.from("recurring_rules").delete().eq("id", match.id);
         if (error) return `Couldn't remove "${match.title}": ${error.message}`;
         markMutated(ctx);
-        return `Removed the recurring "${match.title}" rule.`;
+        const lost = noteCount
+          ? ` ${noteCount} note${noteCount === 1 ? "" : "s"} attached to it ${noteCount === 1 ? "was" : "were"} destroyed with it — those don't go to the Trash.`
+          : "";
+        return `Removed the recurring "${match.title}" rule.${lost}`;
       }
 
       const days = inp.days ? inp.days.map((d) => weekdayMap[d]).filter((d) => d != null) : (match?.days ?? [0, 1, 2, 3, 4]);
@@ -1507,6 +1529,187 @@ export function buildTools(ctx: ToolContext) {
         ? " Its minutes count toward that label's weekly share, so the commitments wearing it are asked for the rest."
         : "";
       return `${match ? "Updated" : "Added"} standing rule — "${inp.title}": ${length_min}m, ${win}. Saved permanently.${timeNote}${labelNote}`;
+    },
+  });
+
+  /** Resolves the routine a note is about, fresh from the database so a routine
+   * created earlier in the same turn can be annotated in it. */
+  async function findRoutine(needle: string) {
+    const { data: rules } = await supabase.from("recurring_rules").select("*").eq("user_id", userId);
+    return { rules: rules ?? [], match: fuzzyFindByTitle(rules ?? [], needle) };
+  }
+
+  /** Which weekdays the note will actually come up on: the routine's days
+   * intersected with the note's window. Said back on every write, because "next
+   * week" and "Saturday" are both accepted phrases and a routine that runs
+   * Mon/Wed has nothing to say about a Saturday — a note that can never surface
+   * has to announce itself rather than be discovered by its silence. */
+  function occurrencesInWindow(days: number[], win: NoteWindow): string[] {
+    const out: string[] = [];
+    const start = dateFromKey(win.startsOn);
+    const end = dateFromKey(win.endsOn);
+    for (const d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      const gdayIndex = (d.getDay() + 6) % 7; // JS Sun=0 -> app Mon=0
+      if (days.includes(gdayIndex)) out.push(`${WEEKDAY_LABELS[gdayIndex]} ${d.getMonth() + 1}/${d.getDate()}`);
+      if (out.length >= 8) break;
+    }
+    return out;
+  }
+
+  const add_routine_note = betaTool({
+    name: "add_routine_note",
+    description:
+      'Leave a note on a routine for a stretch of days, so it is read back when that routine next comes round. This is for the recurring session that is the same SLOT every week and a different JOB each time: "next week in my proposal search, look for foundation MHW grants", "for the next three weeks, my lab meeting should cover the pilot data", "on Tuesday, bring the reviewer comments to supervision". The note is surfaced only while its window covers the day being discussed and then goes quiet on its own, which is what makes it safe to write something for next week and forget you did. Use this INSTEAD of remember_rule (which is permanent and is an instruction about scheduling, not content) and INSTEAD of create_note (which attaches to a project and never expires). It does not change when or how long the routine is — that is update_recurring.',
+    inputSchema: {
+      type: "object",
+      properties: {
+        routine: { type: "string", description: "the routine's title, e.g. \"proposal search\"" },
+        note: {
+          type: "string",
+          description:
+            "what to do in it, in the user's own words. Written as the reminder they'll read, so keep their phrasing rather than summarising it.",
+        },
+        when: {
+          type: "string",
+          description:
+            'which days it applies to: "next week", "this week", "tuesday", "the week of Aug 17", "the next 3 weeks", "August 20", "next month". Required — there is no default, because a note surfacing on days the user didn\'t mean is the one way this feature fails badly.',
+        },
+      },
+      required: ["routine", "note", "when"],
+    },
+    run: async (inp) => {
+      const { rules, match } = await findRoutine(inp.routine);
+      if (!match) {
+        const known = rules.length ? ` Routines you have: ${rules.map((r) => r.title).join(", ")}.` : " You have no routines yet — update_recurring creates one.";
+        return `No routine matching "${inp.routine}".${known}`;
+      }
+      const win = windowFromText(inp.when, ctx.today);
+      const problems = validateNote({ body: inp.note, window: win }, ctx.today);
+      if (problems.errors.length) return problems.errors.join(" ");
+
+      const failed = await writeError(
+        `Couldn't save that note on "${match.title}"`,
+        supabase.from("routine_notes").insert({
+          user_id: userId,
+          routine_id: match.id,
+          body: inp.note,
+          starts_on: win!.startsOn,
+          ends_on: win!.endsOn,
+        }),
+      );
+      if (failed) return failed;
+      markMutated(ctx);
+
+      const when = describeWindow({ starts_on: win!.startsOn, ends_on: win!.endsOn }, ctx.today);
+      const hits = occurrencesInWindow(match.days, win!);
+      // The routine doesn't run inside the window at all. The note is saved
+      // rather than rejected — the window may simply have been said loosely —
+      // but it would otherwise sit there silently forever.
+      const reach = hits.length
+        ? ` It'll come up on ${hits.join(", ")}.`
+        : ` But "${match.title}" doesn't run on any day in that window (it runs ${match.days.map((d) => WEEKDAY_LABELS[d]).join("/")}), so as it stands this will never come up — give me a different window if that's not what you meant.`;
+      const warn = problems.warnings.length ? ` ${problems.warnings.join(" ")}` : "";
+      return `Noted on "${match.title}" for ${when}: "${inp.note}".${reach}${warn} It stops being mentioned after that on its own.`;
+    },
+  });
+
+  const list_routine_notes = betaTool({
+    name: "list_routine_notes",
+    description:
+      "Read the notes left on routines. Defaults to the ones still current (window covers today or a day still ahead), across every routine. Use it to answer \"what have I got noted for my lab meeting\" or before editing one, and pass include_past to see notes whose window has closed.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        routine: { type: "string", description: "limit to one routine's notes; omit for all" },
+        include_past: { type: "boolean", description: "also show notes whose window has already closed" },
+      },
+      required: [],
+    },
+    run: async (inp) => {
+      let routineIds: string[] | null = null;
+      let scope = "all routines";
+      if (inp.routine) {
+        const { match } = await findRoutine(inp.routine);
+        if (!match) return `No routine matching "${inp.routine}".`;
+        routineIds = [match.id];
+        scope = `"${match.title}"`;
+      }
+      const { data: notes, error } = await supabase
+        .from("routine_notes")
+        .select("*")
+        .eq("user_id", userId)
+        .is("deleted_at", null)
+        .order("starts_on");
+      if (error) return `Couldn't read those notes: ${error.message}`;
+
+      const titleById = new Map((await findRoutine("")).rules.map((r) => [r.id, r.title]));
+      const todayKey = localDateKey(ctx.today);
+      const rows = (notes ?? []).filter(
+        (n) =>
+          (!routineIds || routineIds.includes(n.routine_id)) &&
+          (inp.include_past || !hasExpired(n, todayKey)),
+      );
+      if (!rows.length) return `No ${inp.include_past ? "" : "current "}notes on ${scope}.`;
+      return rows
+        .map((n) => {
+          const state = n.done_at ? " [ticked off]" : hasExpired(n, todayKey) ? " [past]" : isActiveOn(n, todayKey) ? " [now]" : "";
+          return `- ${titleById.get(n.routine_id) ?? "unknown routine"} · ${describeWindow(n, ctx.today)}${state}: ${n.body}`;
+        })
+        .join("\n");
+    },
+  });
+
+  const remove_routine_note = betaTool({
+    name: "remove_routine_note",
+    description:
+      "Remove a note from a routine, or mark it as dealt with. Only reach for this when the user explicitly wants it gone or says they've done it — a note whose window has passed already goes quiet by itself and needs no cleanup. Removing puts it in the Trash, where it can be restored.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        note: { type: "string", description: "enough of the note's text to identify it" },
+        routine: { type: "string", description: "the routine it's on, if you know it — narrows the search" },
+        done: {
+          type: "boolean",
+          description:
+            "true = the user has done the thing, so tick it off (it stops being mentioned but stays in the routine's history). Otherwise it is deleted to the Trash.",
+        },
+      },
+      required: ["note"],
+    },
+    run: async (inp) => {
+      let routineId: string | null = null;
+      if (inp.routine) {
+        const { match } = await findRoutine(inp.routine);
+        if (!match) return `No routine matching "${inp.routine}".`;
+        routineId = match.id;
+      }
+      const { data: notes } = await supabase
+        .from("routine_notes")
+        .select("*")
+        .eq("user_id", userId)
+        .is("deleted_at", null);
+      const pool = (notes ?? []).filter((n) => !routineId || n.routine_id === routineId);
+      // findByTitle, not fuzzyFindByTitle: this one deletes, and a scored
+      // best-guess over a threshold is how the wrong row gets destroyed (0043).
+      // Ambiguity is reported and handed back rather than resolved by scoring.
+      const { match, ambiguous } = findByTitle(pool.map((n) => ({ ...n, title: n.body })), inp.note);
+      if (ambiguous.length)
+        return `"${inp.note}" matches more than one note: ${ambiguous.map((c) => `"${c.title}"`).join(", ")}. Say which.`;
+      if (!match) return `No note matching "${inp.note}"${inp.routine ? ` on "${inp.routine}"` : ""}.`;
+
+      if (inp.done) {
+        const failed = await writeError(
+          "Couldn't tick that note off",
+          supabase.from("routine_notes").update({ done_at: new Date().toISOString() }).eq("id", match.id),
+        );
+        if (failed) return failed;
+        markMutated(ctx);
+        return `Ticked off: "${match.body}". It stays in that routine's history and won't be mentioned again.`;
+      }
+      const failed = await softDelete(supabase, "routine_notes", match.id, "Couldn't remove that note");
+      if (failed) return failed;
+      markMutated(ctx);
+      return `Removed the note "${match.body}" — it's in the Trash if you want it back.`;
     },
   });
 
@@ -1637,6 +1840,9 @@ export function buildTools(ctx: ToolContext) {
     record_progress,
     pin_research,
     update_recurring,
+    add_routine_note,
+    list_routine_notes,
+    remove_routine_note,
     set_week_reserve,
     remember_rule,
     get_status,

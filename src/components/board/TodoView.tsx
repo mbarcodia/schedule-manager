@@ -14,11 +14,14 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { EyeSlashIcon, EyeIcon, CaretDownIcon, CaretUpIcon } from "@phosphor-icons/react";
+import { DndContext, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { createClient } from "@/lib/supabase/client";
 import { writeError } from "@/lib/planner/write";
 import { softDelete, softDeleteTodoList, todoListImpact, describeImpact } from "@/lib/db/soft-delete";
 import { setTaskArchived } from "@/lib/planner/board-actions";
+import { applyReorder, nextSortOrder, parseDragId } from "@/lib/planner/reorder";
 import { useConfirmDialog } from "@/components/ui/useConfirmDialog";
+import { DragRow } from "./DragRow";
 import { TodoItemPanel } from "./TodoItemPanel";
 import type { ChaseCadence, Database } from "@/lib/supabase/database.types";
 import type { WeeklyHours } from "@/lib/scheduling/types";
@@ -137,7 +140,9 @@ export function TodoView({ onMutated, focusItem }: { onMutated?: () => void; foc
     setNewChase("");
     const message = await writeError(
       "Couldn't add that list",
-      supabase.from("todo_lists").insert({ user_id: user.id, name, chase: newChase || null }),
+      supabase
+        .from("todo_lists")
+        .insert({ user_id: user.id, name, chase: newChase || null, sort_order: nextSortOrder(lists ?? []) }),
     );
     if (message) return setError(message);
     await refresh();
@@ -154,7 +159,12 @@ export function TodoView({ onMutated, focusItem }: { onMutated?: () => void; foc
     setDraft((d) => ({ ...d, [listId]: "" }));
     const message = await writeError(
       "Couldn't add that",
-      supabase.from("todo_items").insert({ user_id: user.id, list_id: listId, text }),
+      supabase.from("todo_items").insert({
+        user_id: user.id,
+        list_id: listId,
+        text,
+        sort_order: nextSortOrder(items.filter((i) => i.list_id === listId)),
+      }),
     );
     if (message) return setError(message);
     await refresh();
@@ -270,6 +280,43 @@ export function TodoView({ onMutated, focusItem }: { onMutated?: () => void; foc
     await refresh();
   }
 
+  // A small distance before a drag begins, so reaching for a checkbox or the
+  // expander isn't read as the start of one. Same threshold as the Kanban board.
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
+
+  /** Reordering, for the cards and for the to-dos inside them. Local state is set
+   * from the returned rows rather than refetching — a row snapping back to where
+   * it was for a moment reads as the drag having failed. No onMutated() either:
+   * order is presentation, and nothing on the calendar depends on it. */
+  async function handleDragEnd(event: DragEndEvent) {
+    const over = event.over ? parseDragId(event.over.id) : null;
+    const active = parseDragId(event.active.id);
+    if (!over || !active || over.kind !== active.kind) return;
+    const supabase = createClient();
+
+    if (active.kind === "list") {
+      const result = await applyReorder(supabase, "todo_lists", lists ?? [], active.id, over.id);
+      if (!result) return;
+      setLists(result.ordered);
+      if (result.error) setError(result.error);
+      return;
+    }
+    // Within one list only: the group passed in is that list's rows, so a drop on
+    // another list's row matches nothing and falls out here.
+    const listId = items.find((i) => i.id === active.id)?.list_id;
+    if (!listId) return;
+    const group = items.filter((i) => i.list_id === listId);
+    const result = await applyReorder(supabase, "todo_items", group, active.id, over.id);
+    if (!result) return;
+    setItems((prev) => {
+      const rest = prev.filter((i) => i.list_id !== listId);
+      return [...rest, ...result.ordered].sort(
+        (a, b) => a.sort_order - b.sort_order || a.created_at.localeCompare(b.created_at),
+      );
+    });
+    if (result.error) setError(result.error);
+  }
+
   if (lists === null) return <div className="px-5 py-4 text-[12px] text-muted">Loading…</div>;
 
   const field =
@@ -317,15 +364,19 @@ export function TodoView({ onMutated, focusItem }: { onMutated?: () => void; foc
         </p>
       )}
 
+      <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
       <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))" }}>
-        {lists.map((list) => {
+        {lists.map((list, listIndex) => {
           const all = items.filter((i) => i.list_id === list.id);
           const visible = all.filter((i) => !i.hidden && (list.show_completed || !i.done));
           const openCount = all.filter((i) => !i.done).length;
           const hiddenCount = all.filter((i) => i.hidden).length;
           return (
-            <div key={list.id} className="rounded-lg border border-border bg-panel p-3 flex flex-col min-h-[120px]">
+            <DragRow key={list.id} kind="list" id={list.id} index={listIndex} group="lists" className="rounded-lg">
+              {(listHandle) => (
+            <div className="rounded-lg border border-border bg-panel p-3 flex flex-col min-h-[120px]">
               <div className="flex items-baseline gap-1.5 mb-1">
+                {listHandle}
                 <span className="text-[12px] font-medium text-text truncate">{list.name}</span>
                 <span className="text-[10px] text-muted-2">{openCount}</span>
                 <button
@@ -359,9 +410,12 @@ export function TodoView({ onMutated, focusItem }: { onMutated?: () => void; foc
               </div>
 
               <div className="flex flex-col gap-0.5 flex-1">
-                {visible.map((item) => (
-                    <div key={item.id} id={`todo-${item.id}`}>
-                      <div className="group flex items-start gap-2">
+                {visible.map((item, itemIndex) => (
+                  <DragRow key={item.id} kind="item" id={item.id} index={itemIndex} group={list.id}>
+                    {(handle) => (
+                    <div id={`todo-${item.id}`}>
+                      <div className="group flex items-start gap-1.5">
+                        {handle}
                         <input
                           type="checkbox"
                           checked={item.done}
@@ -415,6 +469,8 @@ export function TodoView({ onMutated, focusItem }: { onMutated?: () => void; foc
                         />
                       )}
                     </div>
+                    )}
+                  </DragRow>
                 ))}
                 {visible.length === 0 && <div className="text-[10.5px] text-muted-2">nothing here</div>}
               </div>
@@ -438,9 +494,12 @@ export function TodoView({ onMutated, focusItem }: { onMutated?: () => void; foc
                 className="mt-2 rounded-md border border-border bg-surface px-2 py-1 text-[11px] text-text outline-none focus-visible:border-accent"
               />
             </div>
+              )}
+            </DragRow>
           );
         })}
       </div>
+      </DndContext>
     </div>
   );
 }

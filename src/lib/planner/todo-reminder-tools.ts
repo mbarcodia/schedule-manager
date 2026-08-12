@@ -18,6 +18,7 @@ import { parseDeadlineDate, parseTimeInText, findByTitle } from "@/lib/assistant
 import { allDayDueAt, formatDue } from "@/lib/scheduling/all-day-due";
 import { zonedTimeToUtc } from "@/lib/scheduling/time";
 import { writeError } from "@/lib/planner/write";
+import { nextSortOrder } from "@/lib/planner/reorder";
 import type { Database } from "@/lib/supabase/database.types";
 
 /** Named lead times so the model doesn't have to do minute arithmetic. */
@@ -115,6 +116,22 @@ function resolveStart(ctx: ToolContext, raw: string): string | null {
 export function buildTodoReminderTools(ctx: ToolContext) {
   const { supabase, userId } = ctx;
 
+  /** Where a new to-do goes on a list the user has arranged by hand: at the
+   * bottom. `sort_order` defaults to 0, so without this a to-do added by the chat
+   * would appear ABOVE whatever the user had deliberately put first — which is a
+   * worse failure from this side than from the UI, since nobody watching the chat
+   * is looking at the list when it happens. See reorder.ts. */
+  async function nextItemSortOrder(listId: string): Promise<number> {
+    const { data } = await supabase
+      .from("todo_items")
+      .select("sort_order")
+      .eq("list_id", listId)
+      .is("deleted_at", null)
+      .order("sort_order", { ascending: false })
+      .limit(1);
+    return data?.length ? data[0].sort_order + 1 : 0;
+  }
+
   const add_todo = betaTool({
     name: "add_todo",
     description:
@@ -142,7 +159,7 @@ export function buildTodoReminderTools(ctx: ToolContext) {
       if (when && !dueAt) return `Couldn't understand the date "${when}" — try "november 10", "friday", or "in 2 weeks".`;
       const leadMinutes = dueAt && leads ? parseLeadMinutes(leads) : [];
       const listName = (list ?? "General").trim() || "General";
-      const { data: lists } = await supabase.from("todo_lists").select("id,name").is("deleted_at", null).eq("user_id", userId);
+      const { data: lists } = await supabase.from("todo_lists").select("id,name,sort_order").is("deleted_at", null).eq("user_id", userId);
       const existing = findByTitle((lists ?? []).map((l) => ({ ...l, title: l.name })), listName).match;
 
       let listId = existing?.id;
@@ -150,7 +167,7 @@ export function buildTodoReminderTools(ctx: ToolContext) {
       if (!listId) {
         const { data: madeList, error } = await supabase
           .from("todo_lists")
-          .insert({ user_id: userId, name: listName })
+          .insert({ user_id: userId, name: listName, sort_order: nextSortOrder(lists ?? []) })
           .select("id")
           .single();
         if (error || !madeList) return `Couldn't create the "${listName}" list.`;
@@ -166,6 +183,7 @@ export function buildTodoReminderTools(ctx: ToolContext) {
         due_all_day: dueAt?.allDay ?? false,
         lead_minutes: leadMinutes,
         notes: notes?.trim() || null,
+        sort_order: await nextItemSortOrder(listId),
       });
       if (error) return `Couldn't add that to "${listName}".`;
       markMutated(ctx);
@@ -190,7 +208,7 @@ export function buildTodoReminderTools(ctx: ToolContext) {
     run: async ({ text, list }) => {
       let query = supabase.from("todo_items").select("id,text,list_id").is("deleted_at", null).eq("user_id", userId).eq("done", false);
       if (list) {
-        const { data: lists } = await supabase.from("todo_lists").select("id,name").is("deleted_at", null).eq("user_id", userId);
+        const { data: lists } = await supabase.from("todo_lists").select("id,name,sort_order").is("deleted_at", null).eq("user_id", userId);
         const match = findByTitle((lists ?? []).map((l) => ({ ...l, title: l.name })), list).match;
         if (!match) return `No list matching "${list}".`;
         query = query.eq("list_id", match.id);
@@ -222,7 +240,17 @@ export function buildTodoReminderTools(ctx: ToolContext) {
       properties: { list: { type: "string", description: "just one list, by name" } },
     },
     run: async ({ list }) => {
-      const { data: lists } = await supabase.from("todo_lists").select("id,name").is("deleted_at", null).eq("user_id", userId).order("name");
+      // Both orderings match the screen's: sort_order first, its tie-break second
+      // (TodoView.tsx). The user can now arrange these by hand, and reading them
+      // back in a different order than they're displayed in makes the chat's
+      // answer to "what's on my list" disagree with the list.
+      const { data: lists } = await supabase
+        .from("todo_lists")
+        .select("id,name,sort_order")
+        .is("deleted_at", null)
+        .eq("user_id", userId)
+        .order("sort_order")
+        .order("name");
       if (!lists?.length) return "No to-do lists yet.";
       const wanted = list ? [findByTitle(lists.map((l) => ({ ...l, title: l.name })), list).match].filter(Boolean) : lists;
       if (!wanted.length) return `No list matching "${list}".`;
@@ -231,7 +259,9 @@ export function buildTodoReminderTools(ctx: ToolContext) {
         .select("list_id,text,done")
         .is("deleted_at", null)
         .eq("user_id", userId)
-        .eq("done", false);
+        .eq("done", false)
+        .order("sort_order")
+        .order("created_at");
       return wanted
         .map((l) => {
           const open = (items ?? []).filter((i) => i.list_id === l!.id);
@@ -266,13 +296,13 @@ export function buildTodoReminderTools(ctx: ToolContext) {
       const leadMinutes = parseLeadMinutes(leads);
       const listName = (heading ?? "Reminders").trim() || "Reminders";
 
-      const { data: lists } = await supabase.from("todo_lists").select("id,name").is("deleted_at", null).eq("user_id", userId);
+      const { data: lists } = await supabase.from("todo_lists").select("id,name,sort_order").is("deleted_at", null).eq("user_id", userId);
       const existing = findByTitle((lists ?? []).map((l) => ({ ...l, title: l.name })), listName).match;
       let listId = existing?.id;
       if (!listId) {
         const { data: madeList, error } = await supabase
           .from("todo_lists")
-          .insert({ user_id: userId, name: listName })
+          .insert({ user_id: userId, name: listName, sort_order: nextSortOrder(lists ?? []) })
           .select("id")
           .single();
         if (error || !madeList) return `Couldn't create the "${listName}" list.`;
@@ -287,6 +317,7 @@ export function buildTodoReminderTools(ctx: ToolContext) {
         due_all_day: dueAt.allDay,
         lead_minutes: leadMinutes,
         notes: notes?.trim() || null,
+        sort_order: await nextItemSortOrder(listId),
       });
       if (error) return `Couldn't save that reminder.`;
       markMutated(ctx);
@@ -303,7 +334,7 @@ export function buildTodoReminderTools(ctx: ToolContext) {
       properties: { heading: { type: "string", description: "narrow to one list" } },
     },
     run: async ({ heading }) => {
-      const { data: lists } = await supabase.from("todo_lists").select("id,name").is("deleted_at", null).eq("user_id", userId);
+      const { data: lists } = await supabase.from("todo_lists").select("id,name,sort_order").is("deleted_at", null).eq("user_id", userId);
       const nameById = new Map((lists ?? []).map((l) => [l.id, l.name]));
       let query = supabase
         .from("todo_items")

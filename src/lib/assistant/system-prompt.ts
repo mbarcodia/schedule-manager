@@ -9,7 +9,8 @@
 // with optional facets — weekly hours, a deadline, a cadence, an active window —
 // and targets are the dated checkpoints inside it that carry no hours.
 
-import { dateForGday, minToLabel, MONTH_NAMES, WEEKDAY_LABELS } from "@/lib/scheduling/time";
+import { dateForGday, minToLabel, MONTH_NAMES, WEEKDAY_LABELS, zonedDateKey } from "@/lib/scheduling/time";
+import { activeNotesForPrompt } from "@/lib/planner/routine-notes";
 import { resolveDayWindow } from "@/lib/scheduling/day-window";
 import { allDayDueDate } from "@/lib/scheduling/all-day-due";
 import { computePace, paceSentence } from "@/lib/scheduling/pace";
@@ -81,7 +82,15 @@ function summariseDistantEvents(inputs: ScheduleInputs, fromGday: number) {
 /** The schedule-state sections shared by the assistant and planner prompts —
  * extracted so the planner can compose its own behavioral text around the
  * same fresh per-turn snapshot. */
-export function buildPromptContext(rows: RawScheduleRows, inputs: ScheduleInputs, schedule: ComputeScheduleResult) {
+export function buildPromptContext(
+  rows: RawScheduleRows,
+  inputs: ScheduleInputs,
+  schedule: ComputeScheduleResult,
+  /** Injectable so "is this routine note still current" is decided against the
+   * same instant the rest of the turn's context is built from, rather than a
+   * second `new Date()` a few milliseconds later. */
+  now: Date = new Date(),
+) {
   const weeklyHoursDescription = WEEKDAY_LABELS.map((label, dow) => {
     const w = inputs.weeklyHours[dow];
     return `${label}: ${w ? `${minToLabel(w.start)}-${minToLabel(w.end)}` : "off"}`;
@@ -398,10 +407,24 @@ export function buildPromptContext(rows: RawScheduleRows, inputs: ScheduleInputs
           .join(", then ")} compete for time in that order;`
       : "";
 
+  // Today in the ACCOUNT's timezone, which is the only zone in which "has this
+  // note expired" has a correct answer. query-rows deliberately over-fetches by a
+  // day because it doesn't know the zone yet; this is where that slack is cut.
+  const todayKey = zonedDateKey(inputs.timezone, now);
+  const routineNotes = rows.routineNotes ?? [];
+
   const recurringDescription = inputs.recurringRules.map((r) => ({
     title: r.title,
     days: r.days.map((d) => WEEKDAY_LABELS[d]).join("/"),
     min: r.length,
+    // What the user wants to do in THIS week's run of it, when they've said.
+    // Present only while the note's window covers today, so nothing has to be
+    // cleaned up and an old intention can't come back as a current one. Absent
+    // rather than empty when there's nothing, to keep the common case free.
+    ...(() => {
+      const active = activeNotesForPrompt(routineNotes, r.id, todayKey);
+      return active.length ? { notesForNow: active } : {};
+    })(),
     // An anchored routine has no clock time — saying one would invite the model
     // to quote a number that changes with the day's hours.
     window:

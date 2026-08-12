@@ -34,7 +34,7 @@ const SRC = join(ROOT, "src");
 // Kept in sync with TRASHABLE in src/lib/db/soft-delete.ts. Duplicated rather
 // than imported because this script is plain .mjs run before/independent of the
 // TypeScript build, and a stale copy is caught by the check below.
-const TRASHABLE = ["notes", "todo_items", "todo_lists", "lists", "list_items", "targets", "events"];
+const TRASHABLE = ["notes", "todo_items", "todo_lists", "lists", "list_items", "targets", "events", "routine_notes"];
 
 // Every exemption states the reason it is safe. Adding one is a deliberate act.
 const ALLOWED_HARD_DELETE = {

@@ -4,10 +4,15 @@
 //   2. Recurring rules slide within their placement window around meetings.
 //   3. Weekly research chunks are generated per project, fenced to their own
 //      week, mornings first.
-//   4. Remaining tasks are placed by priority → explicit order → deadline,
-//      respecting dependencies, per-day pacing caps, and earliest-start
-//      floors. A chunk that doesn't fit shrinks to fill gaps, down to its
-//      category's min_chunk_min (or 30m if the category has none set).
+//   4. Everything from 3 goes into ONE queue with the real tasks — the weekly
+//      chunks are synthetic tasks — ordered by deadline pressure → priority →
+//      explicit order → deadline, respecting dependencies, per-day pacing caps,
+//      and earliest-start floors. A chunk that doesn't fit shrinks to fill gaps,
+//      down to its category's min_chunk_min (or 30m if the category has none).
+//      Deadline pressure leads because weekly hours carry `priority: "high"` and
+//      no deadline, so without it a recurring block that could be made up next
+//      week outranked every dated task not also marked high. See
+//      deadlinePressure.
 //   5. Two-pass re-optimization: pass 1 plans the whole horizon ignoring
 //      completions (to see where past chunks landed); past chunks are then
 //      credited/re-fed and pass 2 reschedules everything from "now" forward.
@@ -444,12 +449,45 @@ interface RunSchedulerResult {
 /** tasks[].deadline uses this to mean "no deadline" (see from-db.ts). */
 const NO_DEADLINE = 99999;
 
+/** How far ahead a real deadline starts outranking work that has none.
+ *
+ * Two weeks, which is the range over which "I have to finish this by Friday" is
+ * a fact rather than a plan. Beyond it, a dated task takes its turn by priority
+ * like anything else — a paper due in October must not start eating this week's
+ * research hours, because there is no shortage yet to resolve. */
+const DEADLINE_PRESSURE_DAYS = 14;
+
+/** Does this piece of work have a deadline close enough that losing its slot
+ * means missing it?
+ *
+ * The distinction that matters for ordering is NOT how important something is,
+ * it is whether the time is recoverable. A weekly-hours chunk carries
+ * NO_DEADLINE: if it loses today it can be made up tomorrow, next week, or
+ * reported as a shortfall — nothing is irreversibly lost. A task due Friday has
+ * exactly one week in which it can happen.
+ *
+ * Weekly-hours chunks are generated with `priority: "high"` (taskDefs), and the
+ * queue sorted on priority first — so a recurring block with no deadline at all
+ * outranked every task not also marked high, structurally and every time. That
+ * is how a 2h review due Friday came to be scheduled in mid-September while six
+ * hours of discretionary research filled the Friday it was due. */
+function deadlinePressure(t: { deadline: number }, nowAbs: number): 0 | 1 {
+  if (t.deadline === NO_DEADLINE) return 0;
+  return t.deadline <= nowAbs + DEADLINE_PRESSURE_DAYS * 1440 ? 1 : 0;
+}
+
 function runScheduler(
   inputs: ScheduleInputs,
   taskList: TaskDef[],
   busy: Set<AbsMinute>,
   floorMin: number,
   preDone: string[] | null,
+  /** "Now" as an absolute grid minute, for deadlinePressure. Passed in rather
+   * than recomputed so both passes rank against the same instant — pass 1 plans
+   * the horizon and pass 2 replans from now, and a second `new Date()` between
+   * them could put a Friday deadline inside the window for one and outside it
+   * for the other. */
+  schedulerNow: number,
 ): RunSchedulerResult {
   const chunks: ScheduleBlock[] = [];
   const remaining: (TaskDef & { remaining: number; stuckAt?: number; finishedAbs?: number | null })[] = taskList.map((t) => ({
@@ -475,6 +513,11 @@ function runScheduler(
     if (!ready.length) break;
     ready.sort(
       (a, b) =>
+        // Irrecoverable time first: work with a deadline inside the pressure
+        // window outranks work that has none, whatever its priority. Everything
+        // after this is unchanged, so ordering WITHIN the urgent set and within
+        // the rest behaves exactly as it always did.
+        deadlinePressure(b, schedulerNow) - deadlinePressure(a, schedulerNow) ||
         priorityRank(b.priority) - priorityRank(a.priority) ||
         a.ord - b.ord ||
         a.deadline - b.deadline,
@@ -920,7 +963,7 @@ export function computeSchedule(
   const defs = taskDefs(inputs, labelScaleByWeek).map((t) =>
     pinReduction[t.id] ? { ...t, duration: Math.max(0, t.duration - pinReduction[t.id]) } : t,
   );
-  const plan = runScheduler(inputs, defs, new Set(baseBusy), 0, null);
+  const plan = runScheduler(inputs, defs, new Set(baseBusy), 0, null, NOW);
 
   const kept: ScheduleBlock[] = [];
   const futurePins: ScheduleBlock[] = [];
@@ -1021,7 +1064,7 @@ export function computeSchedule(
   pinnedList.forEach((c) => markBusy(c.abs!, c.end - c.start, busy2));
 
   const nowCeil = Math.ceil(NOW / 15) * 15;
-  const res = runScheduler(inputs, defs2, busy2, nowCeil, preDone);
+  const res = runScheduler(inputs, defs2, busy2, nowCeil, preDone, NOW);
 
   live.forEach((c) => blocks.push(c));
   pinnedList.forEach((c) => blocks.push(c));

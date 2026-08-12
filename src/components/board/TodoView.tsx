@@ -20,6 +20,7 @@ import { writeError } from "@/lib/planner/write";
 import { softDelete, softDeleteTodoList, todoListImpact, describeImpact } from "@/lib/db/soft-delete";
 import { setTaskArchived } from "@/lib/planner/board-actions";
 import { applyReorder, nextSortOrder, parseDragId } from "@/lib/planner/reorder";
+import { TODO_SORT_MODES, canDragTodo, reorderableGroup, sortTodoItems } from "@/lib/planner/todo-order";
 import { useConfirmDialog } from "@/components/ui/useConfirmDialog";
 import { DragRow } from "./DragRow";
 import { TodoItemPanel } from "./TodoItemPanel";
@@ -218,6 +219,16 @@ export function TodoView({ onMutated, focusItem }: { onMutated?: () => void; foc
     await refresh();
   }
 
+  async function setSortMode(list: ListRow, sort_mode: ListRow["sort_mode"]) {
+    const supabase = createClient();
+    const message = await writeError(
+      "Couldn't change how this list is ordered",
+      supabase.from("todo_lists").update({ sort_mode }).eq("id", list.id),
+    );
+    if (message) return setError(message);
+    await refresh();
+  }
+
   async function setChase(list: ListRow, chase: ChaseCadence | "") {
     const supabase = createClient();
     const message = await writeError(
@@ -305,14 +316,23 @@ export function TodoView({ onMutated, focusItem }: { onMutated?: () => void; foc
     // another list's row matches nothing and falls out here.
     const listId = items.find((i) => i.id === active.id)?.list_id;
     if (!listId) return;
-    const group = items.filter((i) => i.list_id === listId);
+    const mode = (lists ?? []).find((l) => l.id === listId)?.sort_mode ?? "manual";
+    // On a by-date list the group is the UNDATED tail only, so a drag can never
+    // renumber rows whose position belongs to their due date.
+    const group = reorderableGroup(
+      items.filter((i) => i.list_id === listId),
+      mode,
+    );
     const result = await applyReorder(supabase, "todo_items", group, active.id, over.id);
     if (!result) return;
+    // Patch the new positions onto the rows that moved and leave every other row
+    // alone. Replacing the list's whole slice with `result.ordered` would DROP the
+    // dated items on a by-date list, since the reordered group is only the undated
+    // tail — they'd disappear from the card until the next refetch. Display order
+    // is applied at render by sortTodoItems, so nothing here needs to sort.
     setItems((prev) => {
-      const rest = prev.filter((i) => i.list_id !== listId);
-      return [...rest, ...result.ordered].sort(
-        (a, b) => a.sort_order - b.sort_order || a.created_at.localeCompare(b.created_at),
-      );
+      const moved = new Map(result.ordered.map((r) => [r.id, r.sort_order]));
+      return prev.map((i) => (moved.has(i.id) ? { ...i, sort_order: moved.get(i.id)! } : i));
     });
     if (result.error) setError(result.error);
   }
@@ -368,7 +388,14 @@ export function TodoView({ onMutated, focusItem }: { onMutated?: () => void; foc
       <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))" }}>
         {lists.map((list, listIndex) => {
           const all = items.filter((i) => i.list_id === list.id);
-          const visible = all.filter((i) => !i.hidden && (list.show_completed || !i.done));
+          // Ordered here rather than in the query: the by-date rule is a nulls-last
+          // date sort followed by the hand-arranged one, which an ORDER BY can't
+          // express in one pass — and the chat calls the same helper so both read
+          // the list back identically.
+          const visible = sortTodoItems(
+            all.filter((i) => !i.hidden && (list.show_completed || !i.done)),
+            list.sort_mode,
+          );
           const openCount = all.filter((i) => !i.done).length;
           const hiddenCount = all.filter((i) => i.hidden).length;
           return (
@@ -407,6 +434,21 @@ export function TodoView({ onMutated, focusItem }: { onMutated?: () => void; foc
                   />
                   show completed
                 </label>
+                {/* Per list, because both orders are right for different lists: a
+                   "this week" list is a priority order you hold in your head, a
+                   Reviews list is a queue with real dates. */}
+                <select
+                  value={list.sort_mode}
+                  onChange={(e) => setSortMode(list, e.target.value as ListRow["sort_mode"])}
+                  className="rounded border border-border bg-surface px-1.5 py-0.5 text-[10px] text-muted outline-none"
+                  title={TODO_SORT_MODES.find((m) => m.id === list.sort_mode)?.hint}
+                >
+                  {TODO_SORT_MODES.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      order: {m.label}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div className="flex flex-col gap-0.5 flex-1">
@@ -415,7 +457,12 @@ export function TodoView({ onMutated, focusItem }: { onMutated?: () => void; foc
                     {(handle) => (
                     <div id={`todo-${item.id}`}>
                       <div className="group flex items-start gap-1.5">
-                        {handle}
+                        {/* On a by-date list a DATED item's position belongs to its
+                           date, so it gets no handle — a control that visibly does
+                           nothing is worse than no control. Undated items keep
+                           theirs, since dates can't order them. The spacer holds
+                           the column so the rows still line up. */}
+                        {canDragTodo(item, list.sort_mode) ? handle : <span className="flex-none w-3" />}
                         <input
                           type="checkbox"
                           checked={item.done}

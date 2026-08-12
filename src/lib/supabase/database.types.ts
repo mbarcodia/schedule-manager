@@ -35,6 +35,10 @@ export type CalendarProvider = "outlook_ics" | "icloud_ics" | "google_ics";
 export type AllDayMode = "ignore" | "no_meetings" | "away";
 /** How often a to-do list chases whatever is still unfinished in it. */
 export type ChaseCadence = "week" | "month" | "year";
+/** todo_lists.sort_mode — 'manual' = the order things were dragged into;
+ * 'due' = dated items by due date, then undated ones in the dragged order.
+ * Applied in lib/planner/todo-order.ts, not in SQL (migration 0045). */
+export type TodoSortModeValue = "manual" | "due";
 
 /** Keys are "0".."6" (0=Mon..6=Sun). null = day off by default. */
 export type WeeklyHoursJson = Record<string, { start: number; end: number } | null>;
@@ -584,6 +588,9 @@ export interface Database {
         { id?: string; user_id: string; role: ChatRole; content: string },
         Record<string, never>
       >;
+      /** sort_mode: 'manual' = the order things were dragged into; 'due' = dated
+       * items by due date, then undated ones in the dragged order. Applied in
+       * lib/planner/todo-order.ts — see migration 0045 for why not in SQL. */
       todo_lists: Table<
         {
           id: string;
@@ -593,6 +600,7 @@ export interface Database {
           last_chased_at: string | null;
           show_completed: boolean;
           sort_order: number;
+          sort_mode: TodoSortModeValue;
           created_at: string;
           deleted_at: string | null;
         },
@@ -603,10 +611,12 @@ export interface Database {
           chase?: ChaseCadence | null;
           show_completed?: boolean;
           sort_order?: number;
+          sort_mode?: TodoSortModeValue;
           deleted_at?: string | null;
         },
         Partial<{
           name: string;
+          sort_mode: TodoSortModeValue;
           chase: ChaseCadence | null;
           last_chased_at: string | null;
           show_completed: boolean;

@@ -19,6 +19,8 @@ import { allDayDueAt, formatDue } from "@/lib/scheduling/all-day-due";
 import { zonedTimeToUtc } from "@/lib/scheduling/time";
 import { writeError } from "@/lib/planner/write";
 import { nextSortOrder } from "@/lib/planner/reorder";
+import { describeSortMode, sortTodoItems } from "@/lib/planner/todo-order";
+import type { TodoSortModeValue } from "@/lib/supabase/database.types";
 import type { Database } from "@/lib/supabase/database.types";
 
 /** Named lead times so the model doesn't have to do minute arithmetic. */
@@ -240,13 +242,14 @@ export function buildTodoReminderTools(ctx: ToolContext) {
       properties: { list: { type: "string", description: "just one list, by name" } },
     },
     run: async ({ list }) => {
-      // Both orderings match the screen's: sort_order first, its tie-break second
-      // (TodoView.tsx). The user can now arrange these by hand, and reading them
-      // back in a different order than they're displayed in makes the chat's
-      // answer to "what's on my list" disagree with the list.
+      // The list order matches the screen's. The ITEM order is applied by the same
+      // helper the board uses (sortTodoItems) rather than by an ORDER BY, because
+      // a by-date list is a nulls-last date sort followed by the hand-arranged one
+      // — and reading a list back in a different order from the one displayed
+      // makes both answers untrustworthy.
       const { data: lists } = await supabase
         .from("todo_lists")
-        .select("id,name,sort_order")
+        .select("id,name,sort_order,sort_mode")
         .is("deleted_at", null)
         .eq("user_id", userId)
         .order("sort_order")
@@ -256,16 +259,25 @@ export function buildTodoReminderTools(ctx: ToolContext) {
       if (!wanted.length) return `No list matching "${list}".`;
       const { data: items } = await supabase
         .from("todo_items")
-        .select("list_id,text,done")
+        .select("list_id,text,done,due_at,due_all_day,sort_order,created_at")
         .is("deleted_at", null)
         .eq("user_id", userId)
-        .eq("done", false)
-        .order("sort_order")
-        .order("created_at");
+        .eq("done", false);
       return wanted
         .map((l) => {
-          const open = (items ?? []).filter((i) => i.list_id === l!.id);
-          return `${l!.name}: ${open.length ? open.map((i) => `- ${i.text}`).join("\n") : "(nothing open)"}`;
+          const open = sortTodoItems(
+            (items ?? []).filter((i) => i.list_id === l!.id),
+            l!.sort_mode,
+          );
+          // The dates come along on a by-date list: the order only makes sense
+          // alongside what produced it, and quoting the order without the dates
+          // invites the model to reorder it in prose.
+          const lines = open.map((i) => {
+            const due = i.due_at ? ` (due ${formatDue(i.due_at, i.due_all_day, ctx.timezone)})` : "";
+            return `- ${i.text}${l!.sort_mode === "due" ? due : ""}`;
+          });
+          const how = l!.sort_mode === "due" ? " [ordered by due date, undated last]" : "";
+          return `${l!.name}${how}: ${lines.length ? lines.join("\n") : "(nothing open)"}`;
         })
         .join("\n\n");
     },
@@ -508,5 +520,44 @@ export function buildTodoReminderTools(ctx: ToolContext) {
     },
   });
 
-  return [add_todo, complete_todo, list_todos, add_reminder, list_reminders, remove_reminder, schedule_todo];
+  const set_list_order = betaTool({
+    name: "set_list_order",
+    description:
+      'Choose how a to-do list is ordered: "due" = dated items soonest-first with undated ones last, or "manual" = the order the user has dragged them into. Reach for this when someone says a list is in the wrong order or should follow its dates ("my Reviews list should be in due date order", "keep this one in the order I put them in"). It is a property of the LIST, not of the app — a priority list the user arranges by hand and a queue of deadlines both being right is the reason it is per-list. This changes ordering only; it never edits, reschedules or reorders the items themselves.',
+    inputSchema: {
+      type: "object",
+      properties: {
+        list: { type: "string", description: "the list's name, e.g. \"Reviews\"" },
+        order: { type: "string", enum: ["due", "manual"], description: '"due" = by due date; "manual" = hand-arranged' },
+      },
+      required: ["list", "order"],
+    },
+    run: async ({ list, order }) => {
+      const { data: lists } = await supabase
+        .from("todo_lists")
+        .select("id,name,sort_mode")
+        .is("deleted_at", null)
+        .eq("user_id", userId);
+      if (!lists?.length) return "No to-do lists yet.";
+      const match = findByTitle(lists.map((l) => ({ ...l, title: l.name })), list).match;
+      if (!match) return `No list matching "${list}". You have: ${lists.map((l) => l.name).join(", ")}.`;
+      const sort_mode = order as TodoSortModeValue;
+      if (match.sort_mode === sort_mode) return `"${match.name}" is already ordered ${describeSortMode(sort_mode)}.`;
+      const failed = await writeError(
+        `Couldn't change how "${match.name}" is ordered`,
+        supabase.from("todo_lists").update({ sort_mode }).eq("id", match.id),
+      );
+      if (failed) return failed;
+      markMutated(ctx);
+      // Says what happens to the items that the chosen rule cannot order, because
+      // that is the part people don't expect.
+      const tail =
+        sort_mode === "due"
+          ? " Anything without a date sits at the end, and those can still be dragged into whatever order you like."
+          : " Its due dates still drive reminders — this only changes the order it's shown in.";
+      return `"${match.name}" is now ordered ${describeSortMode(sort_mode)}.${tail}`;
+    },
+  });
+
+  return [add_todo, complete_todo, list_todos, add_reminder, list_reminders, remove_reminder, schedule_todo, set_list_order];
 }

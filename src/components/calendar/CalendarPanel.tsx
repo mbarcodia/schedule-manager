@@ -442,6 +442,7 @@ export function CalendarPanel({ scheduleData }: CalendarPanelProps) {
         allDayBlocks={data.inputs.allDayBlocks}
         schedule={{ ...schedule, blocks: weekBlocks }}
         categories={data.categories}
+        projects={data.projects}
         onSetProgress={setProgress}
         onPinDone={pinDone}
         onUnpinDone={unpinDone}

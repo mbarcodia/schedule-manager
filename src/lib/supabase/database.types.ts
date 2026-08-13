@@ -784,6 +784,21 @@ export interface Database {
         { id?: string; user_id: string; project_id: string; pinned_date: string; start_min: number; length_min: number },
         Partial<{ pinned_date: string; start_min: number; length_min: number }>
       >;
+      /** One day's worth of one label's weekly-hours time, given to a single
+       * project. A preference, not a lock — see migration 0046 and
+       * lib/scheduling/day-focus.ts. */
+      day_focus: Table<
+        {
+          id: string;
+          user_id: string;
+          focus_date: string;
+          category_id: string;
+          project_id: string;
+          created_at: string;
+        },
+        { id?: string; user_id: string; focus_date: string; category_id: string; project_id: string },
+        Partial<{ focus_date: string; category_id: string; project_id: string }>
+      >;
       google_credentials: Table<
         {
           user_id: string;

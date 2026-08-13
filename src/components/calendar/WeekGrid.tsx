@@ -7,9 +7,10 @@ import { EventDetailPopover } from "./EventDetailPopover";
 import { defaultDayWindow, resolveDayWindow } from "@/lib/scheduling/day-window";
 import { DayHoursPopover } from "./DayHoursPopover";
 import { dateKey as toDateKey } from "@/lib/calendar/day-hours";
+import { describeDayFocus } from "@/lib/planner/day-focus-form";
 import { computeBlockLanes, DAY_END_MIN, DAY_START_MIN, DEFAULT_SCROLL_MIN, PX_PER_MIN } from "@/lib/scheduling/render";
 import { dateForGday, minToLabel, nowAbsMinute, WEEKDAY_LABELS } from "@/lib/scheduling/time";
-import type { Category, ComputeScheduleResult, DayOverrides, ScheduleBlock, WeeklyHours } from "@/lib/scheduling/types";
+import type { Category, ComputeScheduleResult, DayOverrides, Project, ScheduleBlock, WeeklyHours } from "@/lib/scheduling/types";
 
 // Full 24h day, at PX_PER_MIN — scrolled to the working window by default.
 const VIEW_HEIGHT = (DAY_END_MIN - DAY_START_MIN) * PX_PER_MIN;
@@ -27,6 +28,8 @@ interface WeekGridProps {
   allDayBlocks: Record<number, "no_meetings" | "away">;
   schedule: ComputeScheduleResult;
   categories: Category[];
+  /** For the day-header control that hands a day's label time to one of them. */
+  projects: Project[];
   onSetProgress: (block: ScheduleBlock, mode: "done" | "partial" | "none", minutes?: number) => void;
   onPinDone: (block: ScheduleBlock) => void;
   onUnpinDone: (block: ScheduleBlock) => void;
@@ -122,6 +125,7 @@ export function WeekGrid({
   allDayBlocks,
   schedule,
   categories,
+  projects,
   onSetProgress,
   onPinDone,
   onUnpinDone,
@@ -201,6 +205,22 @@ export function WeekGrid({
                 >
                   {date.day}
                   {dayOverrides[gday] && <span className="ml-1 align-middle text-[9px] text-muted-2">·</span>}
+                  {/* A second dot, in the label's own colour, for a day whose time
+                     has been given to one commitment. Same idiom as the override
+                     dot beside it; a focus that actually did nothing gets no dot,
+                     since the day is not in fact different. */}
+                  {schedule.dayFocus
+                    .filter((f) => f.gday === gday && !f.skipped)
+                    .map((f) => (
+                      <span
+                        key={f.labelId}
+                        className="ml-0.5 align-middle text-[9px]"
+                        style={{ color: categories.find((c) => c.id === f.labelId)?.color ?? "var(--color-muted-2)" }}
+                        title={describeDayFocus(f)}
+                      >
+                        ·
+                      </span>
+                    ))}
                 </button>
               )}
               {openDay === gday && (
@@ -209,6 +229,10 @@ export function WeekGrid({
                   dateKey={toDateKey(date)}
                   override={dayOverrides[gday]}
                   standard={defaultDayWindow(gday, weeklyHours)}
+                  gday={gday}
+                  projects={projects}
+                  categories={categories}
+                  focuses={schedule.dayFocus.filter((f) => f.gday === gday)}
                   onClose={() => setOpenDay(null)}
                   onSaved={onRefresh}
                 />

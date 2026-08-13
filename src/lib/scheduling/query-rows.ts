@@ -48,6 +48,7 @@ export async function queryScheduleRows(
     progressRes,
     pinnedRes,
     researchPinsRes,
+    dayFocusRes,
     connectionsRes,
   ] = await Promise.all([
     supabase.from("profiles").select("*").eq("id", userId).single(),
@@ -109,6 +110,15 @@ export async function queryScheduleRows(
       .eq("user_id", userId)
       .gte("pinned_date", windowStartDate)
       .lte("pinned_date", windowEndDate),
+    // Days where one label's hours all go to one project. Same date bounding as
+    // the pins above; rows for dates outside the window are ignored rather than
+    // cleaned up, so nothing has to sweep them.
+    supabase
+      .from("day_focus")
+      .select("*")
+      .eq("user_id", userId)
+      .gte("focus_date", windowStartDate)
+      .lte("focus_date", windowEndDate),
     supabase.from("calendar_connections").select("*").eq("user_id", userId),
   ]);
 
@@ -126,6 +136,7 @@ export async function queryScheduleRows(
     progressRes,
     pinnedRes,
     researchPinsRes,
+    dayFocusRes,
     connectionsRes,
   ]) {
     if (res.error) throw res.error;
@@ -147,6 +158,7 @@ export async function queryScheduleRows(
     progressLog: progressRes.data ?? [],
     pinnedChunks: pinnedRes.data ?? [],
     researchPins: researchPinsRes.data ?? [],
+    dayFocus: dayFocusRes.data ?? [],
     calendarConnections: connectionsRes.data ?? [],
     progressFacts,
   };

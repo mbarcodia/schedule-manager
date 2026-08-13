@@ -6,6 +6,7 @@
 
 import { gdayForDate, zonedNow } from "./time";
 import { defaultDayWindow } from "./day-window";
+import { computePace } from "./pace";
 import { ROUTINE_TAG_LABEL } from "./types";
 import { HISTORY_WEEKS, HORIZON_WEEKS } from "./horizon";
 import type { WeeklyReserve } from "./reserve";
@@ -13,6 +14,7 @@ import type { ProgressFacts } from "./logged-hours";
 import type {
   CalendarEvent,
   Category,
+  DayFocus,
   DayOverrides,
   PinnedEntry,
   Project,
@@ -47,6 +49,10 @@ export interface RawScheduleRows {
   progressLog: Row<"progress_log">[];
   pinnedChunks: Row<"pinned_chunks">[];
   researchPins: Row<"research_pins">[];
+  /** Days where one label's weekly hours all go to one project (migration 0046).
+   * Optional for the same reason as routineNotes: the engine tolerates its
+   * absence, and not every caller assembles one. */
+  dayFocus?: Row<"day_focus">[];
   calendarConnections: Row<"calendar_connections">[];
   /** The one derived field here: everything computed from the FULL work history,
    * which progressLog above cannot give because it is windowed to a fortnight
@@ -494,6 +500,16 @@ export function buildScheduleInputs(
     researchPins.push({ projectId: rp.project_id, gday, start: rp.start_min, length: rp.length_min });
   }
 
+  // Focused days. Dropped on the same terms as the pins above — a focus on a day
+  // that has passed described a decision that has already played out, and one past
+  // the horizon has nothing to act on yet.
+  const dayFocus: DayFocus[] = [];
+  for (const df of rows.dayFocus ?? []) {
+    const gday = gdayForDate(timezone, dateParts(df.focus_date), now);
+    if (gday < 0 || gday >= horizonWeeks * 7) continue;
+    dayFocus.push({ projectId: df.project_id, categoryId: df.category_id, gday });
+  }
+
   const inputs: ScheduleInputs = {
     timezone,
     horizonWeeks,
@@ -506,6 +522,23 @@ export function buildScheduleInputs(
     graceHours: rows.profile.grace_hours ?? 4,
     allDayBlocks,
     researchPins,
+    dayFocus,
+    // Only computable when the caller fetched the lifetime history; the engine
+    // treats its absence as "no commitment has more slack than another".
+    loggedMinByProject: rows.progressFacts?.byProject,
+    paceSlackWeeksByProject: rows.progressFacts
+      ? Object.fromEntries(
+          computePace({
+            projects,
+            targets: toTargets(rows.targets),
+            loggedByProject: rows.progressFacts.byProject,
+            weeklyHours,
+            now,
+          })
+            .filter((p) => p.weeksAvailable != null && p.weeksNeeded != null)
+            .map((p) => [p.projectId, p.weeksAvailable! - p.weeksNeeded!]),
+        )
+      : undefined,
     completed,
     partial,
     pinned,

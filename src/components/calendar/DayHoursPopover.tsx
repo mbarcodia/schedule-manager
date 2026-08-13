@@ -1,6 +1,7 @@
 "use client";
 
-// One day's hours, opened from its date in the calendar header.
+// One day, opened from its date in the calendar header — its hours, and which
+// commitment gets its time.
 //
 // The calendar is where you are when you find out a day is different — a
 // conference Friday, a morning taken back, a holiday. Until now the only way to
@@ -20,14 +21,20 @@ import {
   validateDayHours,
   type DayHoursDraft,
 } from "@/lib/calendar/day-hours";
+import { clearDayFocus, saveDayFocus } from "@/lib/calendar/day-focus";
+import { describeDayFocus, focusableProjects } from "@/lib/planner/day-focus-form";
 import type { DayWindow } from "@/lib/scheduling/day-window";
-import type { DayOverride } from "@/lib/scheduling/types";
+import type { Category, DayFocusOutcome, DayOverride, Project } from "@/lib/scheduling/types";
 
 export function DayHoursPopover({
   dateLabel,
   dateKey,
   override,
   standard,
+  gday,
+  projects,
+  categories,
+  focuses,
   onClose,
   onSaved,
 }: {
@@ -38,6 +45,14 @@ export function DayHoursPopover({
   override: DayOverride | undefined;
   /** That weekday's standard window, or null when the weekday is off. */
   standard: DayWindow | null;
+  /** Which day this is on the grid — decides whether a focus is even offerable
+   * (weekly hours are never placed at a weekend). */
+  gday: number;
+  projects: Project[];
+  categories: Category[];
+  /** What the engine says each of this day's focuses actually did, so the control
+   * can report rather than assert. */
+  focuses: DayFocusOutcome[];
   onClose: () => void;
   onSaved: () => Promise<void> | void;
 }) {
@@ -50,6 +65,11 @@ export function DayHoursPopover({
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** The focus half writes a DIFFERENT table, so it carries its own busy/error
+   * state and saves on change. Folding it into the hours Save button would put two
+   * tables behind one click, and a partial failure there reports as success. */
+  const [focusBusy, setFocusBusy] = useState<string | null>(null);
+  const [focusError, setFocusError] = useState<string | null>(null);
 
   const errors = validateDayHours(draft, dayIsOffByDefault);
   const hasOverride = override != null;
@@ -85,6 +105,22 @@ export function DayHoursPopover({
     await onSaved();
     setBusy(false);
     onClose();
+  }
+
+  /** Labels that have at least one commitment able to take a day. */
+  const focusableGroups = focusableProjects(projects, categories);
+
+  async function setFocus(categoryId: string, projectId: string) {
+    setFocusBusy(categoryId);
+    setFocusError(null);
+    const message = projectId
+      ? await saveDayFocus(dateKey, categoryId, projectId)
+      : await clearDayFocus(dateKey, categoryId);
+    setFocusBusy(null);
+    if (message) return setFocusError(message);
+    // Not closed on purpose: the sentence under the select is the point, and it
+    // only exists once the schedule has been recomputed.
+    await onSaved();
   }
 
   const field =
@@ -155,6 +191,54 @@ export function DayHoursPopover({
       {(error || errors.length > 0) && (
         <div className="text-[10px] leading-snug" style={{ color: "#e5484d" }}>
           {error ?? errors[0]}
+        </div>
+      )}
+
+      {/* Whose day it is. Separated by a rule and saved on change, because it is a
+         different table from the hours above — see the state comment. Offered only
+         Mon-Fri: weekly hours are never placed at a weekend, so a control there
+         would be one that does nothing. */}
+      {gday % 7 <= 4 && focusableGroups.length > 0 && (
+        <div className="mt-0.5 pt-2 border-t border-border flex flex-col gap-1.5">
+          {focusableGroups.map(({ category, projects: opts }) => {
+            const current = focuses.find((f) => f.labelId === category.id);
+            return (
+              <div key={category.id} className="flex flex-col gap-1">
+                <label className="text-[10px] text-muted-2">
+                  All <span style={{ color: category.color }}>{category.name}</span> time this day
+                </label>
+                <select
+                  value={current && !current.skipped ? current.projectId : ""}
+                  disabled={focusBusy === category.id}
+                  onChange={(e) => void setFocus(category.id, e.target.value)}
+                  className={field}
+                >
+                  <option value="">shared out normally</option>
+                  {opts.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      all to {p.title}
+                    </option>
+                  ))}
+                </select>
+                {/* The engine's own account of what happened, not a restatement of
+                   what was asked for. This is where a day that did NOT become one
+                   project says so. */}
+                {current && (
+                  <div
+                    className="text-[10px] leading-snug"
+                    style={{ color: current.skipped ? "#e0a94e" : "var(--color-muted, #9397ab)" }}
+                  >
+                    {describeDayFocus(current)}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {focusError && (
+            <div className="text-[10px] leading-snug" style={{ color: "#e5484d" }}>
+              {focusError}
+            </div>
+          )}
         </div>
       )}
 

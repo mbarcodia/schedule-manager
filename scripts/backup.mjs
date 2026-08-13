@@ -63,6 +63,7 @@ const TABLES = [
   "routine_notes",
   "preference_notes",
   "day_overrides",
+  "day_focus",
   "events",
   "progress_log",
   "pinned_chunks",

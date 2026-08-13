@@ -11,6 +11,7 @@
 
 import { dateForGday, minToLabel, MONTH_NAMES, WEEKDAY_LABELS, zonedDateKey } from "@/lib/scheduling/time";
 import { activeNotesForPrompt } from "@/lib/planner/routine-notes";
+import { describeDayFocus } from "@/lib/planner/day-focus-form";
 import { resolveDayWindow } from "@/lib/scheduling/day-window";
 import { allDayDueDate } from "@/lib/scheduling/all-day-due";
 import { computePace, paceSentence } from "@/lib/scheduling/pace";
@@ -203,6 +204,35 @@ export function buildPromptContext(
       // sliver, which is invisible in the label total it disappears from.
       gotNothingThisWeek: t.belowFloor,
     })),
+    /** Days whose whole label allocation was handed to one commitment. Present
+     * only when the user has set one.
+     *
+     * The numbers matter more here than anywhere else in this snapshot, because a
+     * focus deliberately takes hours off other commitments: `takenFromOthersHrs`
+     * is a debt those commitments still carry, and a focus that reads as a success
+     * while three of them quietly go short is the exact failure this feature was
+     * built out of. `skippedBecause` means it did NOTHING — never report one of
+     * those as done. */
+    focusedDays: schedule.dayFocus.length
+      ? schedule.dayFocus.map((o) => ({
+          day: (() => {
+            const d = dateForGday(inputs.timezone, o.gday);
+            return `${WEEKDAY_LABELS[o.gday % 7]} ${MONTH_NAMES[d.month - 1]} ${d.day}`;
+          })(),
+          label: o.labelName,
+          commitment: o.projectTitle,
+          heldHrs: +(o.heldMin / 60).toFixed(1),
+          placedHrs: +(o.placedMin / 60).toFixed(1),
+          takenFromOthersHrs: +(o.transferredMin / 60).toFixed(1),
+          displaced: o.displaced.map((d) => `${d.title} (${+(d.min / 60).toFixed(1)}h)`),
+          alsoOnThatDay: [
+            ...o.leftoverTo.map((l) => `${l.title} (${+(l.min / 60).toFixed(1)}h — the focus had no work left for it)`),
+            ...o.pinnedOthers.map((t) => `${t} (pinned, so it stands)`),
+          ],
+          skippedBecause: o.skipped,
+          sentence: describeDayFocus(o),
+        }))
+      : null,
     // A task's DEADLINE was missing here, which read as the deadline never
     // having been saved: asked about three tasks, the planner reported all
     // three as having no due date while two of them had one in the database.

@@ -110,6 +110,15 @@ export interface Task {
    * on its own once the date passes — from-db.ts stops forwarding stale
    * pins, so nothing needs to clear it. */
   pin?: { gday: GDay; start: MinuteOfDay; length: number } | null;
+  /** Days this work may NOT be placed on. Set only by a day-focus, to stop the
+   * projects it displaced from re-placing onto the very day they were displaced
+   * from — freeing their hours opens room on that day, and without this they flow
+   * straight back into it and half-undo the instruction.
+   *
+   * Deliberately NOT expressed by reducing duration: a def kept out of a day still
+   * owes every one of its minutes, so it lands elsewhere in its week or is
+   * reported short. See day-focus.ts. */
+  excludeDays?: GDay[];
 }
 
 /** A project: anything ongoing the user has signed up for. Its behaviour
@@ -373,6 +382,9 @@ export interface ComputeScheduleResult {
    * weekly minimum is still the goal as stated. 0 means the week has no room for
    * it (travel), which is a real answer rather than a shortfall. */
   weeklyTargetMinByProject: Record<string, number>;
+  /** What each day-focus did, including the ones that did nothing and why. Always
+   * present (empty when none are set) so consumers never have to guard. */
+  dayFocus: DayFocusOutcome[];
 }
 
 export interface UnplacedWork {
@@ -441,6 +453,31 @@ export interface ScheduleInputs {
   /** Research time the user fixed to an exact slot (see research_pins).
    * Reduces that week's auto-placed chunk for the same project. */
   researchPins: ResearchPin[];
+  /** Days where one label's weekly hours all go to one project (see day_focus).
+   * OPTIONAL on purpose: a dozen sanity-check fixtures build ScheduleInputs by
+   * hand, and the same lesson is recorded next to labelTargetPct — a required
+   * field added here breaks them silently rather than loudly. Read everywhere as
+   * `inputs.dayFocus ?? []`. */
+  dayFocus?: DayFocus[];
+  /** How far ahead of its own goal each commitment is running, in WEEKS
+   * (weeksAvailable − weeksNeeded from computePace). Positive = it has slack,
+   * negative = it is behind.
+   *
+   * Used for one thing only: deciding WHICH project gives up hours when a focused
+   * day displaces several and the week cannot absorb them all. The one with the
+   * most slack loses first and one already behind is protected, so the user never
+   * has to hand-rank commitments — which matters because in practice they all sit
+   * at the same researchOrd and the loser was whatever the array order happened
+   * to be. Computed in from-db.ts, where targets and lifetime logged hours are in
+   * scope; the engine has neither. Optional, and absent simply means every
+   * commitment is treated as equally placed. */
+  paceSlackWeeksByProject?: Record<string, number>;
+  /** Lifetime minutes logged per commitment. Used only to cap how much of a
+   * focused day a project can absorb: a project with three hours left against its
+   * estimate should not be booked for a whole day, and the remainder goes to the
+   * next project instead of being wasted. Optional — absent means no cap, which
+   * only ever makes a focus more generous. */
+  loggedMinByProject?: Record<string, number>;
   /** Keyed by `${taskId}@${gday}-${start}`. */
   completed: Record<string, boolean>;
   partial: Record<string, number>;
@@ -474,6 +511,55 @@ export interface ResearchPin {
   gday: GDay;
   start: MinuteOfDay;
   length: number;
+}
+
+/** One day's worth of one label's weekly-hours time, handed to a single project.
+ * A preference, not a lock — see day-focus.ts and migration 0046. */
+export interface DayFocus {
+  gday: GDay;
+  /** The label whose time is redirected. */
+  categoryId: string;
+  projectId: string;
+}
+
+/** Why a focus did nothing, when it did nothing. Reported rather than swallowed:
+ * a focus set on a Saturday that silently vanishes is indistinguishable from the
+ * feature being broken. */
+export type DayFocusSkip =
+  | "weekend"
+  | "day_off"
+  | "unknown_project"
+  | "label_mismatch"
+  | "project_on_hold"
+  | "outside_active_window"
+  | "nothing_to_reassign";
+
+/** What a focus actually did, so the chat and the UI can say so with numbers
+ * instead of asserting success. */
+export interface DayFocusOutcome {
+  gday: GDay;
+  projectId: string;
+  projectTitle: string;
+  labelId: string;
+  labelName: string;
+  /** Minutes of that label's weekly hours the day held BEFORE the focus, counting
+   * only the part still plannable (at or after "now"). */
+  heldMin: number;
+  /** What the focused project was asked to take — `heldMin` capped by how much
+   * work it actually has left. Below `heldMin` means some of the day was left for
+   * others on purpose. */
+  focusMin: number;
+  /** What it actually got placed. Below `focusMin` means the slots wouldn't take
+   * it (minimum chunk, day too broken up). */
+  placedMin: number;
+  /** Minutes taken off OTHER projects, which they still owe. */
+  transferredMin: number;
+  displaced: { projectId: string; title: string; min: number }[];
+  /** Projects that kept time on this day anyway, and why — a pinned slot stands,
+   * and leftover the focus couldn't use goes to the next project. */
+  leftoverTo: { projectId: string; title: string; min: number }[];
+  pinnedOthers: string[];
+  skipped: DayFocusSkip | null;
 }
 
 /** The corner tag on a routine's block. Not user-renameable, unlike a label —

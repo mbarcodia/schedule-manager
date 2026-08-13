@@ -24,6 +24,7 @@
 
 import { fmtMin, nowAbsMinute } from "./time";
 import { defaultDayWindow, resolveDayWindow } from "./day-window";
+import { applyDayFocus, recordFocusPlacement } from "./day-focus";
 import { ROUTINE_TAG_LABEL } from "./types";
 import type {
   AbsMinute,
@@ -539,10 +540,13 @@ function runScheduler(
       usedToday: Record<number, number> = perDay[t.id] || {},
     ): Slot | null => {
       const capOk = t.maxPerDayMin ? (d: GDay) => (usedToday[d] || 0) + len <= t.maxPerDayMin! : null;
+      // Days a day-focus has closed to this def. Composed with the other two
+      // rather than replacing either, so behaviour is bit-identical when no focus
+      // is set (both are null and dayOk stays null).
+      const notExcluded = t.excludeDays?.length ? (d: GDay) => !t.excludeDays!.includes(d) : null;
+      const preds = [capOk, notExcluded, extraDayOk].filter((f) => f != null);
       const dayOk =
-        capOk && extraDayOk
-          ? (d: GDay) => capOk(d) && extraDayOk(d)
-          : (capOk ?? extraDayOk);
+        preds.length === 0 ? null : preds.length === 1 ? preds[0] : (d: GDay) => preds.every((f) => f(d));
       if (t.timeOfDay === "afternoon") return findSlot(inputs, floor, len, false, view, dayOk, ceil, true);
       if (t.timeOfDay === "morning") return findSlot(inputs, floor, len, true, view, dayOk, ceil);
       // A soft nudge takes the wrong half of the day over leaving the work
@@ -1064,7 +1068,42 @@ export function computeSchedule(
   pinnedList.forEach((c) => markBusy(c.abs!, c.end - c.start, busy2));
 
   const nowCeil = Math.ceil(NOW / 15) * 15;
-  const res = runScheduler(inputs, defs2, busy2, nowCeil, preDone, NOW);
+  // A focused day's label time goes to one project.
+  //
+  // The measurement it needs is "what would this day hold if I did nothing?", and
+  // pass 1 above is NOT that: pass 1 replans the whole week from Monday with
+  // floorMin 0, so by Thursday it has already spent Mon-Wed and its Thursday is
+  // nearly empty. Measuring off it reported "nothing to reassign" for a day that
+  // visibly had two projects on it — and the current week is the whole point of the
+  // feature ("make tomorrow all X").
+  //
+  // So the measurement is its own unfocused run from `nowCeil`, identical to the
+  // real pass 2 in every input. It costs a third scheduler pass, which is why it is
+  // conditional: an account with no focus set — the overwhelmingly common case, and
+  // every existing account — does not pay for it at all. `busy2` is copied because
+  // runScheduler marks it, and a measurement that occupied the real busy set would
+  // corrupt the run that follows.
+  const focuses = inputs.dayFocus ?? [];
+  const focus = focuses.length
+    ? applyDayFocus(
+        inputs,
+        defs2,
+        runScheduler(inputs, defs2, new Set(busy2), nowCeil, preDone, NOW).chunks,
+        nowCeil,
+        inputs.loggedMinByProject ?? {},
+      )
+    : { defs: defs2, outcomes: [] };
+  const res = runScheduler(inputs, focus.defs, busy2, nowCeil, preDone, NOW);
+  // Which projects held a PINNED slot on a focused day. A pin is an explicit
+  // instruction about one slot, so it outranks a focus and stays put; naming it is
+  // how the day gets reported as "all X except the block you pinned" rather than
+  // appearing to have half-worked.
+  const pinnedTitlesByDay: Record<number, string[]> = {};
+  [...taskPinChunks, ...futurePins].forEach((c) => {
+    if (!c.projectId) return;
+    if (!focus.outcomes.some((o) => o.gday === c.gday && !o.skipped && o.projectId !== c.projectId)) return;
+    pinnedTitlesByDay[c.gday] = [...new Set([...(pinnedTitlesByDay[c.gday] ?? []), c.title])];
+  });
 
   live.forEach((c) => blocks.push(c));
   pinnedList.forEach((c) => blocks.push(c));
@@ -1171,6 +1210,7 @@ export function computeSchedule(
 
   return {
     blocks,
+    dayFocus: recordFocusPlacement(inputs, focus.outcomes, res.chunks, pinnedTitlesByDay),
     overflow: res.overflow,
     beyondHorizon: res.beyondHorizon,
     unplaced: res.unplaced,

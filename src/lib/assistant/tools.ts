@@ -1401,6 +1401,87 @@ export function buildTools(ctx: ToolContext) {
     },
   });
 
+  const set_day_focus = betaTool({
+    name: "set_day_focus",
+    description:
+      'Give one whole day\'s worth of a label\'s weekly-hours time to a single commitment — "make all of tomorrow\'s research ACE2", "I only want to work on the proposal on Thursday". The day keeps the same blocks; they all become that commitment. THE OTHER COMMITMENTS UNDER THAT LABEL KEEP EVERY ONE OF THEIR WEEKLY MINUTES: they move to other days in the same week, and if the week has no room they are reported as not fitting rather than written off — so say what got displaced when the result says so. It is a strong preference, not a lock: a slot the commitment genuinely cannot use (no work left against its estimate) goes to the next one instead of sitting empty, and an already-pinned slot stays put. Use pin_research INSTEAD for one exact slot ("I\'m doing X at 2pm"). This does not change any commitment\'s weekly hours, dates or estimates.',
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: { type: "string", description: "fuzzy title of the commitment that should get the day" },
+        date: { type: "string", description: 'which day, e.g. "tomorrow", "thursday", "August 20"' },
+        clear: { type: "boolean", description: "remove the focus from that day, so its time is shared out normally again" },
+      },
+      required: ["project", "date"],
+    },
+    run: async (inp) => {
+      const day = parseDeadlineDate(inp.date.toLowerCase(), ctx.today);
+      if (!day) return `Couldn't understand the date "${inp.date}" — try "tomorrow", "thursday", or "August 20".`;
+      const gday = gdayForDate(
+        ctx.timezone,
+        { year: day.getFullYear(), month: day.getMonth() + 1, day: day.getDate() },
+        new Date(),
+      );
+      if (gday < 0) return `${localDateKey(day)} has already passed, so there is nothing left to reassign on it.`;
+      if (gday >= ctx.horizonWeeks * 7)
+        return `${localDateKey(day)} is beyond the ${ctx.horizonWeeks}-week planning horizon, so there is no schedule for it yet. Record the intention as a note instead and set the focus once that week comes into range.`;
+      // Weekly hours are only ever generated Mon-Fri, so a weekend focus would be
+      // saved and then do nothing — refused with the reason instead.
+      if (gday % 7 > 4)
+        return `${localDateKey(day)} is a weekend, and weekly hours are only ever placed Monday to Friday — there is nothing on it to reassign.`;
+
+      const { data: projects } = await supabase
+        .from("projects")
+        .select("id,title,category_id,weekly_min_min,on_hold_at")
+        .eq("user_id", userId)
+        .is("archived_at", null);
+      const { match, ambiguous } = findByTitle(projects ?? [], inp.project);
+      if (ambiguous.length)
+        return `"${inp.project}" matches multiple commitments: ${ambiguous.map((p) => p.title).join(", ")}. Say which one.`;
+      if (!match)
+        return `No commitment matching "${inp.project}". You have: ${(projects ?? []).map((p) => p.title).join(", ") || "none"}.`;
+
+      const focusDate = localDateKey(day);
+
+      if (inp.clear) {
+        if (!match.category_id) return `"${match.title}" has no label, so it could not have had a focused day.`;
+        const failed = await writeError(
+          `Couldn't clear the focus on ${focusDate}`,
+          supabase
+            .from("day_focus")
+            .delete()
+            .match({ user_id: userId, focus_date: focusDate, category_id: match.category_id }),
+        );
+        if (failed) return failed;
+        markMutated(ctx);
+        return `Cleared the focus on ${focusDate} — that day's time is shared out across the label's commitments normally again.`;
+      }
+
+      if (match.on_hold_at)
+        return `"${match.title}" is on hold, so nothing is scheduled for it and the day would sit empty. Take it off hold first (add_trackable with on_hold=false).`;
+      if (!match.category_id)
+        return `All of WHAT time? "${match.title}" carries no label, so there is no group of weekly hours to hand it. Give it a label first, or use pin_research to put a single block on that day.`;
+
+      const failed = await writeError(
+        `Couldn't focus ${focusDate} on ${match.title}`,
+        supabase.from("day_focus").upsert(
+          { user_id: userId, focus_date: focusDate, category_id: match.category_id, project_id: match.id },
+          { onConflict: "user_id,focus_date,category_id" },
+        ),
+      );
+      if (failed) return failed;
+      markMutated(ctx);
+      const noQuota = !match.weekly_min_min
+        ? ` Note: ${match.title} has no weekly hours set, so it has no quota to fill and that day's time is additive for it.`
+        : "";
+      // Deliberately no figures here: the write has just invalidated the snapshot,
+      // and the real numbers (what moved, what got displaced, what didn't fit) come
+      // back in focusedDays on the next look. Inventing them now is how a
+      // confirmation comes to disagree with the calendar.
+      return `${focusDate} is now focused: all ${match.title}'s label time that day goes to it.${noQuota} Check focusedDays in the state for what moved off the other commitments and whether this week can still absorb their hours — say so if it can't.`;
+    },
+  });
+
   const update_recurring = betaTool({
     name: "update_recurring",
     description:
@@ -1840,6 +1921,7 @@ export function buildTools(ctx: ToolContext) {
     record_progress,
     pin_research,
     update_recurring,
+    set_day_focus,
     add_routine_note,
     list_routine_notes,
     remove_routine_note,

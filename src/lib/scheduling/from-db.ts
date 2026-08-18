@@ -469,6 +469,55 @@ export function buildScheduleInputs(
     });
   }
 
+  // The current week's fallback — see ScheduleInputs.currentWeekFallback for
+  // why this exists. Same reconstruction as historyBlocks above, just for
+  // gday 0-6 and keyed to match `kept`'s own key format exactly (not the
+  // `history-` prefix above) so engine.ts can dedupe against it by a plain
+  // key lookup.
+  const currentWeekFallback: ScheduleBlock[] = [];
+  for (const p of rows.progressLog) {
+    const gday = gdayForDate(timezone, dateParts(p.occurred_date), now);
+    if (gday < 0 || gday >= 7) continue;
+    const subjectId =
+      p.subject_type === "research"
+        ? `research-${p.subject_id}-w${Math.floor(gday / 7)}`
+        : p.subject_type === "anchor"
+          ? `anchor-${p.subject_id}`
+          : p.subject_id;
+    const title =
+      p.subject_type === "research"
+        ? (projectTitle.get(p.subject_id) ?? "Research")
+        : p.subject_type === "anchor"
+          ? (ruleTitle.get(p.subject_id) ?? "Routine")
+          : (taskTitle.get(p.subject_id) ?? "Work");
+    const categoryId =
+      p.subject_type === "research"
+        ? (projectById.get(p.subject_id)?.category_id ?? null)
+        : p.subject_type === "task"
+          ? (taskById.get(p.subject_id)?.category_id ?? null)
+          : null;
+    const projectId =
+      p.subject_type === "research" ? p.subject_id : (taskById.get(p.subject_id)?.project_id ?? null);
+    const doneMin = p.minutes_done ?? p.end_min - p.start_min;
+    if (doneMin <= 0) continue;
+    currentWeekFallback.push({
+      type: p.subject_type === "anchor" ? "anchor" : "task",
+      taskId: subjectId,
+      projectId,
+      categoryId,
+      tagLabel: p.subject_type === "anchor" ? ROUTINE_TAG_LABEL : labelNames[categoryId ?? ""] ?? null,
+      title,
+      gday,
+      start: p.start_min,
+      end: p.start_min + doneMin,
+      priority: null,
+      status: p.minutes_done == null ? "done" : "partial",
+      partMin: p.minutes_done ?? null,
+      key: `${subjectId}@${gday}-${p.start_min}`,
+      abs: gday * 1440 + p.start_min,
+    });
+  }
+
   const pinned: Record<string, PinnedEntry> = {};
   for (const p of rows.pinnedChunks) {
     const gday = gdayForDate(timezone, dateParts(p.occurred_date), now);
@@ -543,6 +592,7 @@ export function buildScheduleInputs(
     partial,
     pinned,
     historyBlocks,
+    currentWeekFallback,
     labelNames,
     labelTargetPct,
     labelTargetBasis,

@@ -66,6 +66,49 @@ check("with hours, the engine books it", running.length > 0, true);
 check("with the hours stripped, it books nothing", held.length, 0);
 check("and reports no shortfall — it wasn't asked for anything", computeSchedule(engineInputs(null), MONDAY).overflow, []);
 
+// ---------------------------------------------- a hold must not erase history
+//
+// A live bug: putting a project on hold strips its weeklyMinMin (above), which
+// means pass 1 in engine.ts never regenerates a def for it — including for
+// Monday, which by the time the hold lands may already be a day the user
+// worked and ticked off. With nothing left to reattach `completed[key]` to,
+// that already-done block used to vanish entirely, though the progress_log
+// row behind it was never touched. ScheduleInputs.currentWeekFallback exists
+// to stop that: from-db.ts rebuilds it directly from progress_log, and
+// engine.ts folds one in exactly when pass 1 didn't already reconstruct it.
+const mondayBlock = [...running].filter((b) => b.gday === 0).sort((a, b) => a.start - b.start)[0];
+check("the baseline actually places something Monday to log against", !!mondayBlock, true);
+
+// The hold lands Tuesday — Monday's block is now in the past.
+const laterNow = new Date(2026, 6, 28, 10, 0);
+const loggedKey = `${mondayBlock.taskId}@${mondayBlock.gday}-${mondayBlock.start}`;
+
+const heldNoFallback = computeSchedule(
+  { ...engineInputs(null), completed: { [loggedKey]: true } },
+  laterNow,
+);
+check(
+  "without the fallback, the completed Monday block silently disappears once held",
+  heldNoFallback.blocks.some((b) => b.key === loggedKey),
+  false,
+);
+
+const fallbackBlock = { ...mondayBlock, key: loggedKey, status: "done", partMin: null };
+const heldWithFallback = computeSchedule(
+  { ...engineInputs(null), completed: { [loggedKey]: true }, currentWeekFallback: [fallbackBlock] },
+  laterNow,
+);
+check(
+  "with the fallback, the already-completed Monday block survives the hold",
+  heldWithFallback.blocks.some((b) => b.key === loggedKey && b.status === "done"),
+  true,
+);
+check(
+  "the held project still books nothing NEW beyond that one logged block",
+  heldWithFallback.blocks.filter((b) => b.projectId === "p1" && b.key !== loggedKey).length,
+  0,
+);
+
 // ------------------------------------------------------------------- pace
 const base = {
   id: "p1",

@@ -494,6 +494,20 @@ export interface ScheduleInputs {
    * through to the result — the scheduler never runs over a past week, since
    * re-deriving one from today's rules would invent blocks that never existed. */
   historyBlocks: ScheduleBlock[];
+  /** Logged/pinned entries from THIS week (gday 0-6) rebuilt directly from
+   * progress_log/pinned_chunks, the same way historyBlocks rebuilds prior
+   * weeks — but used only as a FALLBACK. Pass 1 in engine.ts normally
+   * reconstructs the current week's already-decided slots by regenerating it
+   * from current taskDefs and matching completed/pinned keys against what
+   * that regeneration produces. That match fails silently when a def stops
+   * being generated for reasons that have nothing to do with the work itself
+   * — the project went on hold, was archived, or had its deadline/label
+   * changed since the work was logged — and the already-completed block then
+   * has nothing to reattach to and simply vanishes from the calendar, though
+   * the underlying row is untouched. engine.ts folds one of these in only
+   * when pass 1 didn't already reconstruct that exact (subject, day, start)
+   * slot on its own, so an unaffected week costs nothing. */
+  currentWeekFallback: ScheduleBlock[];
   /** Label id -> its weekly share target as a percentage of that week's
    * available working time (categories.weekly_target_pct). Absent = no target.
    * See labelScaleForWeek in engine.ts for what it does to the commitments

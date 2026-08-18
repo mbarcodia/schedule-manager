@@ -1023,6 +1023,20 @@ export function computeSchedule(
     }
   });
 
+  // The fallback described on ScheduleInputs.currentWeekFallback: a
+  // progress_log row from this week that pass 1 above didn't reconstruct a
+  // matching slot for — because the project went on hold, was archived, or
+  // had a def-affecting edit since the work was logged — would otherwise
+  // vanish from the calendar entirely despite being real, already-completed
+  // work. Only added when pass 1 truly missed it (no key collision) and only
+  // for slots already in the past, so a normal week is untouched.
+  const keptKeys = new Set(kept.map((c) => c.key));
+  (inputs.currentWeekFallback ?? []).forEach((b) => {
+    if (b.abs! >= NOW || keptKeys.has(b.key!)) return;
+    kept.push(b);
+    keptKeys.add(b.key!);
+  });
+
   const credit: Record<string, number> = {};
   kept.forEach((c) => {
     if (c.status === "partial") {

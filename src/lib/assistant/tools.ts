@@ -21,7 +21,7 @@ import {
   parseRelativeMinutes,
 } from "./nlp-dates";
 import { statusReply } from "./status";
-import { dateForGday, gdayForDate, localDateKey, minToLabel, WEEKDAY_LABELS, zonedTimeToUtc, zonedNow } from "@/lib/scheduling/time";
+import { dateForGday, fmtMin, gdayForDate, localDateKey, minToLabel, MONTH_NAMES, WEEKDAY_LABELS, zonedTimeToUtc, zonedNow } from "@/lib/scheduling/time";
 import {
   dateFromKey,
   describeWindow,
@@ -1328,6 +1328,85 @@ export function buildTools(ctx: ToolContext) {
     },
   });
 
+  // record_progress snaps to an existing SCHEDULED block's own length, which
+  // is right for "mark this done/partial/missed" but wrong for "log one more
+  // hour on X" — that matched the nearest whole block and logged all of it,
+  // not the hour actually meant. This logs an exact amount instead, with no
+  // block to match against: a fresh progress_log row, additive on top of
+  // whatever else is already logged for that subject that day.
+  const log_hours = betaTool({
+    name: "log_hours",
+    description:
+      'Log an EXACT amount of time against a project or task, independent of any scheduled block\'s length — for "log one more hour on X" or entering a specific past amount. Adds on top of whatever is already logged for that subject on that date; it neither requires nor touches a matching calendar block. Use record_progress instead when marking a SPECIFIC scheduled block done, partial, or missed.',
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "fuzzy title of the project or task" },
+        hours: { type: "number", description: "hours to log; combine with minutes for a fractional amount" },
+        minutes: { type: "number" },
+        date: { type: "string", description: 'natural-language date this was worked, default "today"' },
+      },
+      required: ["title"],
+    },
+    run: async (inp) => {
+      const totalMin = Math.round(((inp.hours ?? 0) * 60 + (inp.minutes ?? 0)) / 15) * 15;
+      if (totalMin <= 0) return "Give an amount of time to log — hours, minutes, or both.";
+
+      const [{ data: projects }, { data: tasks }] = await Promise.all([
+        supabase.from("projects").select("id,title").eq("user_id", userId).is("archived_at", null),
+        supabase.from("tasks").select("id,title").eq("user_id", userId).is("archived_at", null),
+      ]);
+      const pMatch = findByTitle(projects ?? [], inp.title);
+      const tMatch = findByTitle(tasks ?? [], inp.title);
+      const ambiguous = [...pMatch.ambiguous, ...tMatch.ambiguous];
+      if (ambiguous.length) return ambiguousMsg("projects/tasks", inp.title, ambiguous);
+      const subject = pMatch.match
+        ? { type: "research" as const, id: pMatch.match.id, title: pMatch.match.title }
+        : tMatch.match
+          ? { type: "task" as const, id: tMatch.match.id, title: tMatch.match.title }
+          : null;
+      if (!subject) return `No project or task matching "${inp.title}".`;
+
+      const day = inp.date ? parseDeadlineDate(inp.date.toLowerCase(), ctx.today) : ctx.today;
+      if (!day) return `Couldn't understand the date "${inp.date}" — try "today", "yesterday", or "August 12".`;
+      const occurred_date = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
+
+      const { data: existing } = await supabase
+        .from("progress_log")
+        .select("start_min,end_min")
+        .eq("user_id", userId)
+        .eq("subject_type", subject.type)
+        .eq("subject_id", subject.id)
+        .eq("occurred_date", occurred_date);
+      // Stacked after whatever else is already logged that day, purely to give
+      // this row a start_min nothing else on the subject/date owns yet — this
+      // is a bookkeeping entry, not a claim on a real calendar slot, so it is
+      // not checked against events or other work.
+      const priorMin = (existing ?? []).reduce((n, r) => n + (r.end_min - r.start_min), 0);
+      const start_min = Math.max(0, Math.min(1440 - totalMin, (existing ?? []).reduce((max, r) => Math.max(max, r.end_min), 0)));
+      const end_min = Math.min(1440, start_min + totalMin);
+
+      const failed = await writeError(
+        `Couldn't log time on "${subject.title}"`,
+        supabase.from("progress_log").insert({
+          user_id: userId,
+          subject_type: subject.type,
+          subject_id: subject.id,
+          occurred_date,
+          start_min,
+          end_min,
+          minutes_done: null,
+        }),
+      );
+      if (failed) return failed;
+      if (subject.type === "task") await syncTaskCompletionFromProgress(supabase, subject.id);
+      markMutated(ctx);
+      const loggedMin = end_min - start_min;
+      const shortNote = loggedMin < totalMin ? ` (${fmtMin(totalMin - loggedMin)} didn't fit before midnight and was dropped)` : "";
+      return `Logged ${fmtMin(loggedMin)} on "${subject.title}" for ${occurred_date}${priorMin > 0 ? ` (${fmtMin(priorMin + loggedMin)} total that day)` : ""}.${shortNote}`;
+    },
+  });
+
   const pin_research = betaTool({
     name: "pin_research",
     description:
@@ -1881,6 +1960,70 @@ export function buildTools(ctx: ToolContext) {
     },
   });
 
+  // The turn's snapshot summarizes tasks/research as aggregate numbers
+  // (freeHoursByDay, labelTargetsThisWeek, ...) rather than a block-by-block
+  // listing — that level of detail is only kept for raw calendar events. That
+  // made "what's actually on Wednesday afternoon" and "did that pin really
+  // land at 2pm" unanswerable except by guessing from what was last written,
+  // which is exactly the class of wrong answer that erodes trust: the model
+  // narrating its own intent as if it were a live look at the calendar. This
+  // is the ground truth those questions need — call it instead of describing
+  // a write as done, or recalling an earlier turn's placement.
+  const get_schedule = betaTool({
+    name: "get_schedule",
+    description:
+      "Get the REAL, currently-computed schedule for one or more days — every block actually placed, with its exact time, type and status. This is ground truth, not the turn's summarized snapshot. ALWAYS call this after any pin, move, or day-focus write to confirm what actually landed before describing it, and whenever asked what's on a specific day or why something did or didn't end up somewhere — never answer either from memory of what you wrote or from an earlier turn.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        date: {
+          type: "string",
+          description: 'natural-language date, e.g. "today", "tomorrow", "wednesday", "August 20". Defaults to today.',
+        },
+        days: { type: "number", description: "how many days starting from `date`, default 1, max 14" },
+      },
+    },
+    run: async (inp) => {
+      const startDate = inp.date ? parseDeadlineDate(inp.date.toLowerCase(), ctx.today) : ctx.today;
+      if (!startDate) return `Couldn't understand the date "${inp.date}" — try "today", "tomorrow", "wednesday", or "August 20".`;
+      const startGday = gdayForDate(
+        ctx.timezone,
+        { year: startDate.getFullYear(), month: startDate.getMonth() + 1, day: startDate.getDate() },
+        new Date(),
+      );
+      if (startGday < 0) return "That date is in the past — a past day is a fixed record, not something to re-check live.";
+      if (startGday >= ctx.horizonWeeks * 7) return `That date is further out than the ${ctx.horizonWeeks}-week planning horizon.`;
+      const span = Math.max(1, Math.min(14, Math.round(inp.days || 1)));
+
+      const rows = await queryScheduleRows(supabase, userId);
+      const { inputs } = buildScheduleInputs(rows);
+      const schedule = computeSchedule(inputs);
+      const projectTitle = new Map(inputs.projects.map((p) => [p.id, p.title]));
+
+      const days: string[] = [];
+      for (let g = startGday; g < startGday + span; g++) {
+        const d = dateForGday(ctx.timezone, g, new Date());
+        const label = `${WEEKDAY_LABELS[g % 7]} ${MONTH_NAMES[d.month - 1]} ${d.day}`;
+        const dayBlocks = schedule.blocks.filter((b) => b.gday === g && !b.allDay).sort((a, b) => a.start - b.start);
+        if (!dayBlocks.length) {
+          days.push(`${label}: nothing scheduled.`);
+          continue;
+        }
+        const lines = dayBlocks.map((b) => {
+          const time = `${minToLabel(b.start)}-${minToLabel(b.end)}`;
+          const project = b.projectId ? projectTitle.get(b.projectId) : null;
+          const projectNote = project && project !== b.title ? ` (${project})` : "";
+          const kind = b.type === "anchor" ? " — routine" : b.type === "synced" ? " — meeting" : "";
+          const doneEarly = b.pinned ? " — checked off early" : "";
+          const status = b.status && !b.pinned ? ` [${b.status}]` : "";
+          return `  ${time}  ${b.title}${projectNote}${kind}${doneEarly}${status}`;
+        });
+        days.push(`${label}:\n${lines.join("\n")}`);
+      }
+      return days.join("\n\n");
+    },
+  });
+
   const get_status = betaTool({
     name: "get_status",
     description: "Get deadline and weekly-hours status for a project by title, or omit title for a full overview.",
@@ -1928,6 +2071,7 @@ export function buildTools(ctx: ToolContext) {
     add_event,
     adjust_day_hours,
     record_progress,
+    log_hours,
     pin_research,
     update_recurring,
     set_day_focus,
@@ -1937,6 +2081,7 @@ export function buildTools(ctx: ToolContext) {
     set_week_reserve,
     remember_rule,
     get_status,
+    get_schedule,
   ];
 }
 

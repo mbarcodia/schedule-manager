@@ -349,6 +349,7 @@ export function WeekGrid({
                     atRiskTitles={schedule.risk}
                     nearDeadlineTitles={schedule.nearDeadline}
                     categories={categories}
+                    projects={projects}
                     layout={blockLanes.get(b)}
                     onSetProgress={(mode, minutes) => onSetProgress(b, mode, minutes)}
                     onPinDone={() => onPinDone(b)}

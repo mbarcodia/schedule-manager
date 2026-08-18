@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { CheckIcon } from "@phosphor-icons/react";
 import { computeBlockVisual, needsCompletionTime, type BlockLane } from "@/lib/scheduling/render";
-import type { Category, ScheduleBlock } from "@/lib/scheduling/types";
+import type { Category, Project, ScheduleBlock } from "@/lib/scheduling/types";
 
 // Blocks render at their true proportional height, inset 1px top and bottom so
 // the gap between consecutive blocks is visible. There used to be a 26px floor
@@ -19,6 +19,9 @@ interface BlockProps {
   atRiskTitles: string[];
   nearDeadlineTitles: string[];
   categories: Category[];
+  /** For naming a task's parent commitment as a subtitle — see
+   * BlockVisual.projectTitle. */
+  projects: Project[];
   layout?: BlockLane;
   onPinDone: () => void;
   onUnpinDone: () => void;
@@ -31,6 +34,7 @@ export function Block({
   atRiskTitles,
   nearDeadlineTitles,
   categories,
+  projects,
   layout,
   onPinDone,
   onUnpinDone,
@@ -40,7 +44,7 @@ export function Block({
   /** Open while we're asking which slot a completion belongs in. */
   const [asking, setAsking] = useState(false);
 
-  const visual = computeBlockVisual(block, { atRiskTitles, nearDeadlineTitles, categories });
+  const visual = computeBlockVisual(block, { atRiskTitles, nearDeadlineTitles, categories, projects });
   if (!visual) return null;
 
   const compact = visual.density !== "full";
@@ -201,6 +205,21 @@ export function Block({
           >
             {visual.title}
           </div>
+          {visual.projectTitle && (
+            <div
+              style={{
+                fontSize: 9.5,
+                opacity: 0.6,
+                marginTop: 1,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                paddingRight: checkSize + 4,
+              }}
+            >
+              {visual.projectTitle}
+            </div>
+          )}
           <div style={{ fontSize: 9.5, opacity: 0.65, marginTop: 2 }}>{visual.timeLabel}</div>
           {!showInlineStatus && visual.statusLabel && (
             <div style={{ fontSize: 9, color: visual.statusColor, marginTop: 2, fontWeight: 600, letterSpacing: "0.05em" }}>
@@ -232,8 +251,12 @@ export function Block({
             {visual.title}
           </div>
           {!ultraCompact && (
+            // Time first, project appended after: a long project name should
+            // lose to the ellipsis before the time does — the time is the
+            // more load-bearing fact at a glance, and a squeezed line used to
+            // always keep it.
             <div style={{ fontSize: 9, opacity: 0.65, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-              {visual.timeLabel}
+              {visual.projectTitle ? `${visual.timeLabel} · ${visual.projectTitle}` : visual.timeLabel}
             </div>
           )}
         </div>

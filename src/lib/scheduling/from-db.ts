@@ -474,22 +474,20 @@ export function buildScheduleInputs(
   // gday 0-6 and keyed to match `kept`'s own key format exactly (not the
   // `history-` prefix above) so engine.ts can dedupe against it by a plain
   // key lookup.
+  //
+  // Anchors are deliberately excluded: they never go through taskDefs/pass 1
+  // at all — anchorDefs() regenerates one deterministically every run and
+  // resolves its own done/missed status directly against `completed`, with no
+  // def to lose and nothing that can hold it. Including them here duplicated
+  // every ticked routine, since that direct render sits outside `kept` and so
+  // never showed up in the dedupe check below.
   const currentWeekFallback: ScheduleBlock[] = [];
   for (const p of rows.progressLog) {
+    if (p.subject_type === "anchor") continue;
     const gday = gdayForDate(timezone, dateParts(p.occurred_date), now);
     if (gday < 0 || gday >= 7) continue;
-    const subjectId =
-      p.subject_type === "research"
-        ? `research-${p.subject_id}-w${Math.floor(gday / 7)}`
-        : p.subject_type === "anchor"
-          ? `anchor-${p.subject_id}`
-          : p.subject_id;
-    const title =
-      p.subject_type === "research"
-        ? (projectTitle.get(p.subject_id) ?? "Research")
-        : p.subject_type === "anchor"
-          ? (ruleTitle.get(p.subject_id) ?? "Routine")
-          : (taskTitle.get(p.subject_id) ?? "Work");
+    const subjectId = p.subject_type === "research" ? `research-${p.subject_id}-w${Math.floor(gday / 7)}` : p.subject_id;
+    const title = p.subject_type === "research" ? (projectTitle.get(p.subject_id) ?? "Research") : (taskTitle.get(p.subject_id) ?? "Work");
     const categoryId =
       p.subject_type === "research"
         ? (projectById.get(p.subject_id)?.category_id ?? null)
@@ -501,11 +499,11 @@ export function buildScheduleInputs(
     const doneMin = p.minutes_done ?? p.end_min - p.start_min;
     if (doneMin <= 0) continue;
     currentWeekFallback.push({
-      type: p.subject_type === "anchor" ? "anchor" : "task",
+      type: "task",
       taskId: subjectId,
       projectId,
       categoryId,
-      tagLabel: p.subject_type === "anchor" ? ROUTINE_TAG_LABEL : labelNames[categoryId ?? ""] ?? null,
+      tagLabel: labelNames[categoryId ?? ""] ?? null,
       title,
       gday,
       start: p.start_min,

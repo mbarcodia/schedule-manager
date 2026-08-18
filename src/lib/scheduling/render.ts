@@ -5,7 +5,7 @@
 // testable independent of the component tree.
 
 import { fmtMin, minToLabel } from "./time";
-import type { Category, ScheduleBlock } from "./types";
+import type { Category, Project, ScheduleBlock } from "./types";
 
 // The grid renders the full day so scrolling can reach any hour even when
 // nothing's scheduled there — WeekGrid scrolls to DEFAULT_SCROLL_MIN on
@@ -32,6 +32,12 @@ export interface BlockVisual {
   /** Null when the block has no label — nothing is drawn in the corner. */
   tagLabel: string | null;
   title: string;
+  /** The parent commitment's title, shown as a subtitle under a TASK's own
+   * title so "Data retrieval" visibly rolls up to "new-normal-temp-thresh"
+   * without opening the block. Null for a commitment's own weekly-hours
+   * block (its title already IS the project's), for anything with no linked
+   * project, and for non-task blocks. */
+  projectTitle: string | null;
   timeLabel: string;
   statusLabel: string | null;
   statusColor: string;
@@ -124,7 +130,7 @@ export function computeBlockLanes(blocks: ScheduleBlock[]): Map<ScheduleBlock, B
 
 export function computeBlockVisual(
   block: ScheduleBlock,
-  opts: { atRiskTitles: string[]; nearDeadlineTitles?: string[]; categories?: Category[] },
+  opts: { atRiskTitles: string[]; nearDeadlineTitles?: string[]; categories?: Category[]; projects?: Project[] },
 ): BlockVisual | null {
   const clampStart = Math.max(block.start, DAY_START_MIN);
   const clampEnd = Math.min(block.end, DAY_END_MIN);
@@ -160,6 +166,11 @@ export function computeBlockVisual(
   }
 
   const isTask = block.type === "task";
+  // A commitment's own weekly-hours block already wears the project's title
+  // as its own (taskDefs sets title: project.title) — only a TASK linked to
+  // one is showing something else, so only it needs the parent named.
+  const linkedProjectTitle = isTask && block.projectId ? (opts.projects?.find((p) => p.id === block.projectId)?.title ?? null) : null;
+  const projectTitle = linkedProjectTitle && linkedProjectTitle !== block.title ? linkedProjectTitle : null;
   // Deadline coloring only applies to not-yet-resolved future/active chunks —
   // once a chunk is done/partial/missed, its own status is more relevant.
   const isPastDeadline = isTask && !block.status && opts.atRiskTitles.includes(block.title);
@@ -241,6 +252,7 @@ export function computeBlockVisual(
     density,
     tagLabel: block.tagLabel,
     title: block.title,
+    projectTitle,
     timeLabel: `${minToLabel(block.start)} – ${minToLabel(block.end)}`,
     statusLabel,
     statusColor,

@@ -6,6 +6,7 @@ import { fetchScheduleData, type ScheduleData } from "@/lib/scheduling/fetch-sch
 import { computeSchedule } from "@/lib/scheduling/engine";
 import { localDateKey } from "@/lib/scheduling/time";
 import type { ComputeScheduleResult, ScheduleBlock } from "@/lib/scheduling/types";
+import { syncTaskCompletionFromProgress } from "@/lib/planner/task-completion-sync";
 
 export interface UseScheduleDataResult {
   data: ScheduleData | null;
@@ -119,6 +120,11 @@ export function useScheduleData(): UseScheduleDataResult {
         );
         if (err) return setWriteError(`Couldn't record that: ${err.message}`);
       }
+      // A task (never a research/anchor subject — those are ongoing) that has
+      // now logged its full duration finishes the same way ticking it on the
+      // To-Do tab or the Kanban board already does: archived, and its source
+      // to-do ticked along with it. Un-ticking a task's last chunk reverses it.
+      if (subjectType === "task") await syncTaskCompletionFromProgress(supabase, subjectId);
       setWriteError(null);
       await refresh();
     },
@@ -175,6 +181,7 @@ export function useScheduleData(): UseScheduleDataResult {
         { onConflict: "user_id,subject_type,subject_id,occurred_date,start_min" },
       );
       if (pinErr) return setWriteError(`Couldn't check that off early: ${pinErr.message}`);
+      if (subjectType === "task") await syncTaskCompletionFromProgress(supabase, subjectId);
       setWriteError(null);
       await refresh();
     },
@@ -193,6 +200,7 @@ export function useScheduleData(): UseScheduleDataResult {
         start_min: block.start,
       });
       if (err) return setWriteError(`Couldn't undo that: ${err.message}`);
+      if (subjectType === "task") await syncTaskCompletionFromProgress(supabase, subjectId);
       setWriteError(null);
       await refresh();
     },

@@ -21,6 +21,7 @@
 
 import { createClient } from "@/lib/supabase/client";
 import { softDelete } from "@/lib/db/soft-delete";
+import { syncTodoOnTaskArchive } from "./task-completion-sync";
 import type { TaskRow } from "@/components/board/KanbanCard";
 
 export type DroppableColumn = "backlog" | "this_week" | "in_progress";
@@ -117,7 +118,12 @@ export async function setTaskArchived(taskId: string, archived: boolean): Promis
     .from("tasks")
     .update({ archived_at: archived ? new Date().toISOString() : null })
     .eq("id", taskId);
-  return error?.message ?? null;
+  if (error) return error.message;
+  // Mirrors TodoView's own toggle(), which does this in reverse: archiving a
+  // task that came from a to-do finishes the to-do too, from whichever side
+  // did it.
+  await syncTodoOnTaskArchive(supabase, taskId, archived);
+  return null;
 }
 
 // ---------------------------------------------------------------------------

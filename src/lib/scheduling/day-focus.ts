@@ -110,6 +110,13 @@ export interface FocusableDef {
   preferAfternoon?: boolean;
   dependsOn?: string | null;
   excludeDays?: number[];
+  /** Set only on a def this module creates for one focused day. Distinguishes
+   * it from the project's real weekly def even though both carry the SAME id
+   * (see researchDefId) — without this marker, a second focus on the same
+   * project later in the same week would match the first day's fenced def via
+   * `d.id === focusId` and drain its duration by the second day's own-minutes,
+   * zeroing out a day that was already correctly sized. */
+  isDayFocusChunk?: boolean;
 }
 
 const NO_DEADLINE = 99999;
@@ -254,7 +261,7 @@ export function applyDayFocus<T extends FocusableDef>(
     const transferredMin = Math.max(0, focusMin - pOwnMin);
 
     // ---- rewrite the defs ---------------------------------------------------
-    const labelDefs = working.filter((d) => d.projectId && idToProject.has(d.id));
+    const labelDefs = working.filter((d) => d.projectId && idToProject.has(d.id) && !d.isDayFocusChunk);
     // Best claim among the chunks it replaces — not best overall. In pass 1 those
     // defs won this day's slots only AFTER losing to everything that outranked
     // them, so inheriting the best of their claims is a clean substitution:
@@ -264,6 +271,11 @@ export function applyDayFocus<T extends FocusableDef>(
     const bestOrd = labelDefs.length ? Math.min(...labelDefs.map((d) => d.ord)) : 0;
 
     working = working.map((d) => {
+      // A previous day's own fenced focus chunk shares this SAME id (by design —
+      // see researchDefId) but is not the project's real weekly def, and must not
+      // be touched by a later day's focus: it already got its own correctly-sized
+      // duration when IT was processed, fenced to its own single day.
+      if (d.isDayFocusChunk) return d;
       // The focused project's own weekly def gives up exactly what it already held
       // on this day, because the focus def re-asks for those minutes below.
       if (d.id === focusId) return { ...d, duration: Math.max(0, d.duration - pOwnMin) };
@@ -322,6 +334,7 @@ export function applyDayFocus<T extends FocusableDef>(
         timeOfDay: project.timeOfDay ?? null,
         preferMorning: !!project.preferMorning,
         preferAfternoon: !!project.preferAfternoon,
+        isDayFocusChunk: true,
       };
       // Not `splitMode: "one_day"`: it is already confined to one day by the fence
       // above, and one_day is all-or-nothing — if focusMin could not be placed

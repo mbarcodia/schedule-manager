@@ -969,12 +969,27 @@ export function computeSchedule(
   );
   const plan = runScheduler(inputs, defs, new Set(baseBusy), 0, null, NOW);
 
+  // A fixed pin (task.pin / a research pin) is drawn from `inputs.tasks` /
+  // `inputs.researchPins` every run, independent of whether the work already
+  // got done — "I'll do it at 11am tomorrow" doesn't stop being true just
+  // because progress hasn't been logged yet. But "I did it just now" (the
+  // Block.tsx early-completion pin, recorded in `inputs.pinned`) DOES settle
+  // it, and without this check the fixed pin's own slot kept reappearing every
+  // run — credited nowhere, but never freed either. Summed per subject id so a
+  // pin covered by more than one early-done entry still clears.
+  const doneEarlyMinByTask: Record<string, number> = {};
+  Object.values(inputs.pinned).forEach((p) => {
+    doneEarlyMinByTask[p.taskId] = (doneEarlyMinByTask[p.taskId] ?? 0) + (p.end - p.start);
+  });
+
   const kept: ScheduleBlock[] = [];
   const futurePins: ScheduleBlock[] = [];
   [...taskPinChunks, ...plan.chunks].forEach((c) => {
     const abs = c.gday * 1440 + c.start;
     const absEnd = c.gday * 1440 + c.end;
     if (abs >= NOW && taskPinChunks.includes(c)) {
+      const pinLen = c.end - c.start;
+      if ((doneEarlyMinByTask[c.taskId!] ?? 0) >= pinLen) return; // already checked off early — free the slot
       futurePins.push(c);
       return;
     }

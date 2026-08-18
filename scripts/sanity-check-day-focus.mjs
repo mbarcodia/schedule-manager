@@ -280,6 +280,37 @@ check("two focuses on different days are both honoured", [
 ], [["C"], ["A"]]);
 check("neither reports a skip", twoDays.dayFocus.map((o) => o.skipped), [null, null]);
 
+// ------------------------ THE REGRESSION: same project, multiple days, one week
+//
+// A live bug: focusId is deliberately the SAME string on every day that focuses
+// the same project (researchDefId is keyed by project+week, not by day — see its
+// own comment on why). The "reduce the project's own weekly def by what it
+// already held" step used to match on that shared id alone, so it also matched
+// EARLIER days' own already-created (and already correctly-sized) focus chunks —
+// each later day's focus silently drained the earlier days' placedMin toward
+// zero. Three straight days focused on the same project reproduces it; two
+// distinct days above did not, because distinct projects never shared an id.
+const threeDaysSameProject = run({
+  dayFocus: [
+    { gday: 0, categoryId: RESEARCH, projectId: "A" },
+    { gday: 1, categoryId: RESEARCH, projectId: "A" },
+    { gday: 2, categoryId: RESEARCH, projectId: "A" },
+  ],
+  // A needs enough weekly minutes to genuinely spread across all three focused
+  // days in the UNFOCUSED baseline (480/480/340) — the erosion only shows up
+  // when a later day's pOwnMin is nonzero, which requires the project to
+  // already own real time on that later day before any focus is applied.
+  projects: [project("A", { weeklyMinMin: 1300 }), project("B"), project("C")],
+});
+for (const o of threeDaysSameProject.dayFocus) {
+  check(`gday ${o.gday}: placedMin matches focusMin (nothing silently drained later)`, o.placedMin, o.focusMin);
+}
+check(
+  "an earlier day keeps its own research minutes after a later day focuses the same project",
+  minutes(labelOn(threeDaysSameProject, 0).filter((b) => b.projectId === "A")) > 0,
+  true,
+);
+
 check(
   "computing twice on identical inputs gives an identical schedule",
   JSON.stringify(run({ dayFocus: FOCUS_WED_A }).blocks),

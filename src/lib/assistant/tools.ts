@@ -41,6 +41,7 @@ import { queryScheduleRows } from "@/lib/scheduling/query-rows";
 // done" over a write that didn't land is the worst version of this bug, because
 // the logged hours it invents then drive pace, streaks and the weekly digest.
 import { writeError } from "@/lib/planner/write";
+import { syncTodoOnTaskArchive, syncTaskCompletionFromProgress } from "@/lib/planner/task-completion-sync";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, RoutineAnchor } from "@/lib/supabase/database.types";
 import type { ScheduleInputs, Task, WeeklyHours } from "@/lib/scheduling/types";
@@ -587,6 +588,9 @@ export function buildTools(ctx: ToolContext) {
           .select("id");
         if (error) return `Couldn't remove "${t.title}": ${error.message}`;
         if (!archived || archived.length === 0) return `"${t.title}" was already archived.`;
+        // Mirrors TodoView's own toggle(): a task that came from a to-do
+        // finishes the to-do too, from whichever side did it.
+        await syncTodoOnTaskArchive(supabase, t.id, true);
         markMutated(ctx);
         return `Archived "${t.title}" — it's off the calendar and the boards, its logged hours are kept, and you can restore it from the Archive tab.`;
       }
@@ -1281,6 +1285,9 @@ export function buildTools(ctx: ToolContext) {
           ),
         );
         if (failed) return failed;
+        // Mirrors the calendar checkbox: a task now fully credited archives
+        // and finishes its source to-do, same as ticking it there would.
+        if (subjectType === "task") await syncTaskCompletionFromProgress(supabase, subjectId);
         markMutated(ctx);
         return `Marked the "${c.title}" block (${len}m) done.`;
       }
@@ -1294,6 +1301,7 @@ export function buildTools(ctx: ToolContext) {
             .match({ user_id: userId, subject_type: subjectType, subject_id: subjectId, occurred_date, start_min: c.start }),
         );
         if (failed) return failed;
+        if (subjectType === "task") await syncTaskCompletionFromProgress(supabase, subjectId);
         markMutated(ctx);
         return `Marked the "${c.title}" block missed — all ${len}m rescheduled later this week.`;
       }
@@ -1314,6 +1322,7 @@ export function buildTools(ctx: ToolContext) {
         ),
       );
       if (partialFailed) return partialFailed;
+      if (subjectType === "task") await syncTaskCompletionFromProgress(supabase, subjectId);
       markMutated(ctx);
       return `Logged ${mins}m of ${len}m on "${c.title}" — the remaining ${len - mins}m is rescheduled later this week.`;
     },

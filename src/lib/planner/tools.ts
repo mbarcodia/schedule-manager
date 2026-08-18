@@ -11,6 +11,7 @@ import { findByTitle } from "@/lib/assistant/nlp-dates";
 import { buildTodoReminderTools } from "./todo-reminder-tools";
 import type { Database } from "@/lib/supabase/database.types";
 import { writeError } from "./write";
+import { syncTodoOnTaskArchive } from "./task-completion-sync";
 
 type NoteRow = Database["public"]["Tables"]["notes"]["Row"];
 type NoteUpdate = Database["public"]["Tables"]["notes"]["Update"];
@@ -281,6 +282,9 @@ function archiveTools(ctx: ToolContext) {
         supabase.from("tasks").update({ archived_at: new Date().toISOString() }).eq("id", result.match.id),
       );
       if (failed) return failed;
+      // Mirrors TodoView's own toggle(): a task that came from a to-do
+      // finishes the to-do too, from whichever side did it.
+      await syncTodoOnTaskArchive(supabase, result.match.id, true);
       markMutated(ctx);
       return `Archived "${result.match.title}" — off the schedule, history kept. It can be restored from the board's Archive view.`;
     },

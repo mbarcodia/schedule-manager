@@ -452,6 +452,7 @@ export function buildTodoReminderTools(ctx: ToolContext) {
       const categoryId = category ? await findCategoryId(ctx, category) : null;
       const patch: Database["public"]["Tables"]["todo_items"]["Update"] = {};
       const done: string[] = [];
+      let undated = false;
 
       {
         // The item's OWN due date is the finish-by unless a different one is
@@ -464,6 +465,7 @@ export function buildTodoReminderTools(ctx: ToolContext) {
             ? { at: item.due_at, allDay: item.due_all_day }
             : null;
         if (due && !deadlineAt) return `Couldn't understand the deadline "${due}".`;
+        undated = !deadlineAt;
         const startAt = start ? resolveStart(ctx, start) : null;
         if (start && !startAt) return `Couldn't understand the start "${start}".`;
         const durationMin = Math.round(hours * 60);
@@ -516,7 +518,13 @@ export function buildTodoReminderTools(ctx: ToolContext) {
         if (failed) return failed;
       }
       markMutated(ctx);
-      return `Booked ${done.join(" and ")} for "${item.text}". It stays on its list; ticking it off there will clear the time again.`;
+      // Neither this call's own due, nor the to-do's own due_at, gave the
+      // booked hours a deadline — the same undated trap add_task flags,
+      // since this creates/updates a task exactly the way that tool does.
+      const undatedWarning = undated
+        ? ` UNDATED: neither this to-do nor this booking has a due date, so these hours have nothing to defend them against dated work and can go unscheduled invisibly. Ask what date it's actually due.`
+        : "";
+      return `Booked ${done.join(" and ")} for "${item.text}". It stays on its list; ticking it off there will clear the time again.${undatedWarning}`;
     },
   });
 

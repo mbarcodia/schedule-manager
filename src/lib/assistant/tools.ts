@@ -329,7 +329,36 @@ export function buildTools(ctx: ToolContext) {
           : splitMode === "one_day"
             ? " All on one day — if no single day has room it will stay unscheduled rather than be spread out."
             : "";
-      const summary = `(${duration}m, ${priority} priority${link ? ", linked to " + link.title : ""}).${pin ? ` ${pinLength}m pinned to ${inp.pin_date} at ${inp.pin_time} — anything else scheduled there moves automatically.` : inp.time_of_day ? ` Placed in the ${inp.time_of_day}.` : " Placed on the calendar."}${splitNote}${deadlineNotUnderstood ? ` Couldn't understand the deadline "${inp.due}", so no deadline was set — try a format like "july 24" or "in 2 weeks".` : ""}${notBeforeNotUnderstood ? ` Couldn't understand the start date "${inp.not_before}", so it may be scheduled as early as today.` : notBeforeAt ? ` Not scheduled before ${inp.not_before}.` : ""}`;
+      // A task with neither a deadline nor a pin has nothing to defend it: it
+      // loses every contest against dated work in a full week and is never
+      // deleted or errored, just quietly never placed — and because it has no
+      // due date, it can't appear on the will-miss-deadline list either, so
+      // the drop is invisible until someone goes looking. Flagged rather than
+      // silently accepted, per a real incident where exactly this happened.
+      const undatedWarning =
+        !deadline && !pin
+          ? ` UNDATED: this task has no deadline and no pinned time, so it can lose every slot to dated work in a full week and go unscheduled with nothing to show it's at risk. Ask what date it's actually due, or pin it to a slot, rather than leaving it floating.`
+          : "";
+      const summary = `(${duration}m, ${priority} priority${link ? ", linked to " + link.title : ""}).${pin ? ` ${pinLength}m pinned to ${inp.pin_date} at ${inp.pin_time} — anything else scheduled there moves automatically.` : inp.time_of_day ? ` Placed in the ${inp.time_of_day}.` : " Placed on the calendar."}${splitNote}${deadlineNotUnderstood ? ` Couldn't understand the deadline "${inp.due}", so no deadline was set — try a format like "july 24" or "in 2 weeks".` : ""}${notBeforeNotUnderstood ? ` Couldn't understand the start date "${inp.not_before}", so it may be scheduled as early as today.` : notBeforeAt ? ` Not scheduled before ${inp.not_before}.` : ""}${undatedWarning}`;
+
+      // The exact trap that caused a real incident: a to-do already carries
+      // this title and a due date, and a bare, unlinked task of the same name
+      // is about to be created alongside it. The to-do's date never transfers
+      // to a same-named task — they are two separate rows — so the work reads
+      // as protected while the object the engine actually schedules is not.
+      const { data: openTodos } = await supabase
+        .from("todo_items")
+        .select("id,text,due_at,due_all_day,task_id")
+        .is("deleted_at", null)
+        .eq("user_id", userId)
+        .eq("done", false)
+        .is("task_id", null);
+      const todoMatch = findByTitle((openTodos ?? []).map((i) => ({ ...i, title: i.text })), inp.title).match;
+      const twinTodoWarning =
+        todoMatch && todoMatch.due_at
+          ? ` TWO OBJECTS, ONE NAME: there's already an open to-do "${todoMatch.text}" due ${todoMatch.due_at.slice(0, 10)} — its date does NOT carry over to this new task. Use schedule_todo on that item instead of add_task, or this task needs its own matching due date.`
+          : "";
+      const fullSummary = `${summary}${twinTodoWarning}`;
 
       // Dedupe on exact (normalized) title — re-declaring a task with the
       // same title updates it in place instead of creating a duplicate.
@@ -368,14 +397,14 @@ export function buildTools(ctx: ToolContext) {
         if (error) return `Couldn't update "${dupe.title}": ${error.message}`;
         markMutated(ctx);
         console.log(`[assistant] add_task upsert: id=${dupe.id} title=${JSON.stringify(dupe.title)}`);
-        return `"${dupe.title}" already existed — updated it instead of creating a duplicate ${summary}`;
+        return `"${dupe.title}" already existed — updated it instead of creating a duplicate ${fullSummary}`;
       }
 
       const { data: inserted, error } = await supabase.from("tasks").insert({ user_id: userId, ...payload }).select("id").single();
       if (error) return `Couldn't add "${inp.title}": ${error.message}`;
       markMutated(ctx);
       console.log(`[assistant] add_task insert: id=${inserted?.id} title=${JSON.stringify(inp.title)}`);
-      return `Added "${inp.title}" ${summary}`;
+      return `Added "${inp.title}" ${fullSummary}`;
     },
   });
 

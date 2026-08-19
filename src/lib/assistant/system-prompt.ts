@@ -22,6 +22,7 @@ import { deriveBoardStatuses, boardStatusFor } from "@/lib/planner/board-status"
 import { DEFAULT_WIP_LIMIT } from "@/lib/planner/board-constants";
 import type { ComputeScheduleResult, DayOverrides } from "@/lib/scheduling/types";
 import { toTargets } from "@/lib/scheduling/from-db";
+import { computeShortfall, describeShortfall } from "@/lib/scheduling/shortfall";
 import type { RawScheduleRows } from "@/lib/scheduling/from-db";
 import type { ScheduleInputs } from "@/lib/scheduling/types";
 
@@ -367,6 +368,16 @@ export function buildPromptContext(
     willMissDeadline: schedule.risk,
     cuttingItClose: schedule.nearDeadline,
     didNotFit: schedule.overflow,
+    /** The costed version of didNotFit, for this week and next: what is owed,
+     * what is genuinely free, and what could be changed to close the gap —
+     * each option with the hours it would actually free. Null when both weeks
+     * hold what they were asked for.
+     *
+     * didNotFit alone only ever supported one move: name what fell short and
+     * ask a single narrow question about it. This carries the whole set, so
+     * the answer to "why am I short" can be the alternatives rather than one
+     * suggestion. Call get_shortfall_options for the full list with costs. */
+    whatWouldHaveToGive: describeShortfall(computeShortfall(inputs, schedule)),
     /** Not a capacity problem: these start later than the horizon reaches, so
      * no hours have been placed for them yet. Say that, don't call them work
      * that didn't fit. */

@@ -36,6 +36,7 @@ import { allDayDueAt } from "@/lib/scheduling/all-day-due";
 import { computeSchedule } from "@/lib/scheduling/engine";
 import { buildScheduleInputs } from "@/lib/scheduling/from-db";
 import { queryScheduleRows } from "@/lib/scheduling/query-rows";
+import { computeShortfall } from "@/lib/scheduling/shortfall";
 // The same helper the board views use. A tool's run() already returns a string,
 // so a failed write has somewhere honest to go — and a tool that says "Marked it
 // done" over a write that didn't land is the worst version of this bug, because
@@ -2053,6 +2054,35 @@ export function buildTools(ctx: ToolContext) {
     },
   });
 
+  // The answer to "why am I short, and what do I do about it" — the whole set
+  // of trade-offs with their real costs, rather than one suggestion at a time.
+  // The snapshot carries a one-line version (whatWouldHaveToGive) so the model
+  // knows a shortfall exists at all; this is the detail behind it.
+  const get_shortfall_options = betaTool({
+    name: "get_shortfall_options",
+    description:
+      "When a week can't hold everything asked of it, get the full set of trade-offs that would close the gap — for this week and next — each with the hours it would actually free and what it costs. Use whenever the user asks why they are short on something, what to cut, what to move, or how to make the week work, and whenever the snapshot's whatWouldHaveToGive is non-null and they ask about the week. Present the options as a set for them to choose from; NEVER apply one without being asked.",
+    inputSchema: { type: "object", properties: {} },
+    run: async () => {
+      const rows = await queryScheduleRows(supabase, userId);
+      const { inputs } = buildScheduleInputs(rows);
+      const schedule = computeSchedule(inputs);
+      const weeks = computeShortfall(inputs, schedule);
+      const live = weeks.filter((w) => w.totalOwedMin > 0);
+      if (!live.length) return "Both this week and next hold everything they've been asked for — nothing has to give.";
+      return live
+        .map((w) => {
+          const head = `${w.weekLabel}: ${fmtMin(w.totalOwedMin)} owed, ${fmtMin(w.freeMin)} genuinely free.`;
+          const owed = w.owed.map((o) => `  - ${o.title} is short ${fmtMin(o.owedMin)}`).join("\n");
+          const opts = w.options.length
+            ? w.options.map((o, i) => `  ${i + 1}. ${o.label} — frees ${fmtMin(o.freesMin)}. ${o.cost}`).join("\n")
+            : "  (no option would close this on its own)";
+          return `${head}\n${owed}\nOptions:\n${opts}`;
+        })
+        .join("\n\n");
+    },
+  });
+
   const get_status = betaTool({
     name: "get_status",
     description: "Get deadline and weekly-hours status for a project by title, or omit title for a full overview.",
@@ -2111,6 +2141,7 @@ export function buildTools(ctx: ToolContext) {
     remember_rule,
     get_status,
     get_schedule,
+    get_shortfall_options,
   ];
 }
 

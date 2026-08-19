@@ -402,6 +402,10 @@ export interface UnplacedWork {
 }
 
 export interface LabelTargetReport {
+  /** The categories row this target belongs to. Carried so a caller proposing
+   * a change to the target (see shortfall.ts) can name the row to change
+   * rather than re-resolving it by display name. */
+  labelId: string;
   label: string;
   pct: number;
   /** Which reading of "% of week" this label uses — see migration 0038. */

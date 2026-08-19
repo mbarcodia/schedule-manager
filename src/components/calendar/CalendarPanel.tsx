@@ -16,6 +16,7 @@ import {
   WarningIcon,
 } from "@phosphor-icons/react";
 import { WeekGrid } from "./WeekGrid";
+import { ShortfallPanel } from "./ShortfallPanel";
 import { EventPanel } from "./EventPanel";
 import { dateForGday, WEEKDAY_LABELS, zonedNow } from "@/lib/scheduling/time";
 import {
@@ -432,6 +433,11 @@ export function CalendarPanel({ scheduleData }: CalendarPanelProps) {
           )}
         </div>
       )}
+
+      {/* Sits below the warning banner rather than inside it: that one names
+         what fell short, this one says what could be done about it, and the
+         second only makes sense once you have read the first. */}
+      <ShortfallPanel inputs={data.inputs} schedule={schedule} />
 
       <WeekGrid
         startGday={startGday}

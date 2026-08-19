@@ -401,7 +401,48 @@ function findSlot(
   dayOk: ((gday: GDay) => boolean) | null,
   ceilAbs?: AbsMinute,
   constrainAfternoon?: boolean,
+  /** Search from the ceiling BACKWARDS and take the latest slot that fits,
+   * instead of the earliest. Used for dated work so it sits near its deadline
+   * and leaves the earlier slots to weekly-hours minimums — see the
+   * just-in-time note in runScheduler. The candidate set is identical to the
+   * forward search's (same days, same 15-minute grid off each day's window
+   * start), so a length that can be placed one way can always be placed the
+   * other; only WHICH slot is chosen differs. */
+  preferLatest?: boolean,
 ): Slot | null {
+  if (preferLatest) {
+    const lastG = Math.min(
+      inputs.horizonWeeks * 7 - 1,
+      ceilAbs != null ? Math.floor((ceilAbs - 1) / 1440) : Infinity,
+    );
+    for (let g = lastG; g >= 0; g--) {
+      if ((g + 1) * 1440 <= floorAbs) break; // this day and every earlier one is before the floor
+      const win = resolveDayWindow(g, inputs.weeklyHours, inputs.dayOverrides, inputs.allDayBlocks);
+      if (win == null) continue;
+      if (dayOk && !dayOk(g)) continue;
+      const base = g * 1440;
+      const end = constrainNoon ? Math.min(win.end, 720) : win.end;
+      const start = constrainAfternoon ? Math.max(win.start, 720) : win.start;
+      if (constrainAfternoon && start >= end) continue;
+      // Walk the SAME candidates the forward loop would (start, start+15, …),
+      // highest first, so the two searches agree on what is placeable.
+      const limit = ceilAbs != null ? Math.min(end, ceilAbs - base) : end;
+      for (let k = Math.floor((limit - lengthMin - start) / 15); k >= 0; k--) {
+        const m = start + 15 * k;
+        const abs = base + m;
+        if (abs < floorAbs) break;
+        let free = true;
+        for (let j = 0; j < lengthMin; j += 1) {
+          if (busy.has(abs + j)) {
+            free = false;
+            break;
+          }
+        }
+        if (free) return { gday: g, start: m, end: m + lengthMin, abs };
+      }
+    }
+    return null;
+  }
   for (let g = 0; g < inputs.horizonWeeks * 7; g++) {
     if (ceilAbs != null && g * 1440 >= ceilAbs) break;
     const win = resolveDayWindow(g, inputs.weeklyHours, inputs.dayOverrides, inputs.allDayBlocks);
@@ -449,6 +490,22 @@ interface RunSchedulerResult {
 
 /** tasks[].deadline uses this to mean "no deadline" (see from-db.ts). */
 const NO_DEADLINE = 99999;
+
+/** Slack kept between dated work and its deadline under just-in-time
+ * placement, per unit of priority. One day at low priority, scaling to three
+ * at high.
+ *
+ * It scales rather than being flat because of what "picks first" means once
+ * placement runs backwards. Ranking still puts the higher-priority task at the
+ * head of the queue, so it chooses before the others — and choosing the LATEST
+ * free slot handed the most important work the least recovery room, with
+ * whatever it outranked sitting comfortably ahead of it. Buying more slack the
+ * more important the work is inverts that back: high-priority dated work sits
+ * furthest from its deadline, low-priority nearest, and both still sit near
+ * their deadlines rather than at the front of the week, which is the whole
+ * point of placing late. A buffer that doesn't fit is simply dropped (see the
+ * fallback chain at the placement site), so this never makes work unschedulable. */
+const JIT_BUFFER_MIN = 1440;
 
 /** How far ahead a real deadline starts outranking work that has none.
  *
@@ -538,6 +595,7 @@ function runScheduler(
       view: BusyView = busy,
       extraDayOk: ((gday: GDay) => boolean) | null = null,
       usedToday: Record<number, number> = perDay[t.id] || {},
+      late = false,
     ): Slot | null => {
       const capOk = t.maxPerDayMin ? (d: GDay) => (usedToday[d] || 0) + len <= t.maxPerDayMin! : null;
       // Days a day-focus has closed to this def. Composed with the other two
@@ -547,21 +605,21 @@ function runScheduler(
       const preds = [capOk, notExcluded, extraDayOk].filter((f) => f != null);
       const dayOk =
         preds.length === 0 ? null : preds.length === 1 ? preds[0] : (d: GDay) => preds.every((f) => f(d));
-      if (t.timeOfDay === "afternoon") return findSlot(inputs, floor, len, false, view, dayOk, ceil, true);
-      if (t.timeOfDay === "morning") return findSlot(inputs, floor, len, true, view, dayOk, ceil);
+      if (t.timeOfDay === "afternoon") return findSlot(inputs, floor, len, false, view, dayOk, ceil, true, late);
+      if (t.timeOfDay === "morning") return findSlot(inputs, floor, len, true, view, dayOk, ceil, false, late);
       // A soft nudge takes the wrong half of the day over leaving the work
       // unscheduled — that's the whole difference from the constraints above.
       if (t.preferMorning)
         return (
-          findSlot(inputs, floor, len, true, view, dayOk, ceil) ||
-          findSlot(inputs, floor, len, false, view, dayOk, ceil)
+          findSlot(inputs, floor, len, true, view, dayOk, ceil, false, late) ||
+          findSlot(inputs, floor, len, false, view, dayOk, ceil, false, late)
         );
       if (t.preferAfternoon)
         return (
-          findSlot(inputs, floor, len, false, view, dayOk, ceil, true) ||
-          findSlot(inputs, floor, len, false, view, dayOk, ceil)
+          findSlot(inputs, floor, len, false, view, dayOk, ceil, true, late) ||
+          findSlot(inputs, floor, len, false, view, dayOk, ceil, false, late)
         );
-      return findSlot(inputs, floor, len, false, view, dayOk, ceil);
+      return findSlot(inputs, floor, len, false, view, dayOk, ceil, false, late);
     };
 
     // Capped by maxPerDayMin as well: "no block under 90 minutes" and "at most
@@ -579,9 +637,9 @@ function runScheduler(
       t.splitMode === "one_block" ? [left] : chunkLengthsToTry(left, t.chunk ?? 0, chunkFloor);
 
     /** Places the chunk under a ceiling, trying shorter viable lengths to fit. */
-    const placeUnder = (ceil: number | undefined): { slot: Slot; len: number } | null => {
+    const placeUnder = (ceil: number | undefined, late = false): { slot: Slot; len: number } | null => {
       for (const len of lengthsFor(t.remaining)) {
-        const found = tryLen(len, ceil);
+        const found = tryLen(len, ceil, busy, null, perDay[t.id] || {}, late);
         if (found) return { slot: found, len };
       }
       return null;
@@ -605,8 +663,21 @@ function runScheduler(
      * that would refuse work a later day could have taken whole. So each day is
      * TRIED IN FULL — provisionally, against a layered busy view — and only a
      * day that can hold the entire duration is committed to. */
-    const placeAllOnOneDay = (ceil: number | undefined): { slot: Slot; len: number }[] | null => {
-      for (let g = 0; g < inputs.horizonWeeks * 7; g++) {
+    const placeAllOnOneDay = (
+      ceil: number | undefined,
+      /** Walk the candidate days latest-first, for the same just-in-time
+       * reason single chunks do — a one-day task due next week should take a
+       * day next week, not this week's only open morning. */
+      late = false,
+    ): { slot: Slot; len: number }[] | null => {
+      const lastG = Math.min(
+        inputs.horizonWeeks * 7 - 1,
+        ceil != null ? Math.floor((ceil - 1) / 1440) : Infinity,
+      );
+      const days = late
+        ? Array.from({ length: lastG + 1 }, (_, i) => lastG - i)
+        : Array.from({ length: inputs.horizonWeeks * 7 }, (_, i) => i);
+      for (const g of days) {
         // A pinned chunk has already been placed on a fixed day and its minutes
         // taken out of what's left here. The REST has to join it, or the pin
         // itself becomes the thing that breaks the one-day rule — which is how
@@ -614,7 +685,7 @@ function runScheduler(
         // pins one chunk to today and leaves the remainder to be placed freely.
         if (t.pin && g !== t.pin.gday) continue;
         if ((g + 1) * 1440 <= floor) continue; // whole day is before the earliest start
-        if (ceil != null && g * 1440 >= ceil) break;
+        if (ceil != null && g * 1440 >= ceil) continue;
         const trial = new Set<AbsMinute>();
         const view: BusyView = { has: (m) => busy.has(m) || trial.has(m) };
         const onThisDay = (d: GDay) => d === g;
@@ -648,7 +719,11 @@ function runScheduler(
       // Same two-step as below: prefer a day before the deadline, and fall back
       // to a later one rather than refusing outright — being late is a reported
       // outcome, whereas being split is the thing this mode forbids.
-      const spread = (withinDeadline != null ? placeAllOnOneDay(withinDeadline) : null) ?? placeAllOnOneDay(t.ceilAbs);
+      const dayBuffered = withinDeadline == null ? null : withinDeadline - JIT_BUFFER_MIN * priorityRank(t.priority);
+      const spread =
+        (withinDeadline != null
+          ? (dayBuffered! > floor ? placeAllOnOneDay(dayBuffered!, true) : null) ?? placeAllOnOneDay(withinDeadline, true)
+          : null) ?? placeAllOnOneDay(t.ceilAbs);
       if (!spread) {
         t.stuckAt = t.remaining;
         t.remaining = -1;
@@ -679,7 +754,26 @@ function runScheduler(
       continue;
     }
 
-    let placed = withinDeadline != null ? placeUnder(withinDeadline) : null;
+    // JUST-IN-TIME: dated work takes the LATEST slot that still makes its
+    // deadline, not the earliest that fits.
+    //
+    // Dated work is ranked ahead of weekly-hours minimums (deadlinePressure),
+    // which is right — a deadline is irrecoverable and a weekly minimum is
+    // not. But picking first meant it also took the EARLIEST slot, so a 2h
+    // session due next Monday would sit on this Thursday and this week's
+    // research minimum lost hours it could not make up. Ranking still decides
+    // WHO picks first; this decides WHERE they pick, and the two are separate
+    // questions. A day of slack is kept ahead of the deadline so the work is
+    // not left with zero recovery room; if that buffer can't be honoured the
+    // search widens to the deadline itself, and only then to a late placement
+    // (which the risk report already surfaces). Undated work is untouched —
+    // it has no deadline to sit near and still takes the earliest slot.
+    let placed: { slot: Slot; len: number } | null = null;
+    if (withinDeadline != null) {
+      const buffered = withinDeadline - JIT_BUFFER_MIN * priorityRank(t.priority);
+      if (buffered > floor) placed = placeUnder(buffered, true);
+      if (!placed) placed = placeUnder(withinDeadline, true);
+    }
     // Nothing fits before the deadline even in the smallest pieces allowed —
     // schedule it late rather than not at all, and let the risk report say so.
     if (!placed) placed = placeUnder(t.ceilAbs);
@@ -1204,6 +1298,7 @@ export function computeSchedule(
       const capacityMin = (basis === "week" ? weekCapacity[w] : weekCapacityAfterMeetings[w]) ?? 0;
 
       return {
+        labelId,
         label: inputs.labelNames[labelId] ?? labelId,
         pct,
         basis,

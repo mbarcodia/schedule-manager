@@ -296,7 +296,7 @@ const threeDaysSameProject = run({
     { gday: 1, categoryId: RESEARCH, projectId: "A" },
     { gday: 2, categoryId: RESEARCH, projectId: "A" },
   ],
-  // A needs enough weekly minutes to genuinely spread across all three focused
+  // A needs enough weekly minutes to spread across all three focused
   // days in the UNFOCUSED baseline (480/480/340) — the erosion only shows up
   // when a later day's pOwnMin is nonzero, which requires the project to
   // already own real time on that later day before any focus is applied.

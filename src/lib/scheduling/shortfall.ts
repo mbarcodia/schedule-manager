@@ -48,7 +48,7 @@ export interface WeekShortfall {
   /** 0 = the current week, 1 = next. */
   weekIndex: number;
   weekLabel: string;
-  /** Working minutes genuinely left in the week, after meetings, routines and
+  /** Working minutes left in the week, after meetings, routines and
    * everything already placed. */
   freeMin: number;
   /** Hours still owed per commitment, after the engine did its best. */
@@ -239,7 +239,7 @@ export function computeShortfall(
         cost:
           dueDay >= weekEnd / 1440
             ? `It is already due after ${thatWeek} and only sits there because it fits — moving it costs nothing but its own slack.`
-            : `It is genuinely due ${thatWeek}, so this means renegotiating the date.`,
+            : `It is really due ${thatWeek}, so this means renegotiating the date.`,
         target: { taskId },
       });
     }

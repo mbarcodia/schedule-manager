@@ -369,7 +369,7 @@ export function buildPromptContext(
     cuttingItClose: schedule.nearDeadline,
     didNotFit: schedule.overflow,
     /** The costed version of didNotFit, for this week and next: what is owed,
-     * what is genuinely free, and what could be changed to close the gap —
+     * what is free, and what could be changed to close the gap —
      * each option with the hours it would actually free. Null when both weeks
      * hold what they were asked for.
      *

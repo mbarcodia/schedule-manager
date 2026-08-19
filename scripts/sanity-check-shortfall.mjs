@@ -10,7 +10,7 @@
 //
 //   EVERY NUMBER IS MEASURED, NOT ASKED FOR. `freesMin` reflects hours the
 //   engine really could not place, so an option that claims four hours has
-//   four hours genuinely sitting unplaced behind it.
+//   four hours really sitting unplaced behind it.
 //
 //   A PROPOSED RATE IS A NUMBER YOU CAN TYPE IN. With a label share target
 //   set, per-commitment weekly hours are a RATIO the engine scales — a 6h/wk
@@ -86,7 +86,7 @@ const runShortfall = (over) => {
  * hour a day. Label-scaled work needs this to be short of anything: a share
  * target is a fraction of the week, so on an EMPTY week it always fits by
  * construction, and the interesting cases only appear once the week is
- * genuinely eaten. */
+ * already eaten. */
 const busyWeeks = () => {
   const ev = [];
   for (let g = 0; g < 28; g++) {
@@ -105,11 +105,11 @@ check("so no options are offered", roomy.weeks[0].options.length, 0);
 check("and there is no sentence to say", describeShortfall(roomy.weeks), null);
 check("free time is still reported", roomy.weeks[0].freeMin > 0, true);
 
-// ------------------------------------------------------- a genuinely full week
+// ----------------------------------------------------------- a truly full week
 
 // Three commitments at 20h/wk each into a 40h week: it cannot fit, and no
 // reordering makes it fit.
-console.log("\n== a week that genuinely cannot hold it ==");
+console.log("\n== a week that cannot hold it at all ==");
 const FULL = {
   projects: [
     project("A", { weeklyMinMin: 1200 }),

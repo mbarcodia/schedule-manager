@@ -2072,7 +2072,7 @@ export function buildTools(ctx: ToolContext) {
       if (!live.length) return "Both this week and next hold everything they've been asked for — nothing has to give.";
       return live
         .map((w) => {
-          const head = `${w.weekLabel}: ${fmtMin(w.totalOwedMin)} owed, ${fmtMin(w.freeMin)} genuinely free.`;
+          const head = `${w.weekLabel}: ${fmtMin(w.totalOwedMin)} owed, ${fmtMin(w.freeMin)} free.`;
           const owed = w.owed.map((o) => `  - ${o.title} is short ${fmtMin(o.owedMin)}`).join("\n");
           const opts = w.options.length
             ? w.options.map((o, i) => `  ${i + 1}. ${o.label} — frees ${fmtMin(o.freesMin)}. ${o.cost}`).join("\n")

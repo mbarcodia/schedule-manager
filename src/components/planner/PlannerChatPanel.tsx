@@ -11,6 +11,7 @@ import { usePlannerChat } from "@/hooks/usePlannerChat";
 import { computeTrackableChips } from "@/lib/scheduling/trackables";
 import { paceFromData } from "@/lib/scheduling/pace";
 import { DEFAULT_CHAT_MODE, type ChatMode } from "@/lib/planner/modes";
+import { onAskPlanner } from "@/lib/planner/ask-planner";
 import type { UseScheduleDataResult } from "@/hooks/useScheduleData";
 import type { ChatRail } from "@/hooks/useChatRail";
 
@@ -58,6 +59,22 @@ export function PlannerChatPanel({ scheduleData, rail }: PlannerChatPanelProps) 
       setMode("planning");
     }
   }, []);
+
+  // Questions handed over from elsewhere on the page — currently the
+  // calendar's over-booked banner. Same contract as the deep links above:
+  // fill the box and switch mode, never send.
+  useEffect(
+    () =>
+      onAskPlanner((ask) => {
+        // Re-seeded rather than merged: PlannerChat only takes initialInput
+        // when its box is empty, so asking twice in a row would otherwise do
+        // nothing the second time.
+        setInitialInput(undefined);
+        setMode(ask.mode);
+        requestAnimationFrame(() => setInitialInput(ask.text));
+      }),
+    [],
+  );
 
   const chips =
     data && schedule

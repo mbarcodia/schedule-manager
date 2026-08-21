@@ -368,6 +368,11 @@ export function buildPromptContext(
     willMissDeadline: schedule.risk,
     cuttingItClose: schedule.nearDeadline,
     didNotFit: schedule.overflow,
+    /** Pins whose slot a meeting had taken by the time this was computed.
+     * The work has been auto-scheduled elsewhere, so this is not a capacity
+     * problem — but the user pinned that exact hour, so say it moved and
+     * where it went rather than letting a pin appear to have been ignored. */
+    movedOffTheirPinnedTime: schedule.displacedPins,
     /** The costed version of didNotFit, for this week and next: what is owed,
      * what is free, and what could be changed to close the gap —
      * each option with the hours it would actually free. Null when both weeks

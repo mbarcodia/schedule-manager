@@ -370,6 +370,13 @@ export interface ComputeScheduleResult {
   nearDeadline: string[];
   /** Human-readable missed/short entries for the warning banner. */
   missed: string[];
+  /** Titles whose FIXED slot was given up because something immovable — a
+   * meeting, or another pin — had taken it since the pin was set. The work is
+   * auto-scheduled instead, so this is not lost time; it is reported because
+   * the user asked for that exact hour and no longer has it, and because a pin
+   * silently ignored is indistinguishable from one that never saved. The pin
+   * row itself is untouched, so it takes effect again if the meeting moves. */
+  displacedPins: string[];
   /** THIS week's share targets: what each label with weekly_target_pct set
    * should get, against what actually landed. Empty when no label has one. */
   labelTargets: LabelTargetReport[];

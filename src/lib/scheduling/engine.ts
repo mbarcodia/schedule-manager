@@ -479,6 +479,16 @@ export function markBusy(abs: AbsMinute, len: number, busy: Set<AbsMinute>): voi
   for (let k = 0; k < len; k += 1) busy.add(abs + k);
 }
 
+/** Whether anything already claims any minute of this span.
+ *
+ * The counterpart to markBusy, and the check pinning was missing: markBusy
+ * only ADDS minutes, so a fixed placement laid over an existing one produced
+ * two blocks in the same slot rather than any kind of error. */
+export function spanCollides(abs: AbsMinute, len: number, busy: Set<AbsMinute>): boolean {
+  for (let k = 0; k < len; k += 1) if (busy.has(abs + k)) return true;
+  return false;
+}
+
 interface RunSchedulerResult {
   chunks: ScheduleBlock[];
   overflow: string[];
@@ -901,11 +911,41 @@ export function computeSchedule(
   // anchor's free-slot search actually sees a pinned task chunk as occupied
   // instead of placing straight on top of it — pins are a fixed project
   // exactly like an event from this point of view.
+  // A PIN YIELDS TO A MEETING, because the alternative is a slot the user
+  // cannot work in.
+  //
+  // Pinning is a fixed placement: it writes its slot straight into the busy
+  // set instead of searching for a free one. Creating a pin refuses to overlap
+  // an event (pinConflict in assistant/tools.ts), but nothing re-checked
+  // afterwards — so when a meeting SYNCED IN on top of an existing pin, the
+  // pin stayed exactly where it was. markBusy only adds minutes, so the two
+  // simply coexisted: a task drawn over a meeting, in an hour that was never
+  // going to happen. Worse, pinReduction had already taken those minutes out
+  // of the auto-scheduling pool, so the work was not re-placed anywhere else
+  // and nothing appeared in didNotFit either. The schedule reported itself
+  // complete while quietly holding an impossible hour.
+  //
+  // So a pin whose slot is already claimed is RELEASED: its minutes go back
+  // into the pool and the work is scheduled normally, which is the app's whole
+  // promise — everything that is not a meeting moves around the things that
+  // are. The row is left alone rather than cleared, so the pin comes back on
+  // its own if the meeting moves, and the release is reported instead of being
+  // silently absorbed.
+  //
+  // ONLY FUTURE PINS ARE RELEASED. A pin whose time has passed may already
+  // have been worked and ticked off, and releasing it would take a completed
+  // block off the calendar — the same class of bug as a hold erasing logged
+  // work. A past overlap is a record of what happened, not a slot to fix.
   const pinReduction: Record<string, number> = {};
   const taskPinChunks: ScheduleBlock[] = [];
+  const displacedPins: string[] = [];
   inputs.tasks.forEach((t) => {
     if (!t.pin) return;
     const abs = t.pin.gday * 1440 + t.pin.start;
+    if (abs >= NOW && spanCollides(abs, t.pin.length, baseBusy)) {
+      displacedPins.push(t.title);
+      return;
+    }
     markBusy(abs, t.pin.length, baseBusy);
     pinReduction[t.id] = t.pin.length;
     taskPinChunks.push({
@@ -933,6 +973,12 @@ export function computeSchedule(
     const project = projectById.get(rp.projectId);
     if (!project) return;
     const abs = rp.gday * 1440 + rp.start;
+    // Released on the same terms as a task pin above — a commitment's fixed
+    // hour is no more able to share a slot with a meeting than a task's is.
+    if (abs >= NOW && spanCollides(abs, rp.length, baseBusy)) {
+      displacedPins.push(project.title);
+      return;
+    }
     markBusy(abs, rp.length, baseBusy);
     const defId = `research-${rp.projectId}-w${Math.floor(rp.gday / 7)}`;
     pinReduction[defId] = (pinReduction[defId] ?? 0) + rp.length;
@@ -1341,6 +1387,7 @@ export function computeSchedule(
     risk,
     nearDeadline,
     missed,
+    displacedPins,
     labelTargets,
     labelTargetsByWeek,
     weeklyTargetMinByProject,

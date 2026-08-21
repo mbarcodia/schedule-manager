@@ -205,11 +205,16 @@ export function CalendarPanel({ scheduleData }: CalendarPanelProps) {
   const hasRisk = schedule.risk.length > 0;
   const hasNearDeadline = schedule.nearDeadline.length > 0;
   const hasOverflow = schedule.overflow.length > 0;
+  // A pin whose slot a meeting has taken since. Not lost time — the work is
+  // auto-scheduled instead — but the user asked for that exact hour and no
+  // longer has it, so it is said rather than quietly absorbed.
+  const displacedPins = schedule.displacedPins ?? [];
   // Not a warning: work that starts beyond the planning horizon has no capacity
   // problem to report, so it gets a neutral note rather than a red flag.
   const beyondHorizon = schedule.beyondHorizon;
   const hasMissed = weekMissed.length > 0;
-  const hasWarnings = hasRisk || hasNearDeadline || hasOverflow || hasMissed || beyondHorizon.length > 0;
+  const hasWarnings =
+    hasRisk || hasNearDeadline || hasOverflow || hasMissed || beyondHorizon.length > 0 || displacedPins.length > 0;
 
   return (
     <>
@@ -426,6 +431,11 @@ export function CalendarPanel({ scheduleData }: CalendarPanelProps) {
             <span style={{ color: "#ffd9a0" }}>Cutting it close: {schedule.nearDeadline.join(", ")}</span>
           )}
           {hasOverflow && <span>Didn&apos;t fit this week: {schedule.overflow.join(", ")}</span>}
+          {displacedPins.length > 0 && (
+            <span>
+              Moved off its pinned time by a meeting, and rescheduled: {displacedPins.join(", ")}
+            </span>
+          )}
           {beyondHorizon.length > 0 && (
             <span className="text-muted">
               Starts beyond the planned six months, so not scheduled yet: {beyondHorizon.join(", ")}

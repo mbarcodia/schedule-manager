@@ -40,6 +40,15 @@ HOURS[6] = null;
 /** A day's worth of grid minutes. gday 0 is Monday of the current week. */
 const day = (g) => g * 1440;
 
+/** Monday 10 Aug 2026, 08:00 UTC — before the working day.
+ *
+ * FIXED, like every other check here, and it has to be: gday is relative to
+ * the CURRENT week, so a fixture that says "due Thursday (gday 3)" against a
+ * live clock describes yesterday once it is Friday. This file used to pass
+ * `new Date()` and so failed every Friday and weekend, for a reason that says
+ * nothing about deadline pressure. */
+const NOW = new Date(Date.UTC(2026, 7, 10, 8, 0));
+
 function inputs({ tasks = [], projects = [] }) {
   return {
     timezone: "UTC",
@@ -103,7 +112,7 @@ const CROWDED = {
   tasks: [task("due-thursday", { deadline: day(3) + 1020 })],
 };
 
-const crowded = computeSchedule(inputs(CROWDED), new Date());
+const crowded = computeSchedule(inputs(CROWDED), NOW);
 check(
   "a task due this week is placed at all when weekly hours could swallow the week",
   gdaysFor(crowded, "due-thursday").length > 0,
@@ -123,7 +132,7 @@ const FAR = {
   projects: [project("hours-hog")],
   tasks: [task("due-in-months", { deadline: day(70) + 1020 })],
 };
-const far = computeSchedule(inputs(FAR), new Date());
+const far = computeSchedule(inputs(FAR), NOW);
 check(
   "a deadline beyond the pressure window does not claim this week",
   Math.min(...gdaysFor(far, "due-in-months")) > 4,
@@ -133,7 +142,7 @@ check("and nothing is reported at risk for it", far.risk.includes("due-in-months
 // The boundary itself: 14 days is the window, so day 13 is inside and day 20 out.
 const near = computeSchedule(
   inputs({ projects: [project("hours-hog")], tasks: [task("day-13", { deadline: day(13) + 1020 })] }),
-  new Date(),
+  NOW,
 );
 check("a deadline 13 days out is inside the window", Math.min(...gdaysFor(near, "day-13")) <= 13, true);
 
@@ -146,7 +155,7 @@ const UNDATED = {
     task("high-second", { priority: "high", ord: 2, duration: 60 }),
   ],
 };
-const undated = computeSchedule(inputs(UNDATED), new Date());
+const undated = computeSchedule(inputs(UNDATED), NOW);
 const startOf = (s, id) => {
   const b = s.blocks.filter((x) => x.taskId === id).sort((x, y) => x.gday * 1440 + x.start - (y.gday * 1440 + y.start))[0];
   return b ? b.gday * 1440 + b.start : Infinity;
@@ -166,7 +175,7 @@ const BOTH_DATED = {
     task("dated-high", { priority: "high", deadline: day(3) + 1020, duration: 60 }),
   ],
 };
-const bothDated = computeSchedule(inputs(BOTH_DATED), new Date());
+const bothDated = computeSchedule(inputs(BOTH_DATED), NOW);
 check(
   "among two dated tasks, priority still decides",
   startOf(bothDated, "dated-high") < startOf(bothDated, "dated-low"),

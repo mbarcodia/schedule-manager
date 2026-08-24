@@ -219,7 +219,7 @@ function check(label, actual, expected) {
 {
   const pinned = inputs({ splitMode: "one_day", duration: 240 });
   // Pin 2 of the 4 hours to Tuesday morning; the other 2 must land on Tuesday.
-  pinned.tasks[0].pin = { gday: 1, start: 9 * 60, length: 120 };
+  pinned.tasks[0].pins = [{ gday: 1, start: 9 * 60, length: 120 }];
   const blocks = chunksOf(computeSchedule(pinned, MONDAY).blocks);
   check("a pinned one_day task places all of it", minutes(blocks), 240);
   check("and every piece is on the pinned day", daysUsed(blocks), 1);
@@ -230,7 +230,7 @@ function check(label, actual, expected) {
 // testing the split mode rather than something pins do on their own.
 {
   const pinned = inputs({ splitMode: "free", duration: 240, chunk: 120 });
-  pinned.tasks[0].pin = { gday: 1, start: 9 * 60, length: 120 };
+  pinned.tasks[0].pins = [{ gday: 1, start: 9 * 60, length: 120 }];
   const blocks = chunksOf(computeSchedule(pinned, MONDAY).blocks);
   check("a pinned free task still places all of it", minutes(blocks), 240);
 }

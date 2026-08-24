@@ -30,7 +30,7 @@ function inputs({ withEarlyDonePin }) {
         chunk: 30,
         deadline: 99999,
         floor: 0,
-        pin: PIN,
+        pins: [PIN],
       },
     ],
     projects: [],

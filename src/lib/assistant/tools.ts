@@ -199,6 +199,86 @@ function resolvePin(ctx: ToolContext, dateStr?: string, timeStr?: string): Resol
   return { pinned_date, pinned_start_min: start };
 }
 
+/** Every slot a task is being fixed to, from either shape the tools accept:
+ * one `pin_date`/`pin_time` (the everyday "I'm doing it at 2pm"), or a list of
+ * them for work that has to hold several exact blocks — an 8h review as four 2h
+ * sittings. Returns a plain string on the first slot that won't parse, so the
+ * caller reports which one rather than silently writing a partial set. */
+function resolvePins(
+  ctx: ToolContext,
+  inp: { pin_date?: string; pin_time?: string; pin_length_min?: number; pin_slots?: PinSlotInput[] },
+  defaultLength: number,
+  durationMin: number,
+): { pin: ResolvedPin; length: number }[] | string | null {
+  const slots = inp.pin_slots?.length
+    ? inp.pin_slots
+    : inp.pin_date || inp.pin_time != null
+      ? [{ date: inp.pin_date, time: inp.pin_time, length_min: inp.pin_length_min }]
+      : [];
+  if (!slots.length) return null;
+  const out: { pin: ResolvedPin; length: number }[] = [];
+  for (const slot of slots) {
+    const pin = resolvePin(ctx, slot.date, slot.time);
+    if (typeof pin === "string") return pin;
+    if (!pin) return "A pinned time needs both a date and a clock time.";
+    // Each slot is capped at the whole task, never the REMAINING duration:
+    // slots are independent, and subtracting as we go would silently shrink the
+    // later ones when the user asked for four equal blocks.
+    out.push({ pin, length: Math.min(slot.length_min || defaultLength, durationMin) });
+  }
+  return out;
+}
+
+interface PinSlotInput {
+  date?: string;
+  time?: string;
+  length_min?: number;
+}
+
+/** Replaces a task's pinned slots with exactly this set.
+ *
+ * REPLACES rather than adds: "I'm doing it Tuesday at 2" after "I'm doing it
+ * Monday at 10" means the plan changed, not that there are now two sittings.
+ * Saying there are two is what the list form is for. */
+async function writeTaskPins(
+  ctx: ToolContext,
+  taskId: string,
+  slots: { pin: ResolvedPin; length: number }[],
+): Promise<string | null> {
+  const { error: clearErr } = await ctx.supabase
+    .from("task_pins")
+    .delete()
+    .eq("user_id", ctx.userId)
+    .eq("task_id", taskId);
+  if (clearErr) return clearErr.message;
+  if (!slots.length) return null;
+  const { error } = await ctx.supabase.from("task_pins").insert(
+    slots.map((s) => ({
+      user_id: ctx.userId,
+      task_id: taskId,
+      pinned_date: s.pin.pinned_date,
+      start_min: s.pin.pinned_start_min,
+      length_min: s.length,
+    })),
+  );
+  return error?.message ?? null;
+}
+
+/** Two of the requested slots landing on top of each other. Checked here rather
+ * than left to the engine, which would silently release the loser and leave the
+ * user believing they had booked four blocks when they had booked three. */
+function pinsOverlapEachOther(slots: { pin: ResolvedPin; length: number }[]): string | null {
+  const spans = slots
+    .map((s) => ({ from: `${s.pin.pinned_date} ${s.pin.pinned_start_min}`, date: s.pin.pinned_date, start: s.pin.pinned_start_min, end: s.pin.pinned_start_min + s.length }))
+    .sort((a, b) => a.date.localeCompare(b.date) || a.start - b.start);
+  for (let i = 1; i < spans.length; i++) {
+    if (spans[i].date === spans[i - 1].date && spans[i].start < spans[i - 1].end) {
+      return `Two of those slots overlap on ${spans[i].date} — they have to be separate times.`;
+    }
+  }
+  return null;
+}
+
 /** A pin can't land on top of a real fixed event — that's the one thing the
  * engine can never bump. Everything else (other tasks/research) is fine to
  * displace. */
@@ -261,6 +341,20 @@ export function buildTools(ctx: ToolContext) {
             'clock time for pin_date, e.g. "2pm", "14:30", "noon", "midnight". Also accepts "right now"/"asap"/"immediately" (starts the next minute) and relative phrases like "in 30 minutes"/"in 2 hours"/"in an hour" — for any of these, pin_date can be omitted and defaults to today.',
         },
         pin_length_min: { type: "number", description: "minutes to pin at that exact time (default: the chunk size); the remaining duration, if any, is auto-placed normally" },
+        pin_slots: {
+          type: "array",
+          description:
+            'SEVERAL exact slots for one task, when the work has to happen as specific separate blocks — "8 hours as four 2-hour sittings that week". Each entry is {date, time, length_min}; several on the same day are fine. Use this INSTEAD of pin_date/pin_time when there is more than one. Anything else scheduled there moves automatically, and each slot yields independently to a meeting that lands on it.',
+          items: {
+            type: "object",
+            properties: {
+              date: { type: "string", description: 'natural language date, e.g. "tuesday", "sept 8"' },
+              time: { type: "string", description: 'clock time, e.g. "9:15am", "14:30"' },
+              length_min: { type: "number", description: "minutes to hold at that time (default: the chunk size)" },
+            },
+            required: ["date", "time"],
+          },
+        },
       },
       required: ["title"],
     },
@@ -296,12 +390,15 @@ export function buildTools(ctx: ToolContext) {
         return `Couldn't add "${inp.title}": it can't be ${splitMode === "one_block" ? "one unbroken block" : "confined to one day"} and also capped at ${inp.max_per_day_min} minutes a day when it's ${duration} minutes of work.`;
       }
 
-      const pin = resolvePin(ctx, inp.pin_date, inp.pin_time);
-      if (typeof pin === "string") return `Couldn't add "${inp.title}": ${pin}`;
-      const pinLength = pin ? Math.min(inp.pin_length_min || chunk_min, duration) : null;
-      if (pin && pinLength) {
-        const conflict = await pinConflict(ctx, pin, pinLength);
-        if (conflict) return `Couldn't add "${inp.title}": ${conflict}`;
+      const pins = resolvePins(ctx, inp, chunk_min, duration);
+      if (typeof pins === "string") return `Couldn't add "${inp.title}": ${pins}`;
+      if (pins) {
+        const selfClash = pinsOverlapEachOther(pins);
+        if (selfClash) return `Couldn't add "${inp.title}": ${selfClash}`;
+        for (const p of pins) {
+          const conflict = await pinConflict(ctx, p.pin, p.length);
+          if (conflict) return `Couldn't add "${inp.title}": ${conflict}`;
+        }
       }
 
       const payload: Omit<Database["public"]["Tables"]["tasks"]["Insert"], "user_id" | "id"> = {
@@ -318,9 +415,6 @@ export function buildTools(ctx: ToolContext) {
         min_chunk_min: inp.min_chunk_min || null,
         project_id: link?.projectId ?? null,
         category_id: categoryId,
-        pinned_date: pin?.pinned_date ?? null,
-        pinned_start_min: pin?.pinned_start_min ?? null,
-        pinned_length_min: pinLength,
       };
       // Said out loud because both are hard constraints that can leave the work
       // OFF the calendar — an outcome nobody should have to discover by looking.
@@ -337,10 +431,16 @@ export function buildTools(ctx: ToolContext) {
       // the drop is invisible until someone goes looking. Flagged rather than
       // silently accepted, per a real incident where exactly this happened.
       const undatedWarning =
-        !deadline && !pin
+        !deadline && !pins
           ? ` UNDATED: this task has no deadline and no pinned time, so it can lose every slot to dated work in a full week and go unscheduled with nothing to show it's at risk. Ask what date it's actually due, or pin it to a slot, rather than leaving it floating.`
           : "";
-      const summary = `(${duration}m, ${priority} priority${link ? ", linked to " + link.title : ""}).${pin ? ` ${pinLength}m pinned to ${inp.pin_date} at ${inp.pin_time} — anything else scheduled there moves automatically.` : inp.time_of_day ? ` Placed in the ${inp.time_of_day}.` : " Placed on the calendar."}${splitNote}${deadlineNotUnderstood ? ` Couldn't understand the deadline "${inp.due}", so no deadline was set — try a format like "july 24" or "in 2 weeks".` : ""}${notBeforeNotUnderstood ? ` Couldn't understand the start date "${inp.not_before}", so it may be scheduled as early as today.` : notBeforeAt ? ` Not scheduled before ${inp.not_before}.` : ""}${undatedWarning}`;
+      // Every slot is named back, because "pinned" for an 8h job held as four
+      // blocks has to say WHICH four or the user cannot tell a complete booking
+      // from a partial one.
+      const pinNote = pins
+        ? ` Pinned to ${pins.map((p) => `${p.pin.pinned_date} at ${minToLabel(p.pin.pinned_start_min)} for ${p.length}m`).join(", ")} — anything else scheduled there moves automatically.`
+        : "";
+      const summary = `(${duration}m, ${priority} priority${link ? ", linked to " + link.title : ""}).${pins ? pinNote : inp.time_of_day ? ` Placed in the ${inp.time_of_day}.` : " Placed on the calendar."}${splitNote}${deadlineNotUnderstood ? ` Couldn't understand the deadline "${inp.due}", so no deadline was set — try a format like "july 24" or "in 2 weeks".` : ""}${notBeforeNotUnderstood ? ` Couldn't understand the start date "${inp.not_before}", so it may be scheduled as early as today.` : notBeforeAt ? ` Not scheduled before ${inp.not_before}.` : ""}${undatedWarning}`;
 
       // The exact trap that caused a real incident: a to-do already carries
       // this title and a due date, and a bare, unlinked task of the same name
@@ -396,6 +496,13 @@ export function buildTools(ctx: ToolContext) {
           .update(wasArchived ? { ...update, archived_at: null } : update)
           .eq("id", dupe.id);
         if (error) return `Couldn't update "${dupe.title}": ${error.message}`;
+        // Pins live in their own table now, so they are written after the row
+        // rather than as columns on it. Only when this call actually asked for
+        // slots: re-declaring a task by name must not silently unpin it.
+        if (pins) {
+          const pinErr = await writeTaskPins(ctx, dupe.id, pins);
+          if (pinErr) return `Updated "${dupe.title}" but couldn't pin it: ${pinErr}`;
+        }
         markMutated(ctx);
         console.log(`[assistant] add_task upsert: id=${dupe.id} title=${JSON.stringify(dupe.title)}`);
         return `"${dupe.title}" already existed — updated it instead of creating a duplicate ${fullSummary}`;
@@ -403,6 +510,10 @@ export function buildTools(ctx: ToolContext) {
 
       const { data: inserted, error } = await supabase.from("tasks").insert({ user_id: userId, ...payload }).select("id").single();
       if (error) return `Couldn't add "${inp.title}": ${error.message}`;
+      if (pins && inserted) {
+        const pinErr = await writeTaskPins(ctx, inserted.id, pins);
+        if (pinErr) return `Added "${inp.title}" but couldn't pin it: ${pinErr}`;
+      }
       markMutated(ctx);
       console.log(`[assistant] add_task insert: id=${inserted?.id} title=${JSON.stringify(inp.title)}`);
       return `Added "${inp.title}" ${fullSummary}`;
@@ -462,7 +573,21 @@ export function buildTools(ctx: ToolContext) {
             'clock time for pin_date, e.g. "2pm", "14:30", "noon", "midnight". Also accepts "right now"/"asap"/"immediately" (starts the next minute) and relative phrases like "in 30 minutes"/"in 2 hours"/"in an hour" — for any of these, pin_date can be omitted and defaults to today.',
         },
         pin_length_min: { type: "number", description: "minutes to pin at that exact time (default: its chunk size)" },
-        clear_pin: { type: "boolean", description: "remove any pinned time and let this auto-schedule freely again" },
+        pin_slots: {
+          type: "array",
+          description:
+            'SEVERAL exact slots for one task, when the work has to happen as specific separate blocks — "8 hours as four 2-hour sittings that week". Each entry is {date, time, length_min}; several on the same day are fine. Use this INSTEAD of pin_date/pin_time when there is more than one. Writing slots REPLACES whatever the task was pinned to, so send the whole set each time. Each slot yields independently to a meeting that lands on it.',
+          items: {
+            type: "object",
+            properties: {
+              date: { type: "string", description: 'natural language date, e.g. "tuesday", "sept 8"' },
+              time: { type: "string", description: 'clock time, e.g. "9:15am", "14:30"' },
+              length_min: { type: "number", description: "minutes to hold at that time (default: its chunk size)" },
+            },
+            required: ["date", "time"],
+          },
+        },
+        clear_pin: { type: "boolean", description: "remove EVERY pinned slot and let this auto-schedule freely again" },
       },
       required: ["title"],
     },
@@ -537,31 +662,41 @@ export function buildTools(ctx: ToolContext) {
         patch.priority = inp.priority || "high";
         patch.floor_at = new Date().toISOString();
       }
+      // Pins are rows in their own table now (migration 0047), so they are
+      // resolved here but written after the row patch rather than being part of
+      // it — and a call that only changes pins must not be turned away by the
+      // "nothing to change" guard below.
       let pinMessage = "";
-      if (inp.clear_pin) {
-        patch.pinned_date = null;
-        patch.pinned_start_min = null;
-        patch.pinned_length_min = null;
-      } else if (inp.pin_date || inp.pin_time != null) {
-        const pin = resolvePin(ctx, inp.pin_date, inp.pin_time);
-        if (typeof pin === "string") return `Couldn't update "${match.title}": ${pin}`;
-        if (pin) {
-          const chunkMin = inp.chunk_min || match.chunk_min;
-          const durationMin = inp.duration_min || match.duration_min;
-          const pinLength = Math.min(inp.pin_length_min || chunkMin, durationMin);
-          const conflict = await pinConflict(ctx, pin, pinLength);
-          if (conflict) return `Couldn't update "${match.title}": ${conflict}`;
-          patch.pinned_date = pin.pinned_date;
-          patch.pinned_start_min = pin.pinned_start_min;
-          patch.pinned_length_min = pinLength;
-          pinMessage = ` ${pinLength}m pinned to ${inp.pin_date} at ${inp.pin_time} — anything else scheduled there moves automatically.`;
+      let pinsToWrite: { pin: ResolvedPin; length: number }[] | null = null;
+      if (!inp.clear_pin) {
+        const chunkMin = inp.chunk_min || match.chunk_min;
+        const durationMin = inp.duration_min || match.duration_min;
+        const resolved = resolvePins(ctx, inp, chunkMin, durationMin);
+        if (typeof resolved === "string") return `Couldn't update "${match.title}": ${resolved}`;
+        if (resolved) {
+          const selfClash = pinsOverlapEachOther(resolved);
+          if (selfClash) return `Couldn't update "${match.title}": ${selfClash}`;
+          for (const p of resolved) {
+            const conflict = await pinConflict(ctx, p.pin, p.length);
+            if (conflict) return `Couldn't update "${match.title}": ${conflict}`;
+          }
+          pinsToWrite = resolved;
+          pinMessage = ` Pinned to ${resolved
+            .map((p) => `${p.pin.pinned_date} at ${minToLabel(p.pin.pinned_start_min)} for ${p.length}m`)
+            .join(", ")} — anything else scheduled there moves automatically.`;
         }
       }
-      if (Object.keys(patch).length === 0) {
+      if (Object.keys(patch).length === 0 && !pinsToWrite && !inp.clear_pin) {
         return `Nothing to change for "${match.title}" — no recognized fields were provided.`;
       }
-      const { error } = await supabase.from("tasks").update(patch).eq("id", match.id);
-      if (error) return `Couldn't update "${match.title}": ${error.message}`;
+      if (Object.keys(patch).length > 0) {
+        const { error } = await supabase.from("tasks").update(patch).eq("id", match.id);
+        if (error) return `Couldn't update "${match.title}": ${error.message}`;
+      }
+      if (pinsToWrite || inp.clear_pin) {
+        const pinErr = await writeTaskPins(ctx, match.id, pinsToWrite ?? []);
+        if (pinErr) return `Couldn't pin "${match.title}": ${pinErr}`;
+      }
       markMutated(ctx);
       return `Updated "${match.title}"${inp.work_on_next ? " — it now takes the next available slot and everything else re-flows around it" : ""}${pinMessage}${inp.clear_pin ? " — pin removed, it auto-schedules freely again." : ""}${!inp.work_on_next && !pinMessage && !inp.clear_pin ? " — schedule re-flowed" : ""}`;
     },

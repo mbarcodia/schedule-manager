@@ -34,27 +34,17 @@ export async function moveTaskToColumn(
   const supabase = createClient();
   const ords = allTasks.map((t) => t.ord);
 
-  if (target === "backlog") {
+  // Dragging out of "In progress" lets the work float again, so EVERY slot it
+  // was holding goes — a task can hold several since migration 0047, and
+  // clearing only one would leave the card in a column that no longer matches
+  // where its hours are.
+  if (target === "backlog" || target === "this_week") {
+    const { error: pinErr } = await supabase.from("task_pins").delete().eq("task_id", task.id);
+    if (pinErr) return pinErr.message;
     const { error } = await supabase
       .from("tasks")
       .update({
-        pinned_date: null,
-        pinned_start_min: null,
-        pinned_length_min: null,
-        ord: Math.max(0, ...ords) + 1,
-      })
-      .eq("id", task.id);
-    return error?.message ?? null;
-  }
-
-  if (target === "this_week") {
-    const { error } = await supabase
-      .from("tasks")
-      .update({
-        pinned_date: null,
-        pinned_start_min: null,
-        pinned_length_min: null,
-        ord: Math.min(0, ...ords) - 1,
+        ord: target === "backlog" ? Math.max(0, ...ords) + 1 : Math.min(0, ...ords) - 1,
       })
       .eq("id", task.id);
     return error?.message ?? null;
@@ -69,14 +59,22 @@ export async function moveTaskToColumn(
   // exists is 23:45.
   const startMin = Math.min(1425, Math.ceil((d.getHours() * 60 + d.getMinutes()) / 15) * 15);
   const pinnedDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  const { error } = await supabase
-    .from("tasks")
-    .update({
-      pinned_date: pinnedDate,
-      pinned_start_min: startMin,
-      pinned_length_min: Math.min(task.chunk_min, task.duration_min),
-    })
-    .eq("id", task.id);
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return "Not signed in";
+  // Dropping a card on "In progress" means one chunk starts NOW, not that the
+  // task keeps whatever slots it was already holding — so the old ones go
+  // first. Without this, dragging the same card twice left two live pins.
+  const { error: clearErr } = await supabase.from("task_pins").delete().eq("task_id", task.id);
+  if (clearErr) return clearErr.message;
+  const { error } = await supabase.from("task_pins").insert({
+    user_id: user.id,
+    task_id: task.id,
+    pinned_date: pinnedDate,
+    start_min: startMin,
+    length_min: Math.min(task.chunk_min, task.duration_min),
+  });
   return error?.message ?? null;
 }
 

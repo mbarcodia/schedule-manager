@@ -271,9 +271,6 @@ export interface Database {
           category_id: string | null;
           ord: number;
           created_at: string;
-          pinned_date: string | null;
-          pinned_start_min: number | null;
-          pinned_length_min: number | null;
           time_of_day: TaskTimeOfDay | null;
           important: boolean;
           archived_at: string | null;
@@ -295,9 +292,6 @@ export interface Database {
           project_id?: string | null;
           category_id?: string | null;
           ord?: number;
-          pinned_date?: string | null;
-          pinned_start_min?: number | null;
-          pinned_length_min?: number | null;
           time_of_day?: TaskTimeOfDay | null;
           important?: boolean;
           archived_at?: string | null;
@@ -317,9 +311,6 @@ export interface Database {
           project_id: string | null;
           category_id: string | null;
           ord: number;
-          pinned_date: string | null;
-          pinned_start_min: number | null;
-          pinned_length_min: number | null;
           time_of_day: TaskTimeOfDay | null;
           important: boolean;
           archived_at: string | null;
@@ -770,6 +761,23 @@ export interface Database {
           lead_minutes: number[];
           sent_leads: number[];
         }>
+      >;
+      /** Exact slots a TASK is fixed to (migration 0047). Several rows per task
+       * are the point — one 8h job held as four 2h blocks — and several per day
+       * are allowed, so the key is the slot rather than the date. Replaced
+       * `tasks.pinned_date/start/length`, which could only ever hold one. */
+      task_pins: Table<
+        {
+          id: string;
+          user_id: string;
+          task_id: string;
+          pinned_date: string;
+          start_min: number;
+          length_min: number;
+          created_at: string;
+        },
+        { id?: string; user_id: string; task_id: string; pinned_date: string; start_min: number; length_min: number },
+        Partial<{ pinned_date: string; start_min: number; length_min: number }>
       >;
       research_pins: Table<
         {

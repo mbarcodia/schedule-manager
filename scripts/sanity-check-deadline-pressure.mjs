@@ -49,14 +49,14 @@ const day = (g) => g * 1440;
  * nothing about deadline pressure. */
 const NOW = new Date(Date.UTC(2026, 7, 10, 8, 0));
 
-function inputs({ tasks = [], projects = [] }) {
+function inputs({ tasks = [], projects = [], events = [] }) {
   return {
     timezone: "UTC",
     weeklyHours: HOURS,
     horizonWeeks: 4,
     dayOverrides: {},
     allDayBlocks: {},
-    events: [],
+    events,
     recurringRules: [],
     tasks,
     projects,
@@ -188,6 +188,86 @@ check(
   "the displaced weekly hours still get most of the week",
   crowded.blocks.filter((b) => b.projectId === "hours-hog").length > 0,
   true,
+);
+
+// ---------------------------------------------------------------------------
+// HOW MUCH has to fit before the deadline, not just how far away it is.
+//
+// The flat fortnight could not tell 2h due in 18 days from 16h due in 18 days.
+// A real account asked for an 8h review across Sep 8-11, due Sep 11 — 18 days
+// out, so unpressed — and every hour of that window went to research. The task
+// landed in NOVEMBER, seven weeks past its deadline, and would only have woken
+// up on day 14 to find the window already spent.
+
+// 16h due on gday 18: outside the fortnight, but it needs most of the open time
+// between here and then, so it is short of room NOW.
+const BIG_FAR = {
+  projects: [project("hours-hog")],
+  tasks: [task("big-due-day-18", { deadline: day(18) + 1020, duration: 960, chunk: 120 })],
+};
+const bigFar = computeSchedule(inputs(BIG_FAR), NOW);
+check(
+  "a big task due beyond the fortnight claims its window now",
+  Math.max(...gdaysFor(bigFar, "big-due-day-18")) <= 18,
+  true,
+);
+check("so it is not reported as missing its deadline", bigFar.risk.includes("big-due-day-18"), false);
+
+// The counter-case, and the one that keeps the change honest: SAME deadline,
+// same crowded week, but only 2h of work. There is plenty of room before day 18
+// for two hours, so there is no shortage to resolve and it must wait its turn.
+const SMALL_FAR = {
+  projects: [project("hours-hog")],
+  tasks: [task("small-due-day-18", { deadline: day(18) + 1020, duration: 120 })],
+};
+const smallFar = computeSchedule(inputs(SMALL_FAR), NOW);
+check(
+  "a small task with the same deadline does NOT claim this week",
+  Math.min(...gdaysFor(smallFar, "small-due-day-18")) > 4,
+  true,
+);
+
+// Pressure is measured against time that is actually OPEN, so a fortnight of
+// solid meetings is not read as a fortnight of free time. Same 8h task, same
+// deadline; the only difference is that the calendar is already spoken for.
+const meetingWall = [];
+for (let g = 0; g <= 18; g++) {
+  if (g % 7 >= 5) continue;
+  meetingWall.push({ id: `wall-${g}`, source: "manual", title: "meeting", gday: g, start: 600, end: 1020, allDay: false });
+}
+const walled = computeSchedule(
+  inputs({
+    projects: [project("hours-hog")],
+    tasks: [task("eight-hours", { deadline: day(18) + 1020, duration: 480, chunk: 120, minChunk: 60 })],
+    events: meetingWall,
+  }),
+  NOW,
+);
+// Only one hour a day is open, and the weekly hours want all of it. The A/B
+// that isolates the ranking: the SAME 8h of work, once with the day-18 deadline
+// and once with none at all. Placement itself is unchanged — dated work still
+// sits just-in-time near its deadline rather than at the front of the week — so
+// what is checked is who wins the scarce hours, not how early they are taken.
+const undatedWalled = computeSchedule(
+  inputs({
+    projects: [project("hours-hog")],
+    tasks: [task("eight-hours", { deadline: 99999, duration: 480, chunk: 120, minChunk: 60 })],
+    events: meetingWall,
+  }),
+  NOW,
+);
+const minutesBy = (s, id, gday) =>
+  s.blocks.filter((b) => b.taskId === id && b.gday <= gday && b.status !== "missed" && b.status !== "grace")
+    .reduce((n, b) => n + (b.end - b.start), 0);
+check(
+  "with the fortnight walled off by meetings, the dated task takes the scarce hours",
+  minutesBy(walled, "eight-hours", 18) > 0,
+  true,
+);
+check(
+  "and the identical task with no deadline gets none of them",
+  minutesBy(undatedWalled, "eight-hours", 18),
+  0,
 );
 
 console.log(`\n${checks - failures}/${checks} deadline-pressure checks passed`);

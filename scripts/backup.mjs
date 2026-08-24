@@ -68,6 +68,7 @@ const TABLES = [
   "progress_log",
   "pinned_chunks",
   "research_pins",
+  "task_pins",
   "notes",
   "todo_lists",
   "todo_items",

@@ -50,6 +50,54 @@ export interface TaskDraft {
    * OVERRIDES the label in both directions, which is why the panels warn when
    * it does — see labelMinChunkClash. */
   minChunkText: string;
+  /** Exact slots this task is held to (migration 0047). Empty = it floats and
+   * the engine places it wherever the week allows, which is the normal case.
+   *
+   * A LIST because one slot per task was a real cap: work that has to happen as
+   * four separate two-hour sittings needs four of them. Kept as typed text like
+   * every other field here, and validated on save by pinSlotRows. */
+  pins: PinSlotDraft[];
+}
+
+export interface PinSlotDraft {
+  /** YYYY-MM-DD. */
+  date: string;
+  /** HH:MM, 24h — what <input type="time"> gives. */
+  time: string;
+  /** Minutes. Empty means "as long as one chunk of this task". */
+  lengthText: string;
+}
+
+export const blankPinSlot = (): PinSlotDraft => ({ date: "", time: "", lengthText: "" });
+
+/** The pin rows to write, or a sentence naming what is wrong with one.
+ *
+ * Returns [] for a draft with no slots, which is a complete answer meaning
+ * "unpinned" — the caller still writes it, so clearing the last slot in the
+ * panel actually releases the work. */
+export function pinSlotRows(
+  draft: TaskDraft,
+  defaultLengthMin: number,
+): { pinned_date: string; start_min: number; length_min: number }[] | string {
+  const rows: { pinned_date: string; start_min: number; length_min: number }[] = [];
+  for (const slot of draft.pins) {
+    // A half-filled row is a mistake, not an instruction — say so rather than
+    // dropping it, which would look like the panel ignored what was typed.
+    if (!slot.date && !slot.time && !slot.lengthText) continue;
+    if (!slot.date || !slot.time) return "Every fixed time needs both a date and a time.";
+    const [h, m] = slot.time.split(":").map(Number);
+    if (!Number.isFinite(h) || !Number.isFinite(m)) return `Couldn't read the time "${slot.time}".`;
+    const length = slot.lengthText.trim() ? Math.round(Number(slot.lengthText)) : defaultLengthMin;
+    if (!Number.isFinite(length) || length <= 0) return `A fixed time needs a length in minutes.`;
+    rows.push({ pinned_date: slot.date, start_min: h * 60 + m, length_min: length });
+  }
+  const sorted = [...rows].sort((a, b) => a.pinned_date.localeCompare(b.pinned_date) || a.start_min - b.start_min);
+  for (let i = 1; i < sorted.length; i++) {
+    if (sorted[i].pinned_date === sorted[i - 1].pinned_date && sorted[i].start_min < sorted[i - 1].start_min + sorted[i - 1].length_min) {
+      return `Two fixed times overlap on ${sorted[i].pinned_date} — they have to be separate slots.`;
+    }
+  }
+  return rows;
 }
 
 export type SplitMode = "free" | "one_day" | "one_block";
@@ -76,6 +124,7 @@ export const blankTaskDraft = (): TaskDraft => ({
   chunkText: "",
   splitMode: "free",
   minChunkText: "",
+  pins: [],
 });
 
 /** Same rule as add_task: an hour-long chunk for anything over 90 minutes, the
@@ -288,6 +337,10 @@ export function taskDraft(row: {
   max_per_day_min?: number | null;
   split_mode?: SplitMode | null;
   min_chunk_min?: number | null;
+  /** The task's pinned slots, already grouped by caller. Optional: a caller
+   * that hasn't fetched them means "none known", not "unpinned" — which is why
+   * the panel only writes pins when it actually loaded them. */
+  pins?: { pinned_date: string; start_min: number; length_min: number }[];
 }): TaskDraft {
   const pad = (n: number) => String(n).padStart(2, "0");
   const dateOf = (iso: string) => {
@@ -324,5 +377,10 @@ export function taskDraft(row: {
       row.chunk_min != null && row.chunk_min !== chunkFor(row.duration_min) ? String(row.chunk_min) : "",
     splitMode: row.split_mode ?? "free",
     minChunkText: row.min_chunk_min != null ? String(row.min_chunk_min) : "",
+    pins: (row.pins ?? []).map((p) => ({
+      date: p.pinned_date,
+      time: `${pad(Math.floor(p.start_min / 60))}:${pad(p.start_min % 60)}`,
+      lengthText: String(p.length_min),
+    })),
   };
 }

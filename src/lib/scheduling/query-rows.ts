@@ -48,6 +48,7 @@ export async function queryScheduleRows(
     eventsRes,
     progressRes,
     pinnedRes,
+    taskPinsRes,
     researchPinsRes,
     dayFocusRes,
     connectionsRes,
@@ -111,6 +112,15 @@ export async function queryScheduleRows(
       .eq("user_id", userId)
       .gte("occurred_date", windowStartDate)
       .lte("occurred_date", windowEndDate),
+    // Exact slots tasks are fixed to (migration 0047). Bounded like the pins
+    // below: a row outside the visible window can no longer be placed, and
+    // from-db drops it anyway.
+    supabase
+      .from("task_pins")
+      .select("*")
+      .eq("user_id", userId)
+      .gte("pinned_date", windowStartDate)
+      .lte("pinned_date", windowEndDate),
     supabase
       .from("research_pins")
       .select("*")
@@ -143,6 +153,7 @@ export async function queryScheduleRows(
     eventsRes,
     progressRes,
     pinnedRes,
+    taskPinsRes,
     researchPinsRes,
     dayFocusRes,
     connectionsRes,
@@ -166,6 +177,7 @@ export async function queryScheduleRows(
     events: eventsRes.data ?? [],
     progressLog: progressRes.data ?? [],
     pinnedChunks: pinnedRes.data ?? [],
+    taskPins: taskPinsRes.data ?? [],
     researchPins: researchPinsRes.data ?? [],
     dayFocus: dayFocusRes.data ?? [],
     calendarConnections: connectionsRes.data ?? [],

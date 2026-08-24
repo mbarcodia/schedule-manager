@@ -525,8 +525,35 @@ const JIT_BUFFER_MIN = 1440;
  * research hours, because there is no shortage yet to resolve. */
 const DEADLINE_PRESSURE_DAYS = 14;
 
-/** Does this piece of work have a deadline close enough that losing its slot
- * means missing it?
+/** Below this share of the open time before its deadline, a dated task is not
+ * short of anywhere to go and takes its turn by priority like anything else. A
+ * quarter leaves three hours spare for every hour of work, which is slack by
+ * any reading. */
+const COMFORTABLE_SHARE = 0.25;
+
+/** Working minutes still genuinely open on each grid day, measured ONCE before
+ * any work is placed: the day's hours minus whatever already claims them —
+ * meetings, routines, pins. A day off contributes nothing.
+ *
+ * This is the denominator deadline pressure divides by. Measuring against the
+ * calendar span instead — which is all "is the deadline within N days" can see —
+ * treats a fortnight of back-to-back meetings as a fortnight of free time, and
+ * that is exactly the fortnight where the question matters most. */
+function freeWorkingMinutesByDay(inputs: ScheduleInputs, busy: Set<AbsMinute>): number[] {
+  const days = inputs.horizonWeeks * 7;
+  const out = new Array<number>(days).fill(0);
+  for (let g = 0; g < days; g++) {
+    const win = resolveDayWindow(g, inputs.weeklyHours, inputs.dayOverrides, inputs.allDayBlocks);
+    if (!win) continue;
+    const base = g * 1440;
+    let free = 0;
+    for (let m = win.start; m < win.end; m++) if (!busy.has(base + m)) free++;
+    out[g] = free;
+  }
+  return out;
+}
+
+/** How pressed a piece of work is: how much of the time it has left it needs.
  *
  * The distinction that matters for ordering is NOT how important something is,
  * it is whether the time is recoverable. A weekly-hours chunk carries
@@ -538,9 +565,38 @@ const DEADLINE_PRESSURE_DAYS = 14;
  * queue sorted on priority first — so a recurring block with no deadline at all
  * outranked every task not also marked high, structurally and every time. That
  * is how a 2h review due Friday came to be scheduled in mid-September while six
- * hours of discretionary research filled the Friday it was due. */
-function deadlinePressure(t: { deadline: number }, nowAbs: number): 0 | 1 {
+ * hours of discretionary research filled the Friday it was due.
+ *
+ * A FLAT FORTNIGHT WAS THE WRONG QUESTION. It asks how far away the deadline is
+ * and never how much has to fit before it, so an 8-hour review due in 18 days
+ * ranked as unpressed while research took the only four days it could happen in
+ * — and then woke on day 14 to find the week already spent. Two hours due in 18
+ * days and sixteen hours due in 18 days are not the same situation, and the
+ * fortnight cannot tell them apart.
+ *
+ * So the measure is the shortage itself: hours needed against working hours
+ * actually open before the deadline. BANDED rather than continuous, because a
+ * raw ratio sorted ahead of `priority` would leave importance deciding nothing —
+ * within a band the old ordering still applies untouched.
+ *
+ * The fortnight survives as a floor, so nothing that outranks weekly hours today
+ * stops doing so: this only ever ADDS work to the pressed set, and gives it more
+ * resolution once there. */
+function pressureBand(
+  t: { deadline: number; remaining: number; floor?: number },
+  nowAbs: number,
+  roomBefore: (fromAbs: number, toAbs: number) => number,
+): 0 | 1 | 2 | 3 | 4 {
   if (t.deadline === NO_DEADLINE) return 0;
+  const room = roomBefore(Math.max(nowAbs, t.floor ?? 0), t.deadline);
+  // Nothing open before the deadline at all, so it cannot be met by definition
+  // and leads the queue. Placing it is still worth doing — the engine schedules
+  // late rather than not at all — and the risk report says so.
+  if (room <= 0) return 4;
+  const ratio = t.remaining / room;
+  if (ratio >= 1) return 3; // does not fit before the deadline even if nothing else ran
+  if (ratio >= 0.5) return 2; // needs more than half of every open hour left
+  if (ratio >= COMFORTABLE_SHARE) return 1;
   return t.deadline <= nowAbs + DEADLINE_PRESSURE_DAYS * 1440 ? 1 : 0;
 }
 
@@ -572,6 +628,18 @@ function runScheduler(
   });
   const perDay: Record<string, Record<number, number>> = {};
 
+  // Open working minutes per day, snapshotted before anything is placed, as a
+  // running total so "how much room is there between here and the deadline" is
+  // two array lookups rather than a scan. Whole days only: the day `from` falls
+  // in is not counted, which understates the room slightly and so can only make
+  // work look more pressed, never less.
+  const freeByDay = freeWorkingMinutesByDay(inputs, busy);
+  const freeThrough: number[] = [0];
+  for (let g = 0; g < freeByDay.length; g++) freeThrough.push(freeThrough[g] + freeByDay[g]);
+  const dayIndex = (abs: number) => Math.max(0, Math.min(freeByDay.length, Math.ceil(abs / 1440)));
+  const roomBefore = (fromAbs: number, toAbs: number) =>
+    Math.max(0, freeThrough[dayIndex(toAbs)] - freeThrough[dayIndex(fromAbs)]);
+
   let guard = 0;
   while (guard < 2000) {
     guard++;
@@ -579,13 +647,18 @@ function runScheduler(
       (t) => t.remaining > 0 && (!t.dependsOn || doneSet.has(t.dependsOn)),
     );
     if (!ready.length) break;
+    // Computed per task once per pass rather than inside the comparator, which
+    // would evaluate it O(n log n) times for an answer that cannot change
+    // mid-sort. It DOES change between passes, as `remaining` shrinks — work
+    // half-placed is half as pressed, which is the point.
+    const band = new Map(ready.map((t) => [t.id, pressureBand(t, schedulerNow, roomBefore)]));
     ready.sort(
       (a, b) =>
-        // Irrecoverable time first: work with a deadline inside the pressure
-        // window outranks work that has none, whatever its priority. Everything
-        // after this is unchanged, so ordering WITHIN the urgent set and within
-        // the rest behaves exactly as it always did.
-        deadlinePressure(b, schedulerNow) - deadlinePressure(a, schedulerNow) ||
+        // Irrecoverable time first: work that is short of room before its
+        // deadline outranks work that has none, whatever its priority.
+        // Everything after this is unchanged, so ordering WITHIN a band and
+        // within the rest behaves exactly as it always did.
+        band.get(b.id)! - band.get(a.id)! ||
         priorityRank(b.priority) - priorityRank(a.priority) ||
         a.ord - b.ord ||
         a.deadline - b.deadline,
@@ -693,7 +766,7 @@ function runScheduler(
         // itself becomes the thing that breaks the one-day rule — which is how
         // dragging a task to "In progress" would have scattered it: the board
         // pins one chunk to today and leaves the remainder to be placed freely.
-        if (t.pin && g !== t.pin.gday) continue;
+        if (t.pins?.length && !t.pins.some((p) => p.gday === g)) continue;
         if ((g + 1) * 1440 <= floor) continue; // whole day is before the earliest start
         if (ceil != null && g * 1440 >= ceil) continue;
         const trial = new Set<AbsMinute>();
@@ -940,25 +1013,33 @@ export function computeSchedule(
   const taskPinChunks: ScheduleBlock[] = [];
   const displacedPins: string[] = [];
   inputs.tasks.forEach((t) => {
-    if (!t.pin) return;
-    const abs = t.pin.gday * 1440 + t.pin.start;
-    if (abs >= NOW && spanCollides(abs, t.pin.length, baseBusy)) {
-      displacedPins.push(t.title);
-      return;
-    }
-    markBusy(abs, t.pin.length, baseBusy);
-    pinReduction[t.id] = t.pin.length;
-    taskPinChunks.push({
-      type: "task",
-      taskId: t.id,
-      projectId: t.projectId || null,
-      categoryId: t.categoryId ?? null,
-      tagLabel: labelTag(inputs, t.categoryId),
-      title: t.title,
-      gday: t.pin.gday,
-      start: t.pin.start,
-      end: t.pin.start + t.pin.length,
-      priority: t.priority,
+    // Each slot stands or falls on its own. A task holding four 2-hour blocks
+    // that loses one to a Tuesday meeting keeps the other three: only the
+    // Tuesday hours go back into the pool, which is the whole reason a task can
+    // hold more than one. Sorted so the release decision doesn't depend on row
+    // order — two pins of the same task overlapping each other resolves to
+    // "the earlier one keeps the time" every run rather than arbitrarily.
+    const pins = [...(t.pins ?? [])].sort((a, b) => a.gday * 1440 + a.start - (b.gday * 1440 + b.start));
+    pins.forEach((p) => {
+      const abs = p.gday * 1440 + p.start;
+      if (abs >= NOW && spanCollides(abs, p.length, baseBusy)) {
+        if (!displacedPins.includes(t.title)) displacedPins.push(t.title);
+        return;
+      }
+      markBusy(abs, p.length, baseBusy);
+      pinReduction[t.id] = (pinReduction[t.id] ?? 0) + p.length;
+      taskPinChunks.push({
+        type: "task",
+        taskId: t.id,
+        projectId: t.projectId || null,
+        categoryId: t.categoryId ?? null,
+        tagLabel: labelTag(inputs, t.categoryId),
+        title: t.title,
+        gday: p.gday,
+        start: p.start,
+        end: p.start + p.length,
+        priority: t.priority,
+      });
     });
   });
 
@@ -1345,9 +1426,12 @@ export function computeSchedule(
   const risk = [...res.risk];
   const nearDeadline = [...res.nearDeadline];
   inputs.tasks.forEach((t) => {
-    if (!t.pin || t.deadline === 99999) return;
-    if ((defs.find((d) => d.id === t.id)?.duration ?? 0) > 0) return; // more work remains beyond the pin
-    const finishedAbs = t.pin.gday * 1440 + t.pin.start + t.pin.length;
+    if (!t.pins?.length || t.deadline === 99999) return;
+    if ((defs.find((d) => d.id === t.id)?.duration ?? 0) > 0) return; // more work remains beyond the pins
+    // The LAST pin is when the task actually finishes, so that is the one the
+    // deadline is measured against — a first block comfortably inside the week
+    // says nothing about a fourth that falls outside it.
+    const finishedAbs = Math.max(...t.pins.map((p) => p.gday * 1440 + p.start + p.length));
     if (finishedAbs > t.deadline) risk.push(t.title);
     else if (Math.floor(finishedAbs / 1440) === Math.floor(t.deadline / 1440)) nearDeadline.push(t.title);
   });

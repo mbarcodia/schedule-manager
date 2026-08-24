@@ -11,17 +11,19 @@
 // Same drawer as the commitment panel, for the same reason: a board column is
 // 180px wide and this is a form.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { XIcon, StarIcon, ArchiveBoxIcon } from "@phosphor-icons/react";
 import { createClient } from "@/lib/supabase/client";
 import { setTaskArchived } from "@/lib/planner/board-actions";
 import {
   PRIORITIES,
   SPLIT_MODES,
+  blankPinSlot,
   blankTaskDraft,
   chunkFor,
   describeChunking,
   labelMinChunkClash,
+  pinSlotRows,
   taskDraft,
   taskRowFields,
   validateTask,
@@ -57,8 +59,32 @@ export function TaskPanel({
   const [confirmArchive, setConfirmArchive] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Pins are rows in their own table, so they arrive after the draft is built.
+  // `pinsLoaded` is the difference between "this task has no fixed times" and
+  // "we haven't looked yet" — saving on the second would silently unpin the
+  // task, which is precisely the kind of quiet loss this app cannot afford.
+  const [pinsLoaded, setPinsLoaded] = useState(!task);
+  useEffect(() => {
+    if (!task) return;
+    let cancelled = false;
+    void (async () => {
+      const { data } = await createClient()
+        .from("task_pins")
+        .select("pinned_date,start_min,length_min")
+        .eq("task_id", task.id);
+      if (cancelled) return;
+      setDraft((d) => ({ ...d, pins: taskDraft({ ...task, pins: data ?? [] }).pins }));
+      setPinsLoaded(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [task]);
+
   const errors = validateTask(draft);
   const patch = (next: Partial<TaskDraft>) => setDraft({ ...draft, ...next });
+  const patchPin = (i: number, next: Partial<TaskDraft["pins"][number]>) =>
+    patch({ pins: draft.pins.map((p, j) => (j === i ? { ...p, ...next } : p)) });
   const label = categories.find((c) => c.id === draft.categoryId) ?? null;
   const minChunkClash = labelMinChunkClash(draft, label);
 
@@ -68,15 +94,39 @@ export function TaskPanel({
       setError(errors[0] ?? "Something about that task doesn't add up.");
       return;
     }
+    const pinRows = pinSlotRows(draft, fields.chunk_min);
+    if (typeof pinRows === "string") {
+      setError(pinRows);
+      return;
+    }
     setBusy(true);
     setError(null);
     const supabase = createClient();
+
+    /** The task's fixed slots, replaced wholesale — the panel shows every one
+     * it has, so what is on screen when Save is pressed IS the set. */
+    async function writePins(taskId: string, userId: string): Promise<string | null> {
+      if (!pinsLoaded) return null; // never looked; leave whatever is there alone
+      const { error: clearErr } = await supabase.from("task_pins").delete().eq("task_id", taskId);
+      if (clearErr) return clearErr.message;
+      if (!(pinRows as { pinned_date: string; start_min: number; length_min: number }[]).length) return null;
+      const { error: insErr } = await supabase
+        .from("task_pins")
+        .insert((pinRows as { pinned_date: string; start_min: number; length_min: number }[]).map((r) => ({ user_id: userId, task_id: taskId, ...r })));
+      return insErr?.message ?? null;
+    }
 
     if (task) {
       const { error: err } = await supabase.from("tasks").update(fields).eq("id", task.id);
       if (err) {
         setBusy(false);
         setError(`Couldn't save that task: ${err.message}`);
+        return;
+      }
+      const pinErr = await writePins(task.id, task.user_id);
+      if (pinErr) {
+        setBusy(false);
+        setError(`Saved the task, but couldn't save its fixed times: ${pinErr}`);
         return;
       }
     } else {
@@ -91,10 +141,20 @@ export function TaskPanel({
       // ord 0 puts it in the middle of the queue rather than at either end:
       // the board's Backlog/This Week drops are what move it, and picking an
       // extreme here would silently prioritise every new task.
-      const { error: err } = await supabase.from("tasks").insert({ user_id: user.id, ord: 0, ...fields });
+      const { data: created, error: err } = await supabase
+        .from("tasks")
+        .insert({ user_id: user.id, ord: 0, ...fields })
+        .select("id")
+        .single();
       if (err) {
         setBusy(false);
         setError(`Couldn't add that task: ${err.message}`);
+        return;
+      }
+      const pinErr = created ? await writePins(created.id, user.id) : null;
+      if (pinErr) {
+        setBusy(false);
+        setError(`Added the task, but couldn't save its fixed times: ${pinErr}`);
         return;
       }
     }
@@ -238,7 +298,58 @@ export function TaskPanel({
            almost everything — and each one can make a task harder to schedule,
            so the hints say what each costs rather than only what it does. */}
         <section className="flex flex-col gap-1.5">
-          <div className={legend}>How it gets placed</div>
+          {/* Fixed times. Below the window fields and above the placement rules
+             because it OVERRIDES them: a slot named here is where those hours go,
+             whatever the preferences underneath say. */}
+          <div className={legend}>Fixed times</div>
+          <div className={hint}>
+            Hours held at an exact time instead of placed wherever the week allows. Anything else scheduled there
+            moves out of the way. Leave this empty — the usual case — and the whole task floats.
+          </div>
+          {draft.pins.map((slot, i) => (
+            <div key={i} className="flex items-center gap-1.5">
+              <input
+                type="date"
+                value={slot.date}
+                onChange={(e) => patchPin(i, { date: e.target.value })}
+                className={`${field} w-32`}
+              />
+              <input
+                type="time"
+                value={slot.time}
+                onChange={(e) => patchPin(i, { time: e.target.value })}
+                className={`${field} w-24`}
+              />
+              <input
+                value={slot.lengthText}
+                onChange={(e) => patchPin(i, { lengthText: e.target.value })}
+                placeholder={String(taskRowFields(draft, new Date())?.chunk_min ?? "")}
+                className={`${field} w-12`}
+              />
+              <span className="text-[11px] text-muted">min</span>
+              <button
+                onClick={() => patch({ pins: draft.pins.filter((_, j) => j !== i) })}
+                aria-label="Remove this fixed time"
+                className="text-muted-2 hover:text-text text-[11px] px-1"
+              >
+                ×
+              </button>
+            </div>
+          ))}
+          <button
+            onClick={() => patch({ pins: [...draft.pins, blankPinSlot()] })}
+            className="self-start text-[11px] text-accent-text hover:underline"
+          >
+            + add a fixed time
+          </button>
+          {draft.pins.length > 1 && (
+            <div className={hint}>
+              Each slot stands on its own: if a meeting lands on one of them, only those hours go back into the
+              queue and the rest stay put.
+            </div>
+          )}
+
+          <div className={`${legend} pt-2`}>How it gets placed</div>
           <select
             value={draft.timeOfDay}
             onChange={(e) => patch({ timeOfDay: e.target.value as TaskDraft["timeOfDay"] })}

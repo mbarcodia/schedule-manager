@@ -56,6 +56,11 @@ export interface RawScheduleRows {
   progressLog: Row<"progress_log">[];
   pinnedChunks: Row<"pinned_chunks">[];
   researchPins: Row<"research_pins">[];
+  /** Exact slots tasks are fixed to (migration 0047). Replaced the single
+   * `tasks.pinned_date/start/length` triple, which could hold only one slot per
+   * task. Optional so a hand-assembled caller means "no pins" rather than
+   * crashing. */
+  taskPins?: Row<"task_pins">[];
   /** Days where one label's weekly hours all go to one project (migration 0046).
    * Optional for the same reason as routineNotes: the engine tolerates its
    * absence, and not every caller assembles one. */
@@ -224,6 +229,16 @@ export function buildScheduleInputs(
   // unscheduled.
   const onHoldProjectIds = new Set(rows.projects.filter((p) => p.on_hold_at).map((p) => p.id));
 
+  // Grouped once rather than filtered per task: a task row is mapped for every
+  // task in the account, and re-scanning every pin inside that loop is the kind
+  // of quadratic that only shows up on a full calendar.
+  const taskPinsByTask = new Map<string, RawScheduleRows["taskPins"]>();
+  for (const tp of rows.taskPins ?? []) {
+    const list = taskPinsByTask.get(tp.task_id);
+    if (list) list.push(tp);
+    else taskPinsByTask.set(tp.task_id, [tp]);
+  }
+
   const tasks: Task[] = rows.tasks
     .filter((t) => !(t.project_id && onHoldProjectIds.has(t.project_id)))
     .map((t) => {
@@ -246,16 +261,14 @@ export function buildScheduleInputs(
     }
 
     // A pin older than the current week is stale — don't forward it, so
-    // nothing needs to clear the columns afterward. A pin still within this
+    // nothing needs to sweep the table afterward. A pin still within this
     // week but already past NOW flows through normally: the engine's
     // kept/missed reconciliation (same as any other block) picks it up.
-    let pin: Task["pin"] = null;
-    if (t.pinned_date && t.pinned_start_min != null && t.pinned_length_min != null) {
-      const pGday = gdayForDate(timezone, dateParts(t.pinned_date), now);
-      if (pGday >= 0 && pGday < horizonWeeks * 7) {
-        pin = { gday: pGday, start: t.pinned_start_min, length: t.pinned_length_min };
-      }
-    }
+    const pins = (taskPinsByTask.get(t.id) ?? []).flatMap((tp) => {
+      const pGday = gdayForDate(timezone, dateParts(tp.pinned_date), now);
+      if (pGday < 0 || pGday >= horizonWeeks * 7) return [];
+      return [{ gday: pGday, start: tp.start_min, length: tp.length_min }];
+    });
 
     return {
       id: t.id,
@@ -278,7 +291,7 @@ export function buildScheduleInputs(
       projectId: t.project_id,
       categoryId: t.category_id,
       ord: t.ord,
-      pin,
+      pins,
     };
   });
 

@@ -78,7 +78,7 @@ const PINNED_TASK = {
   deadline: 99999,
   floor: 0,
   ord: 50,
-  pin: { gday: 2, start: 600, length: 60 },
+  pins: [{ gday: 2, start: 600, length: 60 }],
 };
 /** Does any task block overlap any meeting? The thing that must never be true. */
 const doubleBooked = (s) => {

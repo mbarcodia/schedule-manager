@@ -104,12 +104,18 @@ export interface Task {
    * when timeOfDay is set (a hard constraint has nothing to fall back to). */
   preferMorning?: boolean;
   preferAfternoon?: boolean;
-  /** One-shot forced placement: this many minutes of the task are pinned to
-   * this exact gday/start, like a mini fixed event scoped to just this task.
-   * The remaining duration (if any) is still auto-placed normally. Expires
-   * on its own once the date passes — from-db.ts stops forwarding stale
-   * pins, so nothing needs to clear it. */
-  pin?: { gday: GDay; start: MinuteOfDay; length: number } | null;
+  /** Forced placements: each holds that many minutes of the task at an exact
+   * gday/start, like a mini fixed event scoped to just this task. Whatever
+   * duration they don't account for is still auto-placed normally. Each expires
+   * on its own once its date passes — from-db.ts stops forwarding stale pins,
+   * so nothing needs to clear them.
+   *
+   * A LIST, because one slot per task was a real cap: an 8-hour review that has
+   * to happen as four 2-hour blocks inside one week needs four of them, and with
+   * a single pin the other six hours drifted past the deadline. Several on the
+   * same day are fine — a morning and an afternoon are two slots, not a
+   * conflict. See migration 0047. */
+  pins?: { gday: GDay; start: MinuteOfDay; length: number }[];
   /** Days this work may NOT be placed on. Set only by a day-focus, to stop the
    * projects it displaced from re-placing onto the very day they were displaced
    * from — freeing their hours opens room on that day, and without this they flow

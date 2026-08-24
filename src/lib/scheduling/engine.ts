@@ -1107,7 +1107,32 @@ export function computeSchedule(
   const defs = taskDefs(inputs, labelScaleByWeek).map((t) =>
     pinReduction[t.id] ? { ...t, duration: Math.max(0, t.duration - pinReduction[t.id]) } : t,
   );
-  const plan = runScheduler(inputs, defs, new Set(baseBusy), 0, null, NOW);
+  // Hours that were WORKED but whose def no longer exists — the task was
+  // archived (which is exactly what completing one does), deleted, or its
+  // commitment went on hold since the work was logged.
+  //
+  // Pass 1 replans the current week from Monday to reconstruct where each chunk
+  // landed. With no def for that work it reads the hour as empty and slides the
+  // next task into it; the completed block is then re-added from
+  // currentWeekFallback below, drawn ON TOP of whatever moved in. Ticking one
+  // task off therefore appeared to schedule a second task in the same hour.
+  //
+  // Reserving those minutes first leaves the rest of the week where it actually
+  // was. It goes into pass 1's own copy of the busy set, never baseBusy: that
+  // one also feeds anchor placement and pass 2, and moving a past routine would
+  // orphan the tick already logged against its old slot.
+  const defIds = new Set(defs.map((d) => d.id));
+  const planBusy = new Set(baseBusy);
+  const reserveWorked = (taskId: string, gday: number, start: number, end: number) => {
+    if (defIds.has(taskId)) return; // pass 1 will reconstruct it itself
+    const abs = gday * 1440 + start;
+    if (abs >= NOW) return; // not history yet; nothing to protect
+    markBusy(abs, end - start, planBusy);
+  };
+  (inputs.currentWeekFallback ?? []).forEach((b) => reserveWorked(b.taskId!, b.gday, b.start, b.end));
+  Object.values(inputs.pinned).forEach((p) => reserveWorked(p.taskId, p.gday, p.start, p.end));
+
+  const plan = runScheduler(inputs, defs, planBusy, 0, null, NOW);
 
   // A fixed pin (task.pin / a research pin) is drawn from `inputs.tasks` /
   // `inputs.researchPins` every run, independent of whether the work already
@@ -1177,17 +1202,6 @@ export function computeSchedule(
     keptKeys.add(b.key!);
   });
 
-  const credit: Record<string, number> = {};
-  kept.forEach((c) => {
-    if (c.status === "partial") {
-      credit[c.taskId!] = (credit[c.taskId!] || 0) + (c.partMin ?? 0);
-    } else if (c.status !== "missed" && c.status !== "grace") {
-      // Grace counts as un-done for scheduling: the time re-places right away
-      // and ticking the box later credits it, removing the replacement.
-      credit[c.taskId!] = (credit[c.taskId!] || 0) + (c.end - c.start);
-    }
-  });
-
   const pinnedList: ScheduleBlock[] = Object.entries(inputs.pinned)
     .filter(([k]) => !kept.some((c) => c.key === k))
     .map(([k, v]) => ({
@@ -1209,6 +1223,42 @@ export function computeSchedule(
       status: "done",
       pinned: true,
     }));
+  // ONE TASK AT A TIME. An hour that has passed can only have held one piece of
+  // work, so a past block that was never ticked and sits under work that WAS
+  // logged is a plan that did not happen — the hour went to the other task. It
+  // is dropped rather than drawn underneath, and it is not reported as missed
+  // either: it was superseded, not skipped. Nothing is lost by dropping it,
+  // because an un-ticked block carries no credit and its hours are re-placed by
+  // pass 2 regardless.
+  //
+  // Deliberately one-directional: two COMPLETIONS may share an hour (that is
+  // how "I did both of these at once" is recorded, and the week grid lanes them
+  // side by side), and a plan never overlaps anything.
+  const workedSpans = [...kept, ...pinnedList]
+    .filter((c) => c.status === "done" || c.status === "partial")
+    .map((c) => ({ key: c.key, from: c.abs!, to: c.abs! + (c.end - c.start) }));
+  const superseded = new Set(
+    kept
+      .filter(
+        (c) =>
+          c.status !== "done" &&
+          c.status !== "partial" &&
+          workedSpans.some((w) => w.key !== c.key && w.from < c.abs! + (c.end - c.start) && c.abs! < w.to),
+      )
+      .map((c) => c.key!),
+  );
+  const survived = kept.filter((c) => !superseded.has(c.key!));
+
+  const credit: Record<string, number> = {};
+  survived.forEach((c) => {
+    if (c.status === "partial") {
+      credit[c.taskId!] = (credit[c.taskId!] || 0) + (c.partMin ?? 0);
+    } else if (c.status !== "missed" && c.status !== "grace") {
+      // Grace counts as un-done for scheduling: the time re-places right away
+      // and ticking the box later credits it, removing the replacement.
+      credit[c.taskId!] = (credit[c.taskId!] || 0) + (c.end - c.start);
+    }
+  });
   pinnedList.forEach((c) => {
     credit[c.taskId!] = (credit[c.taskId!] || 0) + (c.end - c.start);
   });
@@ -1228,7 +1278,7 @@ export function computeSchedule(
   // missed slot on a task finished some other way is still real history.
   const pinCredited = new Set(pinnedList.map((c) => c.taskId!));
   const settledByPin = new Set(preDone.filter((id) => pinCredited.has(id)));
-  const live = kept.filter(
+  const live = survived.filter(
     (c) => !((c.status === "grace" || c.status === "missed") && settledByPin.has(c.taskId!)),
   );
 

@@ -40,6 +40,7 @@ export async function queryScheduleRows(
     projectsRes,
     targetsRes,
     tasksRes,
+    archivedTaskTitlesRes,
     rulesRes,
     routineNotesRes,
     notesRes,
@@ -62,6 +63,12 @@ export async function queryScheduleRows(
     // invisible to scheduling and the board (the archive view queries them
     // separately with archived_at NOT null).
     supabase.from("tasks").select("*").eq("user_id", userId).is("archived_at", null),
+    // Titles only, for the archived ones the query above drops. Completing a
+    // task archives it, so its own logged block would otherwise redraw itself
+    // as the placeholder "Work" (from-db's historyBlocks/currentWeekFallback)
+    // the instant it was ticked off. Two columns of every finished task is a
+    // cheap query; nothing here re-enters scheduling.
+    supabase.from("tasks").select("id,title").eq("user_id", userId).not("archived_at", "is", null),
     supabase.from("recurring_rules").select("*").eq("user_id", userId),
     // Routine notes still worth saying: anything whose window hasn't closed and
     // hasn't opened beyond the horizon. The bound here is deliberately one day
@@ -128,6 +135,7 @@ export async function queryScheduleRows(
     projectsRes,
     targetsRes,
     tasksRes,
+    archivedTaskTitlesRes,
     rulesRes,
     routineNotesRes,
     notesRes,
@@ -150,6 +158,7 @@ export async function queryScheduleRows(
     projects: projectsRes.data ?? [],
     targets: targetsRes.data ?? [],
     tasks: tasksRes.data ?? [],
+    archivedTaskTitles: archivedTaskTitlesRes.data ?? [],
     recurringRules: rulesRes.data ?? [],
     routineNotes: routineNotesRes.data ?? [],
     preferenceNotes: notesRes.data ?? [],

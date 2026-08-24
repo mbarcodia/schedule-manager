@@ -84,19 +84,23 @@ export interface BlockLane {
   lanes: number;
 }
 
-/** Interval-partitions one day's *synced calendar events* into side-by-side
- * lanes so two real meetings at the same time split the column width
- * instead of stacking on top of each other. Deliberately scoped to
- * type==="synced" only — anchors and tasks are placed by the engine, which
- * guarantees they never overlap each other or an event; if one ever did,
- * laning it side-by-side would quietly hide a real scheduling bug instead
- * of surfacing it. Blocks with no Map entry (every non-synced block, and
- * any synced block with no overlap) render full-width via Block.tsx's
- * lane=0/lanes=1 fallback. */
+/** Interval-partitions one day's blocks into side-by-side lanes so two things
+ * at the same time split the column width instead of stacking on top of each
+ * other and hiding one another.
+ *
+ * Two meetings really can run at once, and so can two COMPLETIONS — ticking off
+ * a second task against an hour you already logged is how "I did both of these
+ * at the same time" gets recorded. Everything else the engine places is
+ * guaranteed not to overlap: only one task is ever scheduled in an hour, and a
+ * plan that lost its hour to work you actually logged is dropped rather than
+ * drawn underneath (see computeSchedule's ONE TASK AT A TIME note). So a lane
+ * split here always means something that genuinely shared the time.
+ *
+ * Blocks with no Map entry (anything with no overlap at all) render full-width
+ * via Block.tsx's lane=0/lanes=1 fallback. */
 export function computeBlockLanes(blocks: ScheduleBlock[]): Map<ScheduleBlock, BlockLane> {
   const out = new Map<ScheduleBlock, BlockLane>();
   const items = blocks
-    .filter((b) => b.type === "synced")
     .map((b) => ({ b, start: Math.max(b.start, DAY_START_MIN), end: Math.min(b.end, DAY_END_MIN), lane: 0 }))
     .filter((x) => x.end > x.start)
     .sort((a, z) => a.start - z.start || z.end - a.end);

@@ -37,6 +37,13 @@ export interface RawScheduleRows {
   projects: Row<"projects">[];
   targets: Row<"targets">[];
   tasks: Row<"tasks">[];
+  /** Id + title of the ARCHIVED tasks, which `tasks` above deliberately omits.
+   * Completing a task archives it, so without these every finished piece of
+   * work redrew itself on the calendar as the placeholder "Work" the moment it
+   * was ticked off — including the whole logged history. Titles only: nothing
+   * archived may re-enter scheduling. Optional because a caller that assembles
+   * rows by hand still gets the placeholder rather than an error. */
+  archivedTaskTitles?: Pick<Row<"tasks">, "id" | "title">[];
   recurringRules: Row<"recurring_rules">[];
   /** Notes attached to those routines whose window covers today or a day still
    * ahead (migration 0044). Optional because nothing in the scheduling engine
@@ -421,7 +428,10 @@ export function buildScheduleInputs(
   // re-deriving a past week from today's rules would put blocks on it that never
   // happened, indistinguishable from the ones that did. So a past day shows only
   // what was logged at the time, built here where the titles can be resolved.
-  const taskTitle = new Map(rows.tasks.map((t) => [t.id, t.title]));
+  const taskTitle = new Map([
+    ...(rows.archivedTaskTitles ?? []).map((t) => [t.id, t.title] as const),
+    ...rows.tasks.map((t) => [t.id, t.title] as const),
+  ]);
   const projectTitle = new Map(rows.projects.map((p) => [p.id, p.title]));
   const ruleTitle = new Map(rows.recurringRules.map((r) => [r.id, r.title]));
   const taskById = new Map(rows.tasks.map((t) => [t.id, t]));

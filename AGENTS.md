@@ -35,7 +35,14 @@ of them live data loss). Grep the table name; don't trust a mental model of wher
 it's read.
 
 Apply migrations with **`npm run migrate`**, never a bare `supabase db push` — it
-chains a full backup first and refuses to push if the snapshot fails. Then deploy
+chains a full backup first and refuses to push if the snapshot fails, and it
+routes through `scripts/db-push.mjs`, which supplies `SUPABASE_ACCESS_TOKEN`
+from `.env.local` so the CLI never reaches for the macOS Keychain. That reach is
+a GUI prompt: from a non-interactive shell there is nobody to answer it, so the
+push hangs silently and forever. It has stalled this project three times and
+caused one outage, because code that read a new column shipped while the hung
+push had never landed. If a push produces no output at all, that is what is
+happening — and a blank `SUPABASE_ACCESS_TOKEN` is why. Then deploy
 in this order, or the live app breaks rather than degrades: **migrate → `git push`
 (Vercel) → `flyctl deploy --now` (the relay)**. Code that reads a new column 400s
 on every request until the column exists.

@@ -28,6 +28,16 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
     return NextResponse.json({ error: "Invalid duration" }, { status: 400 });
   }
 
-  const { slots, timezone } = await computeFreeSlots(admin, link, parsed.data.duration, parsed.data.week);
-  return NextResponse.json({ slots, ownerTimezone: timezone, durations: link.durations, title: link.title });
+  const { slots, timezone, unavailable } = await computeFreeSlots(admin, link, parsed.data.duration, parsed.data.week);
+  // `unavailable` says the owner's calendar data could not be trusted, so no
+  // answer was possible — deliberately distinct from an empty week. The visitor
+  // is told the link is paused, never why: which of the owner's calendars is
+  // broken is not a stranger's business.
+  return NextResponse.json({
+    slots,
+    unavailable,
+    ownerTimezone: timezone,
+    durations: link.durations,
+    title: link.title,
+  });
 }

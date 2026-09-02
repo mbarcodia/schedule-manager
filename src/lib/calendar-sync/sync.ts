@@ -38,16 +38,24 @@ export async function syncConnection(
     // Vercel in UTC, so using the process timezone shifted every all-day event
     // onto the evening before.
     const includeAllDay = connection.all_day_mode !== "ignore";
-    let timeZone = "UTC";
-    if (includeAllDay) {
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("timezone")
-        .eq("id", connection.user_id)
-        .maybeSingle();
-      timeZone = profile?.timezone || "UTC";
-    }
-    const events = await fetchIcsEvents(connection.ics_url, horizonStart, horizonEnd, includeAllDay, timeZone);
+    // Read unconditionally. This used to be fetched only for a calendar with
+    // all-day entries, leaving every other feed to default to "UTC" — which is
+    // also the last-resort zone for a time the feed doesn't pin down, so the
+    // fallback would have landed on the server's zone by another route.
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("timezone")
+      .eq("id", connection.user_id)
+      .maybeSingle();
+    const timeZone = profile?.timezone || "UTC";
+
+    const { events, resolutions, floatingCount } = await fetchIcsEvents(
+      connection.ics_url,
+      horizonStart,
+      horizonEnd,
+      includeAllDay,
+      timeZone,
+    );
     const source = SOURCE_BY_PROVIDER[connection.provider];
 
     // Scoped to the range just re-fetched, NOT the whole connection. Deleting
@@ -85,9 +93,35 @@ export async function syncConnection(
       `sync: recording success for connection ${connection.id}`,
       supabase
         .from("calendar_connections")
-        .update({ last_synced_at: new Date().toISOString(), last_sync_error: null, last_sync_event_count: events.length })
+        .update({
+          last_synced_at: new Date().toISOString(),
+          last_sync_error: null,
+          last_sync_event_count: events.length,
+        })
         .eq("id", connection.id),
     );
+
+    // A zone that had to be guessed is not an error, but it must not be
+    // invisible either — this is what Settings shows, so a feed that stopped
+    // saying what its times mean is noticed before the booking link acts on it.
+    //
+    // Written SEPARATELY and best-effort on purpose. It is a note about the
+    // sync, not part of it, and folding it into the update above would make a
+    // cosmetic column load-bearing: on a deployment where migration 0048 has
+    // not landed yet, the whole update fails, the sync records itself as
+    // broken, and the booking link pauses over a missing annotation. Recording
+    // less than everything beats taking the calendar down.
+    const notes = resolutions.filter((r) => r.warning).map((r) => r.warning!);
+    if (floatingCount > 0) {
+      notes.push(`${floatingCount} time${floatingCount === 1 ? "" : "s"} carried no timezone; read as ${timeZone}`);
+    }
+    const { error: noteError } = await supabase
+      .from("calendar_connections")
+      .update({ last_sync_tz_note: notes.length > 0 ? notes.join("; ") : null })
+      .eq("id", connection.id);
+    if (noteError) {
+      console.warn(`[sync] could not record the timezone note for ${connection.id}: ${noteError.message}`);
+    }
 
     return { ok: true, count: events.length };
   } catch (err) {

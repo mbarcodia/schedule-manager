@@ -41,6 +41,10 @@ export function BookingClient({ slug, title, durations, locationModes, officeLoc
   const [locationMode, setLocationMode] = useState<LocationMode>(locationModes[0] ?? "zoom");
   const [week, setWeek] = useState(0);
   const [slots, setSlots] = useState<Slot[] | null>(null);
+  // The owner's calendar could not be trusted, so the link is paused rather
+  // than guessing. Separate from "no slots this week", which invites the
+  // visitor to look at a later week — pointless when nothing can be offered.
+  const [unavailable, setUnavailable] = useState(false);
   const [selected, setSelected] = useState<Slot | null>(null);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -57,6 +61,7 @@ export function BookingClient({ slug, title, durations, locationModes, officeLoc
       return;
     }
     const data = await res.json();
+    setUnavailable(Boolean(data.unavailable));
     setSlots(data.slots);
   }, [slug, duration, week]);
 
@@ -260,6 +265,14 @@ export function BookingClient({ slug, title, durations, locationModes, officeLoc
         {/* Slot grid */}
         {slots === null ? (
           <p className="text-sm text-muted py-8">Loading times…</p>
+        ) : unavailable ? (
+          <div className="py-8">
+            <p className="text-sm text-text">Scheduling is temporarily unavailable.</p>
+            <p className="text-sm text-muted mt-1">
+              Please email me directly and I&rsquo;ll find a time — I&rsquo;d rather do that than book you into
+              something I already have.
+            </p>
+          </div>
         ) : days.length === 0 ? (
           <p className="text-sm text-muted py-8">No times available this week — try a later week.</p>
         ) : (

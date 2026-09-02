@@ -14,10 +14,12 @@ function checkThat(label, cond, detail = "") {
   console.log(`  ${cond ? "OK  " : "FAIL"} ${label}${cond ? "" : `  ${detail}`}`);
 }
 
-/** The shape computeFreeSlots/isSlotFree read, without touching a database. */
-function ctx(bookingsToday, { minNoticeAbs = 0 } = {}) {
+/** The shape computeFreeSlots/isSlotFree read, without touching a database.
+ * Feeds default to healthy; the fail-safe cases below pass their own. */
+function ctx(bookingsToday, { minNoticeAbs = 0, feeds = { ok: true, reason: null } } = {}) {
   return {
     busy: new Set(),
+    feeds,
     timezone: "America/New_York",
     weeklyHours: Object.fromEntries(
       Array.from({ length: 7 }, (_, d) => [d, d < 5 ? { start: 9 * 60, end: 17 * 60 } : null]),
@@ -80,6 +82,28 @@ checkThat(
 // --- all-day blocks ---------------------------------------------------------
 const away = { ...ctx(0), allDayBlocks: { 0: "no_meetings" } };
 checkThat("a day claimed by an all-day entry is refused", !slotIsOffered(away, link(), 0, MON_10AM, 30));
+
+
+// --- stale or broken calendar data ------------------------------------------
+// The booking link is the one place bad data costs someone ELSE their time: a
+// stranger takes a slot the owner is actually busy in. When the calendar feeds
+// cannot be trusted, no slot is offerable, whatever the rest of the rules say.
+// This is what stopped the four-hour Outlook shift from being bookable.
+checkThat(
+  "a broken feed makes an otherwise-perfect slot unofferable",
+  !slotIsOffered(ctx(0, { feeds: { ok: false, reason: "Work Outlook failed to sync" } }), link(), 0, MON_10AM, 30),
+);
+checkThat(
+  "a stale feed does too",
+  !slotIsOffered(
+    ctx(0, { feeds: { ok: false, reason: "Work Outlook hasn't synced in over 26 hours" } }),
+    link({ max_per_day: null, min_notice_hours: 0 }),
+    0,
+    MON_10AM,
+    30,
+  ),
+);
+checkThat("healthy feeds still offer the slot", slotIsOffered(ctx(0), link(), 0, MON_10AM, 30));
 
 console.log(failures ? `\n${failures} check(s) failed` : "\nall booking-rule checks passed");
 process.exit(failures ? 1 : 0);

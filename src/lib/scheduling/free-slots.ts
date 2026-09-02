@@ -27,8 +27,65 @@ export interface FreeSlot {
  * correctly). */
 const START_GRID_MIN = 30;
 
+/** How long a calendar feed may go unsynced before the booking link stops
+ * trusting it.
+ *
+ * Sized to the sync cadence, not to taste: /api/cron/sync-calendars runs once a
+ * day (Vercel's plan allows one cron job, daily), so the data is routinely 23
+ * hours old in normal operation. 26 gives that a couple of hours of slack —
+ * tight enough to catch a feed that has actually stopped, loose enough that a
+ * healthy calendar never trips it. Shortening this without also making the sync
+ * run more often would pause the booking link most of every day. */
+export const FEED_STALE_HOURS = 26;
+
+/** Whether the stored calendar data is fresh enough to be worth trusting.
+ *
+ * The booking link is the one surface where being wrong costs someone else
+ * their time: a stranger picks a slot the owner is actually busy in, and both
+ * of them find out at the meeting. Every other view of bad data is merely
+ * confusing to the person who can already see it is wrong.
+ *
+ * So this fails SAFE. If a feed is erroring or has gone quiet, the link offers
+ * nothing rather than offering times it cannot vouch for. */
+export interface FeedHealth {
+  ok: boolean;
+  /** Owner-facing explanation; never shown to a visitor. */
+  reason: string | null;
+}
+
+async function assessFeeds(
+  admin: SupabaseClient<Database>,
+  userId: string,
+  now: Date,
+): Promise<FeedHealth> {
+  const { data: connections, error } = await admin
+    .from("calendar_connections")
+    .select("label,last_synced_at,last_sync_error")
+    .eq("user_id", userId);
+
+  // A failed lookup is not evidence of health. Treating an error as "all fine"
+  // is how a guardrail quietly stops guarding.
+  if (error) return { ok: false, reason: "could not check calendar sync status" };
+  if (!connections || connections.length === 0) return { ok: true, reason: null };
+
+  const broken = connections.filter((c) => c.last_sync_error);
+  if (broken.length > 0) {
+    return { ok: false, reason: `${broken.map((c) => c.label).join(", ")} failed to sync` };
+  }
+
+  const cutoff = now.getTime() - FEED_STALE_HOURS * 3600000;
+  const stale = connections.filter((c) => !c.last_synced_at || new Date(c.last_synced_at).getTime() < cutoff);
+  if (stale.length > 0) {
+    return { ok: false, reason: `${stale.map((c) => c.label).join(", ")} hasn't synced in over ${FEED_STALE_HOURS} hours` };
+  }
+
+  return { ok: true, reason: null };
+}
+
 export interface AvailabilityContext {
   busy: Set<AbsMinute>;
+  /** Whether the busy set above can be trusted at all. */
+  feeds: FeedHealth;
   timezone: string;
   weeklyHours: ReturnType<typeof buildScheduleInputs>["inputs"]["weeklyHours"];
   dayOverrides: ReturnType<typeof buildScheduleInputs>["inputs"]["dayOverrides"];
@@ -50,6 +107,7 @@ export async function buildAvailability(
   now: Date = new Date(),
 ): Promise<AvailabilityContext> {
   const rows = await queryScheduleRows(admin, link.user_id, now);
+  const feeds = await assessFeeds(admin, link.user_id, now);
   const { inputs } = buildScheduleInputs(rows, now);
   const schedule = computeSchedule(inputs, now);
   const blocking = new Set(link.blocking_category_ids);
@@ -93,6 +151,7 @@ export async function buildAvailability(
 
   return {
     busy,
+    feeds,
     timezone: inputs.timezone,
     weeklyHours: inputs.weeklyHours,
     dayOverrides: inputs.dayOverrides,
@@ -124,6 +183,9 @@ export function slotIsOffered(
   startMin: number,
   durationMin: number,
 ): boolean {
+  // First, because nothing below means anything if the busy set is stale: a
+  // "free" answer computed from a broken feed is exactly the wrong answer.
+  if (!ctx.feeds.ok) return false;
   const win = windowFor(ctx, link, gday);
   if (!win || startMin < win.start || startMin + durationMin > win.end) return false;
   // null = no maximum, which is not the same as a big number: a number is a
@@ -148,9 +210,17 @@ export async function computeFreeSlots(
   durationMin: number,
   weekIndex: number,
   now: Date = new Date(),
-): Promise<{ slots: FreeSlot[]; timezone: string }> {
+): Promise<{ slots: FreeSlot[]; timezone: string; unavailable: boolean }> {
   const ctx = await buildAvailability(admin, link, now);
   const slots: FreeSlot[] = [];
+
+  // Distinguished from "a full week" on purpose. An empty grid reads as "try a
+  // later week", which would send visitors hunting through a link that cannot
+  // answer them; the page says the link is paused instead.
+  if (!ctx.feeds.ok) {
+    console.warn(`[booking] slots withheld for link ${link.slug}: ${ctx.feeds.reason}`);
+    return { slots: [], timezone: ctx.timezone, unavailable: true };
+  }
 
   for (let gday = weekIndex * 7; gday < weekIndex * 7 + 7; gday += 1) {
     const win = windowFor(ctx, link, gday);
@@ -165,7 +235,7 @@ export async function computeFreeSlots(
     }
   }
 
-  return { slots, timezone: ctx.timezone };
+  return { slots, timezone: ctx.timezone, unavailable: false };
 }
 
 /** Authoritative re-validation for the booking POST: is this exact instant

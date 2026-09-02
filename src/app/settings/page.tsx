@@ -1433,6 +1433,14 @@ export default function SettingsPage() {
                         ? `Last synced ${new Date(c.last_synced_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })} · ${c.last_sync_event_count ?? 0} events`
                         : "Not synced yet"}
                   </div>
+                  {/* A timezone this feed didn't pin down. Outlook publishing
+                      its calendar as "Customized Time Zone" — a name no zone
+                      database knows — is what put every meeting here four hours
+                      early, and the reason it ran for weeks is that nothing
+                      said so. A guess now leaves a mark. */}
+                  {c.last_sync_tz_note ? (
+                    <div className="text-[10.5px] text-accent-text mt-0.5">⚠ {c.last_sync_tz_note} — worth checking these times against the calendar itself.</div>
+                  ) : null}
                 </div>
                 <select
                   value={c.all_day_mode}

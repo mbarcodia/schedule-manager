@@ -485,6 +485,7 @@ export interface Database {
           last_synced_at: string | null;
           last_sync_error: string | null;
           last_sync_event_count: number | null;
+          last_sync_tz_note: string | null;
           created_at: string;
         },
         {
@@ -498,6 +499,7 @@ export interface Database {
           last_synced_at?: string | null;
           last_sync_error?: string | null;
           last_sync_event_count?: number | null;
+          last_sync_tz_note?: string | null;
         },
         Partial<{
           label: string;
@@ -507,6 +509,7 @@ export interface Database {
           last_synced_at: string | null;
           last_sync_error: string | null;
           last_sync_event_count: number | null;
+          last_sync_tz_note: string | null;
         }>
       >;
       push_subscriptions: Table<

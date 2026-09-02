@@ -24,9 +24,14 @@ const localDates = (events, tz) =>
     ),
   );
 
-// A date-valued DTSTART/DTEND as node-ical yields it: UTC midnight, end exclusive.
-const start = new Date(Date.UTC(2026, 7, 3));
-const end = new Date(Date.UTC(2026, 7, 8));
+// A date-valued DTSTART/DTEND as a plain civil date, end exclusive. It used to
+// be passed as a UTC-midnight Date, on the belief that that was what node-ical
+// yielded — it is not. node-ical builds date-only values with the LOCAL Date
+// constructor, so the instant differs on every machine, and this test agreed
+// with the code only because both read the same wrong field. Civil dates carry
+// no instant to be wrong about; see dateOnlyParts in calendar-sync/ics.ts.
+const start = { year: 2026, month: 8, day: 3 };
+const end = { year: 2026, month: 8, day: 8 };
 
 for (const tz of ["America/New_York", "America/Los_Angeles", "UTC", "Australia/Sydney", "Asia/Kolkata"]) {
   const days = expandAllDayForTest("uid-1", "Conference", start, end, tz);
@@ -43,15 +48,15 @@ for (const tz of ["America/New_York", "America/Los_Angeles", "UTC", "Australia/S
 }
 
 // A single-day event stays one day.
-const one = expandAllDayForTest("uid-2", "Holiday", new Date(Date.UTC(2026, 7, 3)), new Date(Date.UTC(2026, 7, 4)), "America/New_York");
+const one = expandAllDayForTest("uid-2", "Holiday", { year: 2026, month: 8, day: 3 }, { year: 2026, month: 8, day: 4 }, "America/New_York");
 check("a one-day event yields one entry", localDates(one, "America/New_York"), ["2026-08-03"]);
 
 // A feed with end <= start must still produce the day rather than nothing.
-const malformed = expandAllDayForTest("uid-3", "Odd", new Date(Date.UTC(2026, 7, 3)), new Date(Date.UTC(2026, 7, 3)), "America/New_York");
+const malformed = expandAllDayForTest("uid-3", "Odd", { year: 2026, month: 8, day: 3 }, { year: 2026, month: 8, day: 3 }, "America/New_York");
 check("a malformed span still yields its day", localDates(malformed, "America/New_York"), ["2026-08-03"]);
 
 // Spanning a DST change: the clocks shift, the dates must not.
-const dst = expandAllDayForTest("uid-4", "Trip", new Date(Date.UTC(2026, 10, 1)), new Date(Date.UTC(2026, 10, 4)), "America/New_York");
+const dst = expandAllDayForTest("uid-4", "Trip", { year: 2026, month: 11, day: 1 }, { year: 2026, month: 11, day: 4 }, "America/New_York");
 check("a span across a DST change keeps its dates", localDates(dst, "America/New_York"), [
   "2026-11-01",
   "2026-11-02",

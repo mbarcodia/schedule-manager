@@ -43,3 +43,47 @@ on every request until the column exists.
 Destructive migrations need a `-- data-loss:` line saying what happens to the
 data. Say the true thing — `0003_weekly_hours.sql` really did reset people's
 custom hours, and the check records that rather than hiding it.
+
+# No time is ever read in the server's timezone
+
+This app's whole job is being right about when things happen, and it runs in
+three places at once — a browser in Miami, Vercel in UTC, a Fly relay in
+whatever region it landed in. Any code that resolves a time using the *process's*
+own timezone gives a different answer in each, and the one place it looks
+correct is the laptop it was written on. That is what makes this class of bug
+survive review: it is invisible from the only vantage point anyone uses.
+
+It has now happened five times. Two are recorded in the comments that survived
+them (all-day boundaries anchored to the process's midnight; `localDateKey`
+called on the server). The other three were live simultaneously in September
+2026, all in ICS parsing — TZID resolution, recurrence expansion, and reading
+back a date-only value — and every Outlook meeting sat four hours early for
+weeks while the public booking link offered those hours to strangers.
+`scripts/sanity-check-ics-timezones.mjs` tells that story in full.
+
+**The rule: a wall-clock time is meaningless until you say whose clock.** Every
+conversion needs an explicit IANA zone, and the only two legitimate sources are
+the data itself (a feed's TZID or VTIMEZONE) and `profiles.timezone`. Never
+`moment.tz.guess()`, never a bare `new Date(y, m, d)` or `new Date(y, m, d, h)`,
+never `getHours()`/`getFullYear()` on a value that came off the wire, never
+`toISOString().slice(0, 10)` for a civil-date column. `src/lib/scheduling/time.ts`
+has the helpers and spells out which to reach for where; `localDateKey` is right
+in the browser and wrong on the server, and it looks right in both.
+
+Two things do not count as being careful:
+
+- **A library handling it.** node-ical answers a TZID it cannot map with the
+  process's zone, under a comment admitting it cannot tell. rrule.js hands back
+  occurrences offset by the process's zone. Both were "using a well-tested
+  library" right up until they weren't. Read what it does with a zone it does
+  not recognise.
+- **A passing test.** These pass anywhere the accidental fallback happens to be
+  correct. A timezone test that does not run the same input under several
+  process timezones is not testing the thing that breaks — see the `PROBE_TZS`
+  pattern, which re-executes itself under five.
+
+`assertZonesArePinned` in `src/lib/calendar-sync/tzid.ts` is the shape to copy
+when a new feed or import path appears: prove the input can only be read one
+way, and throw if it cannot. A sync that fails is visible on the connection and
+fixable in a minute. Wrong times are silent, and they reach the booking link,
+where being wrong costs somebody else their afternoon.

@@ -1,7 +1,13 @@
-// Applies pending migrations, without the Keychain hang
+// Applies pending migrations, without the two silent hangs
 // (run: npm run migrate — this is the second half of it).
 //
-// THE HANG THIS EXISTS TO REMOVE
+// There are two ways this command produces no output forever, and they look
+// exactly alike from the terminal. The first is the Keychain prompt, described
+// below. The second is a network that filters Postgres ports, which
+// scripts/preflight-db-port.mjs checks for before the CLI is ever started —
+// its header explains that one.
+//
+// THE FIRST HANG: THE KEYCHAIN
 //
 // `supabase login` stores its access token in the macOS Keychain — there is no
 // token file on disk, only ~/.supabase/telemetry.json. Reading a Keychain item
@@ -26,6 +32,7 @@ import { spawnSync } from "node:child_process";
 import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { checkDatabasePort, explain } from "./preflight-db-port.mjs";
 
 const WEB_DIR = join(dirname(fileURLToPath(import.meta.url)), "..");
 const ENV_FILE = join(WEB_DIR, ".env.local");
@@ -68,6 +75,24 @@ if (token) {
       "",
     ].join("\n"),
   );
+}
+
+// Find out whether a Postgres connection can leave this machine at all, before
+// handing the CLI a wait it cannot report on. Only a dropped packet stops the
+// push; see the preflight's header for why the other verdicts do not.
+if (process.env.MIGRATE_SKIP_PREFLIGHT === "1") {
+  console.log("Skipping the connection preflight (MIGRATE_SKIP_PREFLIGHT=1).");
+} else {
+  const check = await checkDatabasePort();
+  if (check.verdict === "filtered" || check.verdict === "offline") {
+    console.error(explain(check));
+    console.error(
+      "Nothing was applied and nothing was deployed. To push anyway — if you have\n" +
+        "reason to think this check is wrong — re-run with MIGRATE_SKIP_PREFLIGHT=1.\n",
+    );
+    process.exit(1);
+  }
+  console.log(`Connection preflight: ${check.detail}`);
 }
 
 // --yes because a prompt is the other way this stalls unattended. The CLI grew

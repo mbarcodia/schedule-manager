@@ -602,6 +602,28 @@ Postgres password from when you created the project, not your app login):
 supabase db push --db-url "postgresql://postgres:[YOUR-PASSWORD]@[YOUR-HOST]:5432/postgres"
 ```
 
+#### If `npm run migrate` stops and says the port is blocked
+
+Some networks — university, corporate, a fair few hotels — block outbound
+Postgres. The migration cannot go over the same HTTPS connection the app uses,
+so `db push` has nothing to connect on, and because those networks *drop* the
+packets instead of refusing them there is no error either: left alone, the push
+hangs indefinitely with no output at all. `npm run migrate` checks for this
+before it starts and stops in a few seconds instead, naming what it tried.
+
+Either move to a network that allows port 5432 — a phone hotspot is the quick
+test — or apply the migration by hand:
+
+1. Open your project's dashboard → **SQL Editor** → new query.
+2. Paste the body of each pending file from `supabase/migrations/`, oldest
+   first, and run it.
+
+The CLI keeps no record of a migration applied that way, so the next
+`npm run migrate` from an unfiltered network will try those files again. That is
+harmless as long as re-running them is — migrations here are written with
+`add column if not exists` for exactly this reason — and worth a glance if you
+have written your own.
+
 **2. Redeploy the relay, if you use one.** Only relevant if you connected Claude
 through a Pro/Max subscription (see "Connecting Claude" above). The relay bundles its own copy
 of the app's data layer, so a schema change breaks it until it's rebuilt — while

@@ -14,8 +14,17 @@
 -- as. Null is the normal, silent case.
 --
 -- data-loss: none — new nullable column, no existing column touched.
+--
+-- `if not exists` because this one was applied by hand. The network it was
+-- written on drops outbound Postgres (5432 and 6543 both time out, while 443 to
+-- the same hosts is fine), so `db push` could not connect and the column went in
+-- through the dashboard's SQL editor instead. That leaves the CLI's history
+-- table with no row for 0048, so the next push from an unfiltered network will
+-- try to apply this file again. Re-running it has to be a no-op rather than an
+-- error, or that push fails on a column that is already there and every
+-- migration queued behind it stops too.
 alter table public.calendar_connections
-  add column last_sync_tz_note text;
+  add column if not exists last_sync_tz_note text;
 
 comment on column public.calendar_connections.last_sync_tz_note is
   'Human-readable note when the last sync had to guess a timezone, or when the feed contradicted itself. Null when every zone resolved cleanly. Surfaced in Settings.';

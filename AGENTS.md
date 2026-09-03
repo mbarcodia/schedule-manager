@@ -41,9 +41,33 @@ from `.env.local` so the CLI never reaches for the macOS Keychain. That reach is
 a GUI prompt: from a non-interactive shell there is nobody to answer it, so the
 push hangs silently and forever. It has stalled this project three times and
 caused one outage, because code that read a new column shipped while the hung
-push had never landed. If a push produces no output at all, that is what is
-happening — and a blank `SUPABASE_ACCESS_TOKEN` is why. Then deploy
-in this order, or the live app breaks rather than degrades: **migrate → `git push`
+push had never landed.
+
+A push hangs for a second reason with the identical symptom: a network that
+filters Postgres ports. Campus and corporate networks do — 5432 and 6543 have
+their packets *dropped* rather than refused, so there is no error to report and
+the CLI waits in connect() forever, while 443 to the same host opens instantly.
+`scripts/preflight-db-port.mjs` probes for this before the CLI starts and stops
+in about six seconds with the diagnosis and a link to the dashboard's SQL editor
+(`MIGRATE_SKIP_PREFLIGHT=1` overrides it, if you think it is wrong). When that is
+the situation, paste the pending files into the SQL editor by hand — and write
+every migration so that re-running it is harmless (`add column if not exists`),
+because the CLI keeps no record of a hand-applied migration and will try it again
+from the next unfiltered network. `0048_calendar_tz_note.sql` is the worked
+example, and its header says so.
+
+Both hangs cost the same thing, which is why they get the same treatment: not
+knowing whether the schema change landed. So the preflight only ever blocks on a
+verdict that *predicts* a hang — a dropped packet. A refused connection or a bad
+hostname goes straight through, because the CLI reports those in a second and a
+migration refused for no reason is its own kind of damage. Verdicts do not
+average out either: one dropped endpoint is enough, and the first version of that
+rule counted a DNS miss on the IPv6-only direct host as reassurance about the
+pooler, allowed the push, and hung for eleven minutes.
+`scripts/sanity-check-migrate-preflight.mjs` holds that case.
+
+Once the migration is applied, deploy in this order, or the live app breaks
+rather than degrades: **migrate → `git push`
 (Vercel) → `flyctl deploy --now` (the relay)**. Code that reads a new column 400s
 on every request until the column exists.
 

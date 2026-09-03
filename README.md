@@ -257,6 +257,12 @@ one, and make sure to swap in your actual database password), then run:
 supabase db push --db-url "postgresql://postgres:[YOUR-PASSWORD]@[YOUR-HOST]:5432/postgres"
 ```
 
+If that command sits there printing nothing, your network is probably blocking
+port 5432 — see "If `npm run migrate` stops and says the port is blocked" below,
+which is the same problem and has the way around it. After this first setup, use
+`npm run migrate` rather than the CLI directly: it takes a backup first and picks
+a route that works.
+
 This applies all migrations in order against your new, empty database — it
 creates every table (schedule, projects, notes, planner state, etc.), Row Level
 Security policies, and grants. It's safe to re-run; already-applied
@@ -602,27 +608,42 @@ Postgres password from when you created the project, not your app login):
 supabase db push --db-url "postgresql://postgres:[YOUR-PASSWORD]@[YOUR-HOST]:5432/postgres"
 ```
 
+Calling the CLI directly like that goes around `npm run migrate`, so it takes no
+backup and does not check whether this network can reach port 5432 — on one that
+cannot, it hangs with no output instead of failing. Prefer `npm run migrate` and
+let it pick the route.
+
 #### If `npm run migrate` stops and says the port is blocked
 
 Some networks — university, corporate, a fair few hotels — block outbound
-Postgres. The migration cannot go over the same HTTPS connection the app uses,
-so `db push` has nothing to connect on, and because those networks *drop* the
-packets instead of refusing them there is no error either: left alone, the push
-hangs indefinitely with no output at all. `npm run migrate` checks for this
-before it starts and stops in a few seconds instead, naming what it tried.
+Postgres. `supabase db push` speaks the Postgres wire protocol on port 5432, so
+on one of those it has nothing to connect on, and because such networks *drop*
+the packets rather than refusing them there is no error either: left alone, the
+push waits indefinitely with no output at all. `npm run migrate` checks for this
+before starting and takes a few seconds to say so, naming what it tried.
 
-Either move to a network that allows port 5432 — a phone hotspot is the quick
-test — or apply the migration by hand:
+Usually it then goes ahead anyway. If `SUPABASE_ACCESS_TOKEN` is set (see step
+4), `npm run migrate` applies the pending migrations over HTTPS instead, through
+Supabase's Management API — same token, same SQL, port 443, which these networks
+do allow. Each one is recorded in the migration history as it is applied, so the
+CLI knows it is done and will not replay it:
 
-1. Open your project's dashboard → **SQL Editor** → new query.
-2. Paste the body of each pending file from `supabase/migrations/`, oldest
-   first, and run it.
+```
+This network drops outbound Postgres connections, so `supabase db push`
+cannot connect — it would hang with no output rather than fail.
+Going over HTTPS instead, which this network allows.
+  applied and recorded  0049_example.sql
+```
 
-The CLI keeps no record of a migration applied that way, so the next
-`npm run migrate` from an unfiltered network will try those files again. That is
-harmless as long as re-running them is — migrations here are written with
-`add column if not exists` for exactly this reason — and worth a glance if you
-have written your own.
+Set `MIGRATE_NO_HTTPS=1` if you would rather it did not.
+
+Two kinds of statement cannot take that route, because Postgres will not run
+them inside a transaction: `create index concurrently` and `vacuum` are the ones
+you are likely to meet. Those are refused by name rather than half-applied, and
+want either the dashboard's **SQL Editor** or a network that allows port 5432.
+A migration applied by hand leaves no history row and will be replayed later,
+which is harmless here because migrations are written to survive a second run
+(`add column if not exists`) — worth a glance if you have written your own.
 
 **2. Redeploy the relay, if you use one.** Only relevant if you connected Claude
 through a Pro/Max subscription (see "Connecting Claude" above). The relay bundles its own copy

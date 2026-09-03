@@ -32,7 +32,8 @@ import { spawnSync } from "node:child_process";
 import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { checkDatabasePort, explain } from "./preflight-db-port.mjs";
+import { checkDatabasePort, explain, manualSteps, projectRef } from "./preflight-db-port.mjs";
+import { applyPendingOverHttps } from "./migrate-over-https.mjs";
 
 const WEB_DIR = join(dirname(fileURLToPath(import.meta.url)), "..");
 const ENV_FILE = join(WEB_DIR, ".env.local");
@@ -84,14 +85,68 @@ if (process.env.MIGRATE_SKIP_PREFLIGHT === "1") {
   console.log("Skipping the connection preflight (MIGRATE_SKIP_PREFLIGHT=1).");
 } else {
   const check = await checkDatabasePort();
-  if (check.verdict === "filtered" || check.verdict === "offline") {
+
+  if (check.verdict === "offline") {
     console.error(explain(check));
-    console.error(
-      "Nothing was applied and nothing was deployed. To push anyway — if you have\n" +
-        "reason to think this check is wrong — re-run with MIGRATE_SKIP_PREFLIGHT=1.\n",
-    );
+    console.error("Nothing was applied. Nothing was deployed.\n");
     process.exit(1);
   }
+
+  // Blocked ports are not the end of the road: the Management API runs SQL over
+  // 443, which this network does allow, and it is the same token the CLI uses.
+  // So say what is wrong, then go around it — and only send someone to the
+  // dashboard if that fails too.
+  if (check.verdict === "filtered") {
+    console.error(explain(check));
+
+    if (!token) {
+      console.error(
+        "The HTTPS route needs SUPABASE_ACCESS_TOKEN, which is not set — see the\n" +
+          "note above. Without it there is no way through from this network.",
+      );
+      console.error(manualSteps(check.ref));
+      process.exit(1);
+    }
+
+    if (process.env.MIGRATE_NO_HTTPS === "1") {
+      console.error("Not using the HTTPS route (MIGRATE_NO_HTTPS=1).");
+      console.error(manualSteps(check.ref));
+      process.exit(1);
+    }
+
+    console.error("Going over HTTPS instead, which this network allows.");
+    const outcome = await applyPendingOverHttps({
+      ref: check.ref ?? projectRef(),
+      token,
+      dir: join(WEB_DIR, "supabase/migrations"),
+    });
+
+    if (outcome.ok) {
+      if (outcome.upToDate) {
+        console.log("\nNothing pending — every migration is already applied and recorded.");
+      } else {
+        console.log(
+          `\n${outcome.applied.length} migration${outcome.applied.length === 1 ? "" : "s"} applied and ` +
+            "recorded in the migration history, so the CLI will not replay them.",
+        );
+        console.log("Now deploy: `git push` (Vercel), then `flyctl deploy --now` (the relay).");
+      }
+      process.exit(0);
+    }
+
+    console.error(`\nThe HTTPS route failed: ${outcome.error}`);
+    if (outcome.applied.length > 0) {
+      console.error(
+        `\nApplied before stopping: ${outcome.applied.join(", ")}. Each of those is\n` +
+          "recorded, so re-running picks up where this left off rather than repeating them.",
+      );
+    } else {
+      console.error("Nothing was applied.");
+    }
+    console.error(manualSteps(check.ref));
+    process.exit(1);
+  }
+
   console.log(`Connection preflight: ${check.detail}`);
 }
 

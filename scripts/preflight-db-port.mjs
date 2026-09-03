@@ -164,38 +164,22 @@ export async function checkDatabasePort() {
   return { ...decide(results, controlVerdict), results, ref, controlHost };
 }
 
-/** The message that turns a verdict into something to do next. */
-export function explain({ verdict, results = [], ref }) {
+/** What was found, in plain words. Says nothing about what to do — the caller
+ * knows whether a fallback is available, and a diagnosis that prescribes the
+ * wrong remedy is worse than one that just reports. */
+export function explain({ verdict, results = [] }) {
   const tried = results.map((r) => `  ${r.host}:${r.port} (${r.label}) — ${r.verdict}`).join("\n");
-  const sqlEditor = ref
-    ? `https://supabase.com/dashboard/project/${ref}/sql/new`
-    : "your project's dashboard → SQL Editor";
 
   if (verdict === "filtered") {
     return [
       "",
       "This network drops outbound Postgres connections, so `supabase db push`",
-      "cannot connect. It would not fail — it would hang, with no output, for as",
-      "long as you left it. Stopping here instead.",
+      "cannot connect — it would hang with no output rather than fail.",
       "",
       tried,
       "",
       "Port 443 to the same host is open, so this is a firewall on the database",
       "ports specifically. Campus, corporate and some hotel networks do this.",
-      "",
-      "Two ways on:",
-      "",
-      "  1. A network that allows port 5432 — a phone hotspot is the quick test —",
-      "     then run `npm run migrate` again. Nothing else changes.",
-      "",
-      `  2. Apply the SQL by hand at ${sqlEditor}`,
-      "     Paste the body of each pending file from supabase/migrations/ and run",
-      "     it. Write migrations so re-running is harmless (`add column if not",
-      "     exists`), because the CLI will not know these were applied and will",
-      "     try again from the next unfiltered network.",
-      "",
-      "The backup already ran, so `backups/` holds a snapshot from just now",
-      "either way.",
       "",
     ].join("\n");
   }
@@ -213,4 +197,28 @@ export function explain({ verdict, results = [], ref }) {
   }
 
   return "";
+}
+
+/** The by-hand route, for when no automatic fallback is available or it failed. */
+export function manualSteps(ref) {
+  const sqlEditor = ref
+    ? `https://supabase.com/dashboard/project/${ref}/sql/new`
+    : "your project's dashboard → SQL Editor";
+  return [
+    "",
+    "Two ways on:",
+    "",
+    "  1. A network that allows port 5432 — a phone hotspot is the quick test —",
+    "     then run `npm run migrate` again.",
+    "",
+    `  2. Apply the SQL by hand at ${sqlEditor}`,
+    "     Paste the body of each pending file from supabase/migrations/, oldest",
+    "     first, and run it. The CLI keeps no record of a migration applied that",
+    "     way, so it will be replayed later — which is why every migration here",
+    "     is written to be harmless on a second run.",
+    "",
+    "The backup already ran, so `backups/` holds a snapshot from just now either",
+    "way.",
+    "",
+  ].join("\n");
 }

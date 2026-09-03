@@ -47,14 +47,27 @@ A push hangs for a second reason with the identical symptom: a network that
 filters Postgres ports. Campus and corporate networks do — 5432 and 6543 have
 their packets *dropped* rather than refused, so there is no error to report and
 the CLI waits in connect() forever, while 443 to the same host opens instantly.
-`scripts/preflight-db-port.mjs` probes for this before the CLI starts and stops
-in about six seconds with the diagnosis and a link to the dashboard's SQL editor
-(`MIGRATE_SKIP_PREFLIGHT=1` overrides it, if you think it is wrong). When that is
-the situation, paste the pending files into the SQL editor by hand — and write
-every migration so that re-running it is harmless (`add column if not exists`),
-because the CLI keeps no record of a hand-applied migration and will try it again
-from the next unfiltered network. `0048_calendar_tz_note.sql` is the worked
-example, and its header says so.
+`scripts/preflight-db-port.mjs` probes for this before the CLI starts, in about
+six seconds (`MIGRATE_SKIP_PREFLIGHT=1` overrides it).
+
+It does not stop there: `scripts/migrate-over-https.mjs` then applies the pending
+migrations through Supabase's Management API, which runs SQL over 443 using the
+same `SUPABASE_ACCESS_TOKEN`. Each file goes in one request, so Postgres runs it
+in a single implicit transaction, and the history row is written in that same
+request — a migration cannot apply without being recorded, which is the drift
+that made 0048 need repairing by hand. Files containing statements Postgres will
+not run in a transaction (`create index concurrently`, `vacuum`) are refused
+rather than half-applied, and go through the dashboard instead.
+`MIGRATE_NO_HTTPS=1` turns the fallback off; the CLI is still the normal path
+whenever the ports are open.
+
+Write every migration so re-running it is harmless (`add column if not exists`),
+and `scripts/sanity-check-migration-rerunnable.mjs` will hold you to it from 0048
+on — 0001–0047 are grandfathered because their history rows are recorded and
+verified, so they can never replay. A file that truly cannot be written that way
+declares it with a `-- rerunnable:` line, in the same spirit as `-- data-loss:`.
+This matters because a migration applied by hand leaves no history row and gets
+replayed later.
 
 Both hangs cost the same thing, which is why they get the same treatment: not
 knowing whether the schema change landed. So the preflight only ever blocks on a

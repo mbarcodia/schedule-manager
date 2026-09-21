@@ -13,6 +13,9 @@ export type SplitMode = "free" | "one_day" | "one_block";
 /** Whether a date is externally imposed or self-set. Scheduling treats them
  * identically; the consequence of missing one differs. */
 export type DateKind = "hard" | "goal";
+/** projects.commitment_kind — pre-award vs. active funded work. Null = not
+ * classified, or not applicable. See migration 0051. */
+export type CommitmentKind = "project" | "proposal";
 /** Where in the day a label's work belongs (categories.time_pref). The pair of
  * directions times the pair of strictnesses the engine can enforce: "*_only"
  * refuses the other half of the day outright, "prefer_*" tries it first and
@@ -179,6 +182,8 @@ export interface Database {
           deadline_kind: DateKind;
           archived_at: string | null;
           on_hold_at: string | null;
+          commitment_kind: CommitmentKind | null;
+          awarded_at: string | null;
           created_at: string;
         },
         {
@@ -200,6 +205,8 @@ export interface Database {
           deadline_kind?: DateKind;
           archived_at?: string | null;
           on_hold_at?: string | null;
+          commitment_kind?: CommitmentKind | null;
+          awarded_at?: string | null;
         },
         Partial<{
           title: string;
@@ -218,6 +225,8 @@ export interface Database {
           deadline_kind: DateKind;
           archived_at: string | null;
           on_hold_at: string | null;
+          commitment_kind: CommitmentKind | null;
+          awarded_at: string | null;
         }>
       >;
       /** A dated checkpoint inside a project that consumes no hours. */

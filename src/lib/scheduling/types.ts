@@ -191,6 +191,14 @@ export interface Project {
    * only the weeks after it are time off. Without the date, consistency either
    * blanks the entire run or marks the paused weeks as failures. */
   onHoldAt?: Date | null;
+  /** 'proposal' = pre-award writing/submission work with a submission deadline
+   * that ends it; 'project' = active funded work. Null = not classified, or
+   * not applicable (a non-research commitment) — never guessed, only set by
+   * the user (migration 0051). Purely descriptive: doesn't change scheduling. */
+  commitmentKind?: "project" | "proposal" | null;
+  /** When a proposal converted to a project (commitmentKind flipped). Null
+   * until that happens, or if it was never a proposal. */
+  awardedAt?: Date | null;
 }
 
 /** A date inside a project that consumes no calendar time. Deliberately

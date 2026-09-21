@@ -8,6 +8,7 @@ import { createClient } from "@/lib/supabase/client";
 import type {
   AllDayMode,
   CalendarProvider,
+  CommitmentKind,
   Database,
   LabelTimePref,
   PlannerCredentialProvider,
@@ -32,6 +33,9 @@ import {
 
 type CategoryRow = Database["public"]["Tables"]["categories"]["Row"];
 type ConnectionRow = Database["public"]["Tables"]["calendar_connections"]["Row"];
+/** A commitment with no commitment_kind set yet (migration 0051) — never
+ * guessed by the migration, so this is where a person sorts them out. */
+type UnclassifiedCommitment = { id: string; title: string };
 
 const DAY_LABELS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
@@ -215,6 +219,7 @@ const SECTION_GROUPS: { group: string; items: { id: string; label: string }[] }[
       { id: "rules", label: "Standing rules" },
       { id: "grace-window", label: "Un-ticked blocks" },
       { id: "categories", label: "Labels" },
+      { id: "commitment-kind", label: "Proposals vs. projects" },
       { id: "calendar-view", label: "Calendar view" },
     ],
   },
@@ -275,6 +280,7 @@ export default function SettingsPage() {
   const [credMode, setCredMode] = useState<PlannerCredentialProvider>("api_key");
   const [plannerCredBusy, setPlannerCredBusy] = useState(false);
   const [plannerCredError, setPlannerCredError] = useState<string | null>(null);
+  const [unclassified, setUnclassified] = useState<UnclassifiedCommitment[]>([]);
 
   useEffect(() => {
     let ignore = false;
@@ -284,7 +290,7 @@ export default function SettingsPage() {
         data: { user },
       } = await supabase.auth.getUser();
       if (!user) return;
-      const [{ data }, { data: cats }, { data: rules }, { data: conns }, pushOn] = await Promise.all([
+      const [{ data }, { data: cats }, { data: rules }, { data: conns }, pushOn, { data: unclass }] = await Promise.all([
         supabase
           .from("profiles")
           .select(
@@ -296,6 +302,13 @@ export default function SettingsPage() {
         supabase.from("recurring_rules").select("days,length_min"),
         supabase.from("calendar_connections").select("*").order("created_at"),
         getPushSubscriptionStatus(),
+        supabase
+          .from("projects")
+          .select("id,title")
+          .eq("user_id", user.id)
+          .is("archived_at", null)
+          .is("commitment_kind", null)
+          .order("title"),
       ]);
       if (ignore) return;
       if (data) {
@@ -318,6 +331,7 @@ export default function SettingsPage() {
       setRoutineShapes((rules ?? []).map((r) => ({ days: r.days, length: r.length_min })));
       setConnections(conns ?? []);
       setPushEnabled(pushOn);
+      setUnclassified(unclass ?? []);
       setLoading(false);
     }
     void load();
@@ -519,6 +533,18 @@ export default function SettingsPage() {
     }
     setCategories((prev) => prev.filter((c) => c.id !== id));
     await save("Couldn't delete that label", supabase.from("categories").delete().eq("id", id));
+  }
+
+  /** Never guessed by the migration that added commitment_kind (0051) — this
+   * is the one-time pass where a person actually says which of their
+   * commitments are pre-award proposals and which are funded projects. */
+  async function classifyCommitment(id: string, kind: CommitmentKind) {
+    setUnclassified((prev) => prev.filter((c) => c.id !== id));
+    const supabase = createClient();
+    await save(
+      "Couldn't classify that commitment",
+      supabase.from("projects").update({ commitment_kind: kind }).eq("id", id),
+    );
   }
 
   async function saveGraceHours(hours: number) {
@@ -1232,13 +1258,15 @@ export default function SettingsPage() {
               first and takes the other rather than leaving the work unbooked.
             </div>
             <div>
-              <span className="text-text font-medium">% of week</span> — optional. The share of each week this label
-              should get. The weekly hours on the commitments wearing it then act as a{" "}
-              <span className="text-text">ratio</span> between them rather than a total you keep in sync by hand.
+              <span className="text-text font-medium">% of week</span> — optional, and purely a{" "}
+              <span className="text-text">benchmark</span>. It doesn&apos;t change what gets scheduled — each
+              commitment always books exactly the weekly hours you set on it. Instead it&apos;s what the weekly review
+              compares your actual logged hours against, so you can see whether the split came out the way you meant
+              it to and adjust the figure for next time.
             </div>
             <div>
-              <span className="text-text font-medium">Of what</span> — which week that percentage is a share of, and
-              the two readings behave very differently in a busy week.{" "}
+              <span className="text-text font-medium">Of what</span> — which week that percentage is a share of, for
+              the purpose of that comparison, and the two readings behave very differently in a busy week.{" "}
               <span className="text-text">Of the whole week</span> means your working hours with the meetings still in
               them: 40% of a 40-hour week is 16 hours no matter what else is on it, and a week too full to hold that
               says so instead of moving the goal. Days off and away days do come out — block off a day and the week is
@@ -1249,7 +1277,7 @@ export default function SettingsPage() {
             <div className="text-muted-2">
               Routines are never subtracted from either — some of them are the work. Give a routine this label instead
               (in <a href="#routines" className="text-accent-text hover:underline">Routines</a>) and its minutes count
-              toward the share, so the commitments are asked for the rest.
+              toward the label&apos;s actual hours in the weekly review, alongside its commitments&apos;.
             </div>
             <div className="text-muted-2">
               Anything you set on one task or one commitment wins over its label — a label says where this kind of
@@ -1393,6 +1421,40 @@ export default function SettingsPage() {
             </div>
           )}
         </div>
+
+        {/* Only present while something needs it — a temporary sorting pass,
+           not a permanent field to keep filled in. Every unarchived commitment
+           with no commitment_kind (migration 0051) shows here once; classify
+           it or leave it, and it stops appearing the moment it has a kind. */}
+        {unclassified.length > 0 && (
+          <div className="mt-8 pt-5 border-t border-border">
+            <h2 id="commitment-kind" className="text-base font-medium mb-1 scroll-mt-4">Proposals vs. projects</h2>
+            <p className="text-xs text-muted mb-3">
+              Only meaningful for research: a <span className="text-text">proposal</span> is pre-award
+              writing/submission work; a <span className="text-text">project</span> is active funded work. Sort what
+              applies — anything else (teaching, service, a commitment that&apos;s neither) is fine left alone.
+            </p>
+            <div className="flex flex-col gap-1.5">
+              {unclassified.map((c) => (
+                <div key={c.id} className="flex items-center gap-2.5 rounded-md border border-border bg-panel px-3 py-2">
+                  <div className="flex-1 min-w-0 text-sm text-text truncate">{c.title}</div>
+                  <button
+                    onClick={() => void classifyCommitment(c.id, "proposal")}
+                    className="rounded-md border border-border px-2 py-1 text-[11px] text-muted hover:text-text hover:border-accent"
+                  >
+                    Proposal
+                  </button>
+                  <button
+                    onClick={() => void classifyCommitment(c.id, "project")}
+                    className="rounded-md border border-border px-2 py-1 text-[11px] text-muted hover:text-text hover:border-accent"
+                  >
+                    Project
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="mt-8 pt-5 border-t border-border">
           <div className="flex items-center justify-between gap-2 mb-1">

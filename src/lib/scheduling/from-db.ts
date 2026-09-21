@@ -212,6 +212,8 @@ export function buildScheduleInputs(
     effortEstimateMin: p.effort_estimate_min,
     important: p.important,
     deadlineKind: p.deadline_kind,
+    commitmentKind: p.commitment_kind,
+    awardedAt: p.awarded_at ? new Date(p.awarded_at) : null,
   }));
 
   const targets: Target[] = toTargets(rows.targets);

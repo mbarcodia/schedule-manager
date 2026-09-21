@@ -7,7 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 import { PlusIcon } from "@phosphor-icons/react";
 import { KanbanCard, type TaskRow } from "./KanbanCard";
 import { fetchTodoLinks, type TodoLink } from "@/lib/planner/todo-links";
-import { setTaskImportant, setCommitmentImportant, setTaskArchived } from "@/lib/planner/board-actions";
+import { setTaskImportant, setCommitmentImportant, setTaskArchived, markCommitmentAwarded } from "@/lib/planner/board-actions";
 import { quadrantFor, commitmentQuadrant, type Quadrant } from "@/lib/planner/eisenhower";
 import { paceFromData, type CommitmentPace } from "@/lib/scheduling/pace";
 import { computeStreaks, type CommitmentStreak } from "@/lib/scheduling/streaks";
@@ -40,6 +40,7 @@ export function EisenhowerBoard({ scheduleData, onMutated }: EisenhowerBoardProp
   const { data, refresh } = scheduleData;
   const [openCommitment, setOpenCommitment] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [kindFilter, setKindFilter] = useState<"all" | "project" | "proposal">("all");
 
   const grouped = useMemo(() => {
     const groups: Record<Quadrant, TaskRow[]> = { do: [], schedule: [], delegate: [], eliminate: [] };
@@ -143,6 +144,17 @@ export function EisenhowerBoard({ scheduleData, onMutated }: EisenhowerBoardProp
     onMutated?.();
   }
 
+  async function handleMarkAwarded(projectId: string) {
+    const message = await markCommitmentAwarded(projectId);
+    if (message) return setNotice(`Couldn't mark that awarded: ${message}`);
+    await refresh();
+    onMutated?.();
+  }
+
+  /** Pre-award proposal vs. active funded project (migration 0051). */
+  const commitmentKind = (projectId: string): "project" | "proposal" | null =>
+    data?.projects.find((x) => x.id === projectId)?.commitmentKind ?? null;
+
   return (
     <div className="flex-1 min-h-0 overflow-y-auto p-3">
       {/* A star or an archive that didn't take. Same strip the Progress board
@@ -167,6 +179,26 @@ export function EisenhowerBoard({ scheduleData, onMutated }: EisenhowerBoardProp
           <PlusIcon size={11} /> new commitment
         </button>
       </div>
+      {/* Only worth showing once some commitments actually carry a kind —
+         otherwise it's a filter over a distinction nobody has made yet. */}
+      {(data?.projects ?? []).some((p) => p.commitmentKind) && (
+        <div className="flex items-center gap-1 px-1 pb-2">
+          {(["all", "project", "proposal"] as const).map((k) => (
+            <button
+              key={k}
+              onClick={() => setKindFilter(k)}
+              className="rounded-full px-2 py-0.5 text-[10px] capitalize"
+              style={
+                kindFilter === k
+                  ? { background: "rgba(145,132,217,0.18)", color: "var(--color-accent-text)" }
+                  : { color: "var(--color-muted-2)" }
+              }
+            >
+              {k === "all" ? "All" : `${k}s`}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-3" style={{ minHeight: "70%" }}>
         {QUADRANTS.map((q) => (
           <div key={q.id} className="rounded-lg border border-border bg-panel flex flex-col min-h-[160px]">
@@ -175,7 +207,9 @@ export function EisenhowerBoard({ scheduleData, onMutated }: EisenhowerBoardProp
               <span className="text-[9px] text-muted-2">{q.hint}</span>
             </div>
             <div className="flex-1 p-2 flex flex-col gap-1.5">
-              {commitments[q.id].map((p) => (
+              {commitments[q.id]
+                .filter((p) => kindFilter === "all" || commitmentKind(p.projectId) === kindFilter)
+                .map((p) => (
                 <CommitmentCard
                   key={p.projectId}
                   pace={p}
@@ -186,8 +220,10 @@ export function EisenhowerBoard({ scheduleData, onMutated }: EisenhowerBoardProp
                     return labelId ? (categoriesById[labelId]?.color ?? null) : null;
                   })()}
                   targetCount={data.targets.filter((t) => t.projectId === p.projectId).length}
+                  kind={commitmentKind(p.projectId)}
                   onToggleImportant={() => void handleToggleCommitmentImportant(p.projectId, !p.important)}
                   onOpen={() => setOpenCommitment(p.projectId)}
+                  onMarkAwarded={() => void handleMarkAwarded(p.projectId)}
                 >
                   {data.rawTasks
                     .filter((t) => t.project_id === p.projectId)

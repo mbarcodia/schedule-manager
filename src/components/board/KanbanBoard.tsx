@@ -14,6 +14,7 @@ import {
   setTaskImportant,
   setCommitmentImportant,
   setTaskArchived,
+  markCommitmentAwarded,
   type DroppableColumn,
 } from "@/lib/planner/board-actions";
 import { CommitmentCard } from "./CommitmentCard";
@@ -188,6 +189,13 @@ export function KanbanBoard({ scheduleData, onMutated, focusTask, focusCommitmen
     return labelId ? (categoriesById[labelId]?.color ?? null) : null;
   };
 
+  /** Pre-award proposal vs. active funded project (migration 0051). Same
+   * closure-order caveat as commitmentColor above. */
+  const commitmentKind = (projectId: string): "project" | "proposal" | null =>
+    data?.projects.find((p) => p.id === projectId)?.commitmentKind ?? null;
+
+  const [kindFilter, setKindFilter] = useState<"all" | "project" | "proposal">("all");
+
   if (!data || !schedule) {
     return <div className="px-5 py-4 text-[12px] text-muted">Loading…</div>;
   }
@@ -233,6 +241,13 @@ export function KanbanBoard({ scheduleData, onMutated, focusTask, focusCommitmen
     onMutated?.();
   }
 
+  async function handleMarkAwarded(projectId: string) {
+    const message = await markCommitmentAwarded(projectId);
+    if (message) return setNotice(`Couldn't mark that awarded: ${message}`);
+    await refresh();
+    onMutated?.();
+  }
+
   async function handleHoldUntilNextWeek(taskId: string) {
     setJustBacklogged(null);
     const error = await holdUntilNextWeek(taskId);
@@ -272,9 +287,31 @@ export function KanbanBoard({ scheduleData, onMutated, focusTask, focusCommitmen
           <PlusIcon size={11} /> new commitment
         </button>
       </div>
+      {/* Only worth showing once some commitments actually carry a kind —
+         otherwise it's a filter over a distinction nobody has made yet. */}
+      {data.projects.some((p) => p.commitmentKind) && (
+        <div className="flex-none flex items-center gap-1 px-3 py-1 border-b border-border">
+          {(["all", "project", "proposal"] as const).map((k) => (
+            <button
+              key={k}
+              onClick={() => setKindFilter(k)}
+              className="rounded-full px-2 py-0.5 text-[10px] capitalize"
+              style={
+                kindFilter === k
+                  ? { background: "rgba(145,132,217,0.18)", color: "var(--color-accent-text)" }
+                  : { color: "var(--color-muted-2)" }
+              }
+            >
+              {k === "all" ? "All" : `${k}s`}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="flex-none flex min-h-0 max-h-[46%] overflow-y-auto divide-x divide-border border-b border-border">
         {PACE_COLUMNS.map(({ status, title, subtitle }) => {
-          const here = pace.filter((p) => paceColumn(p) === status);
+          const here = pace
+            .filter((p) => paceColumn(p) === status)
+            .filter((p) => kindFilter === "all" || commitmentKind(p.projectId) === kindFilter);
           return (
             <KanbanColumn
               key={status}
@@ -293,8 +330,10 @@ export function KanbanBoard({ scheduleData, onMutated, focusTask, focusCommitmen
                   color={commitmentColor(p.projectId)}
                   targetCount={data.targets.filter((t) => t.projectId === p.projectId).length}
                   whyNot={whyNot.byProject.get(p.projectId) ?? null}
+                  kind={commitmentKind(p.projectId)}
                   onToggleImportant={() => void handleToggleCommitmentImportant(p.projectId, !p.important)}
                   onOpen={() => setOpenCommitment(p.projectId)}
+                  onMarkAwarded={() => void handleMarkAwarded(p.projectId)}
                 >
                   {data.rawTasks
                     .filter((t) => t.project_id === p.projectId)

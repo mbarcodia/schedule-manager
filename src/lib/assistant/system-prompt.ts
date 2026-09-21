@@ -266,6 +266,11 @@ export function buildPromptContext(
     projects: rows.projects.map((p) => ({
       title: p.title,
       important: p.important || undefined,
+      // Only meaningful for research, and only reported when set — a
+      // non-research commitment or an unclassified one carries no opinion.
+      // "proposal" is the cue to offer mark_project_awarded once the user
+      // says it was funded; never flip it unasked.
+      kind: p.commitment_kind ?? undefined,
       // Reported as a state, not as absent hours. Without this the model reads a
       // paused commitment as one somebody forgot to configure and offers to fix
       // it — which is precisely what the user asked it to stop doing.

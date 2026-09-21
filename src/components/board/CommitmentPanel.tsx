@@ -24,6 +24,7 @@ import {
   addTarget,
   createCommitment,
   deleteTarget,
+  markCommitmentAwarded,
   saveCommitmentFields,
   saveTarget,
   setCommitmentArchived,
@@ -89,6 +90,7 @@ export function CommitmentPanel({
   const [activeFrom, setActiveFrom] = useState(dateValue(project?.activeFrom));
   const [activeUntil, setActiveUntil] = useState(dateValue(project?.activeUntil));
   const [categoryId, setCategoryId] = useState(project?.categoryId ?? "");
+  const [commitmentKind, setCommitmentKind] = useState<"" | "project" | "proposal">(project?.commitmentKind ?? "");
   const [hoursTimeOfDay, setHoursTimeOfDay] = useState<"" | "morning" | "afternoon">(project?.timeOfDay ?? "");
   const [important, setImportant] = useState(!!project?.important);
   const [drafts, setDrafts] = useState<Draft[]>(() =>
@@ -144,6 +146,22 @@ export function CommitmentPanel({
     await onSaved();
   }
 
+  /** Flips a proposal to a project immediately, independent of Save — same
+   * in-place update as CommitmentCard's own button, so notes and logged hours
+   * carry forward untouched. */
+  async function markAwarded() {
+    setBusy(true);
+    setError(null);
+    const message = await markCommitmentAwarded(project!.id);
+    setBusy(false);
+    if (message) {
+      setError(`Couldn't mark that awarded: ${message}`);
+      return;
+    }
+    setCommitmentKind("project");
+    await onSaved();
+  }
+
   async function save() {
     setBusy(true);
     setError(null);
@@ -179,6 +197,7 @@ export function CommitmentPanel({
       activeUntil: activeUntil || null,
       categoryId: categoryId || null,
       hoursTimeOfDay: hoursTimeOfDay || null,
+      commitmentKind: commitmentKind || null,
     });
     if (commitmentError) return fail(`Couldn't save the commitment: ${commitmentError}`);
 
@@ -319,6 +338,36 @@ export function CommitmentPanel({
               : weeklyText.trim()
                 ? "A label is required once weekly hours are set — those hours need somewhere to be logged."
                 : "Unlabelled is fine with no weekly hours set — nothing here books time on its own."}
+          </div>
+
+          <div className="flex items-center gap-1.5 pt-1">
+            <select
+              value={commitmentKind}
+              onChange={(e) => setCommitmentKind(e.target.value as "" | "project" | "proposal")}
+              className={field}
+            >
+              <option value="">not classified</option>
+              <option value="proposal">proposal</option>
+              <option value="project">project</option>
+            </select>
+            <span className="text-[11px] text-muted">kind</span>
+            {project && commitmentKind === "proposal" && (
+              <button
+                type="button"
+                onClick={() => void markAwarded()}
+                disabled={busy}
+                className="text-[10.5px] text-accent-text hover:underline disabled:opacity-50"
+              >
+                mark awarded ▸
+              </button>
+            )}
+          </div>
+          <div className={hint}>
+            {commitmentKind === "proposal"
+              ? "Pre-award — writing or submitted, not yet funded. Only applies to research."
+              : commitmentKind === "project"
+                ? "Active, funded work."
+                : "Only meaningful for research — leave unclassified for teaching, service, and everything else."}
           </div>
 
           <div className="flex items-center gap-1.5 pt-1">

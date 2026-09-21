@@ -110,6 +110,18 @@ export async function setCommitmentImportant(projectId: string, important: boole
   return error?.message ?? null;
 }
 
+/** Flips a proposal to a project IN PLACE — never delete+recreate, so its
+ * notes, logged hours and targets (all FK'd to this same row) carry forward
+ * untouched. Mirrors mark_project_awarded, the chat equivalent. */
+export async function markCommitmentAwarded(projectId: string): Promise<string | null> {
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("projects")
+    .update({ commitment_kind: "project", awarded_at: new Date().toISOString() })
+    .eq("id", projectId);
+  return error?.message ?? null;
+}
+
 export async function setTaskArchived(taskId: string, archived: boolean): Promise<string | null> {
   const supabase = createClient();
   const { error } = await supabase
@@ -165,6 +177,11 @@ export interface CommitmentFields {
    * large weekly minimum unschedulable — one morning holds only so much — which
    * is why the panel says so next to the control. */
   hoursTimeOfDay: "morning" | "afternoon" | null;
+  /** Pre-award proposal vs. active funded project (migration 0051). Null = not
+   * classified, or not applicable. Set here on create/edit; flipped
+   * proposal->project specifically through markCommitmentAwarded instead, so
+   * that transition always stamps awardedAt alongside it. */
+  commitmentKind: "project" | "proposal" | null;
 }
 
 export async function saveCommitmentFields(projectId: string, fields: CommitmentFields): Promise<string | null> {
@@ -182,6 +199,7 @@ export async function saveCommitmentFields(projectId: string, fields: Commitment
       active_until: fields.activeUntil,
       category_id: fields.categoryId,
       time_of_day: fields.hoursTimeOfDay,
+      commitment_kind: fields.commitmentKind,
     })
     .eq("id", projectId);
   return error?.message ?? null;

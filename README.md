@@ -79,10 +79,11 @@ Everything below is built and working — this is the whole feature set, not a r
 - Routines can hold a set time, a window, the **start or end of the day**
   (moving with your hours, with nothing scheduled past them), or anywhere that
   day
-- A label can claim a **share of each week** — measured against the whole week,
-  or against what's left after meetings. The weekly hours on the projects
-  wearing it then act as a ratio between them rather than a total you keep in
-  sync by hand
+- A label can carry a **weekly benchmark** — a target share of the week,
+  measured against the whole week or against what's left after meetings.
+  Purely descriptive: it doesn't change what gets scheduled (each project
+  always books its own declared weekly hours), it's what the weekly review
+  compares your actual logged hours against
 - **What the week keeps back**: tell it how much of a typical week goes to
   meetings and miscellany, and "can I take this on?" is answered against the
   hours you really have. Advisory — the scheduler still fills the week, but pace

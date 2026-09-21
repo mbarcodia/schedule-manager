@@ -886,6 +886,12 @@ export function buildTools(ctx: ToolContext) {
           description:
             "name of the label for this project's weekly-hours blocks. REQUIRED the moment weekly_research_hrs is set (on this call or already on the project) — those hours generate real calendar blocks and log real hours against a label, the same as a task. Ask which label rather than guessing if the user hasn't said.",
         },
+        kind: {
+          type: "string",
+          enum: ["project", "proposal"],
+          description:
+            'Only meaningful for RESEARCH. "proposal" = pre-award writing/submission work with a submission deadline that ends it; "project" = active funded work. Ask which it is rather than assuming — do not guess from the title. Omit for anything that is not research (teaching, service, etc), and omit if you genuinely don\'t know; leaving it unset is fine. To move a proposal to a project because it was AWARDED/FUNDED, use mark_project_awarded instead — it also records when that happened.',
+        },
         on_hold: {
           type: "boolean",
           description:
@@ -940,6 +946,7 @@ export function buildTools(ctx: ToolContext) {
       if (inp.important != null) patch.important = inp.important;
       if (inp.on_hold != null) patch.on_hold_at = inp.on_hold ? new Date().toISOString() : null;
       if (categoryId) patch.category_id = categoryId;
+      if (inp.kind) patch.commitment_kind = inp.kind;
       // "any" erases the hard restriction. Previously only "morning" and
       // "afternoon" existed and an omitted field meant "leave it", so a project
       // locked to mornings could never be unlocked: the tool accepted the
@@ -979,6 +986,7 @@ export function buildTools(ctx: ToolContext) {
         inp.important === true ? "important" : inp.important === false ? "not important" : null,
         inp.on_hold === true ? "ON HOLD — nothing scheduled for it, its weekly hours kept for when it resumes" : null,
         inp.on_hold === false ? "off hold — its hours are being scheduled again" : null,
+        inp.kind ? inp.kind : null,
       ].filter(Boolean);
       const summary = facets.length ? ` — ${facets.join(", ")}.${dateNote}` : `.${dateNote}`;
 
@@ -1056,6 +1064,7 @@ export function buildTools(ctx: ToolContext) {
           chunk_min: 120,
           research_ord: 5,
           category_id: categoryId,
+          commitment_kind: inp.kind ?? null,
         })
         .select("id")
         .single();
@@ -1063,6 +1072,67 @@ export function buildTools(ctx: ToolContext) {
       markMutated(ctx);
       console.log(`[assistant] add_trackable insert: project id=${inserted?.id} title=${JSON.stringify(inp.title)}`);
       return `Project "${inp.title}" added${summary}`;
+    },
+  });
+
+  const mark_project_awarded = betaTool({
+    name: "mark_project_awarded",
+    description:
+      'Flip a research PROPOSAL to an active funded PROJECT because it was awarded/funded — an explicit user action, never inferred. Updates the row in place (not delete+recreate), so its notes and logged hours carry forward untouched, and records when the award happened. Optionally sets the new project-shaped facets (weekly hours, deadline) in the same call, since a proposal\'s submission deadline no longer applies once it is a project. Refuses if the commitment is not currently a proposal.',
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "fuzzy title of the proposal" },
+        weekly_research_hrs: { type: "number", description: "hours per week the engine must now find and defend for it, now that it's funded work" },
+        due: { type: "string", description: 'new deadline for the project phase, natural language, e.g. "december 31". The old submission deadline rarely still applies — ask rather than carrying it over silently.' },
+        deadline_kind: {
+          type: "string",
+          enum: ["hard", "goal"],
+          description: 'whether `due` is externally imposed ("hard") or self-set ("goal"). Ask which it is rather than assuming.',
+        },
+      },
+      required: ["title"],
+    },
+    run: async (inp) => {
+      const { data: projects } = await supabase
+        .from("projects")
+        .select("id,title,commitment_kind")
+        .eq("user_id", userId)
+        .is("archived_at", null);
+      const { match, ambiguous } = findByTitle(projects ?? [], inp.title);
+      if (ambiguous.length) return ambiguousMsg("projects", inp.title, ambiguous);
+      if (!match) return `No project matching "${inp.title}".`;
+      if (match.commitment_kind !== "proposal") {
+        return match.commitment_kind === "project"
+          ? `"${match.title}" is already a project, not a proposal — nothing to award.`
+          : `"${match.title}" isn't marked as a proposal, so there's nothing to flip. Set its kind to "proposal" first if that's what it is.`;
+      }
+
+      const patch: Database["public"]["Tables"]["projects"]["Update"] = {
+        commitment_kind: "project",
+        awarded_at: new Date().toISOString(),
+      };
+      const facets: string[] = [];
+      if (inp.weekly_research_hrs != null) {
+        patch.weekly_min_min = inp.weekly_research_hrs > 0 ? inp.weekly_research_hrs * 60 : null;
+        facets.push(`${inp.weekly_research_hrs}h/wk`);
+      }
+      let dateNote = "";
+      if (inp.due) {
+        const deadline = parseDeadlineDate(inp.due.toLowerCase(), ctx.today);
+        if (!deadline) {
+          dateNote = ` Couldn't understand the deadline "${inp.due}", so no new date was set — try a format like "december 31".`;
+        } else {
+          patch.deadline_date = `${deadline.getFullYear()}-${String(deadline.getMonth() + 1).padStart(2, "0")}-${String(deadline.getDate()).padStart(2, "0")}`;
+          facets.push(`due ${patch.deadline_date}`);
+        }
+      }
+      if (inp.deadline_kind) patch.deadline_kind = inp.deadline_kind;
+
+      const { error } = await supabase.from("projects").update(patch).eq("id", match.id);
+      if (error) return `Couldn't mark "${match.title}" awarded: ${error.message}`;
+      markMutated(ctx);
+      return `"${match.title}" is now a project — its notes and logged hours carried forward.${facets.length ? ` ${facets.join(", ")}.` : ""}${dateNote}`;
     },
   });
 
@@ -2311,6 +2381,7 @@ export function buildTools(ctx: ToolContext) {
     update_task,
     remove_item,
     add_trackable,
+    mark_project_awarded,
     add_target,
     plan_phases,
     complete_target,

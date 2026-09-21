@@ -25,8 +25,10 @@ export function CommitmentCard({
   color,
   targetCount = 0,
   whyNot = null,
+  kind = null,
   onToggleImportant,
   onOpen,
+  onMarkAwarded,
   children,
 }: {
   pace: CommitmentPace;
@@ -41,9 +43,15 @@ export function CommitmentCard({
   targetCount?: number;
   /** Why this week's hours didn't all land, when they didn't. */
   whyNot?: Reason | null;
+  /** Pre-award proposal vs. active funded project (migration 0051). Null = not
+   * classified, or not applicable — no badge either way. */
+  kind?: "project" | "proposal" | null;
   onToggleImportant: () => void;
   /** Opens the panel holding the inputs pace names as missing. */
   onOpen?: () => void;
+  /** Flips a proposal to a project in place, keeping its notes and logged
+   * hours. Only rendered when kind === "proposal". */
+  onMarkAwarded?: () => void;
   /** Task cards belonging to this commitment. */
   children?: ReactNode;
 }) {
@@ -56,7 +64,20 @@ export function CommitmentCard({
       style={color ? { borderLeft: `3px solid ${color}` } : undefined}
     >
       <div className="flex items-start gap-1.5">
-        <div className="flex-1 min-w-0 text-[12px] text-text leading-snug">{pace.title}</div>
+        <div className="flex-1 min-w-0 text-[12px] text-text leading-snug">
+          {pace.title}
+          {/* A dashed badge for a proposal, not a filled one — it's provisional
+             by nature. A project gets no badge at all: unmarked is the common
+             case and shouldn't compete with the title for attention. */}
+          {kind === "proposal" && (
+            <span
+              className="ml-1.5 align-middle inline-block rounded-full border border-dashed border-muted-2 px-1.5 py-px text-[8.5px] tracking-wide uppercase text-muted-2"
+              title="Pre-award — not yet funded"
+            >
+              Proposal
+            </span>
+          )}
+        </div>
         <button
           onClick={onToggleImportant}
           title={pace.important ? "Not important" : "Mark important"}
@@ -128,6 +149,16 @@ export function CommitmentCard({
             : targetCount > 0
               ? `${targetCount} date${targetCount > 1 ? "s" : ""} along the way ▸`
               : "hours and dates ▸"}
+        </button>
+      )}
+
+      {/* An explicit action rather than something inferred from a date change:
+         being funded is news the user states, not a fact the app can derive.
+         Flips the row in place (commitment_kind + awarded_at) — its notes and
+         logged hours carry forward untouched. */}
+      {kind === "proposal" && onMarkAwarded && (
+        <button onClick={onMarkAwarded} className="self-start text-[9.5px] text-accent-text hover:underline">
+          Mark awarded ▸
         </button>
       )}
 

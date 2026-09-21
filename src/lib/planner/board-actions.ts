@@ -155,9 +155,10 @@ export interface CommitmentFields {
   activeFrom: string | null;
   activeUntil: string | null;
   /** The label its weekly-hours blocks wear. More than a colour: the label
-   * carries the minimum chunk, the time-of-day rule and — the reason this could
-   * not stay chat-only — the WEEKLY SHARE this commitment's hours count toward.
-   * An unlabelled commitment counts toward no share at all. */
+   * carries the minimum chunk and the time-of-day rule, and its hours count
+   * toward that label's weekly benchmark in the review. Required the moment
+   * weeklyMinMin is set (migration 0050) — those hours generate real blocks
+   * and log real hours, the same as a task. */
   categoryId: string | null;
   /** A HARD half-of-day restriction on where those hours may go. Null leaves
    * them unrestricted (mornings are still tried first). Setting one can make a

@@ -29,7 +29,16 @@ function check(label, actual, expected) {
   console.log(`  ${ok ? "ok  " : "FAIL"} ${label}${ok ? "" : `  got ${JSON.stringify(actual)}, want ${JSON.stringify(expected)}`}`);
 }
 
-const draft = (over = {}) => ({ ...blankTaskDraft(), title: "Read the reviews", ...over });
+// A label is required (migration 0050), and this file is about the OTHER
+// arithmetic — chunk derivation, pins, min-chunk clashes — so every draft
+// here carries one by default. The mandatory-category rule itself is checked
+// on its own, right after this block.
+const draft = (over = {}) => ({ ...blankTaskDraft(), title: "Read the reviews", categoryId: "cat-default", ...over });
+
+console.log("== a label is required ==");
+check("no category is refused", validateTask(draft({ categoryId: "" })).length > 0, true);
+check("...and taskRowFields refuses to build a row for it", taskRowFields(draft({ categoryId: "", hoursText: "1" }), NOW), null);
+check("a category clears the error", validateTask(draft({ categoryId: "cat-1" })).length, 0);
 
 console.log("== the derived block length ==");
 check("over 90 minutes goes in hour-long pieces", chunkFor(240), 60);
@@ -99,7 +108,7 @@ const row = {
   deadline_all_day: true,
   floor_at: new Date(2099, 0, 10, 0, 0).toISOString(),
   project_id: null,
-  category_id: null,
+  category_id: "cat-default",
   important: true,
   time_of_day: "afternoon",
   max_per_day_min: 60,

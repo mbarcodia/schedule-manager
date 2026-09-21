@@ -162,7 +162,7 @@ check(
 // ---------------------------------------------------------------- targets
 
 {
-  const targets = [[{ label: "Research", pct: 40, capacityMin: 2400, targetMin: 960, plannedMin: 600, askedMin: 960, belowFloor: [] }]];
+  const targets = [[{ label: "Research", pct: 40, capacityMin: 2400, targetMin: 960, plannedMin: 600, askedMin: 960 }]];
   const r = run({ blocks: [block({ start: 540, end: 1020 })], labelTargetsByWeek: targets });
   const research = r.byLabel.find((l) => l.label === "Research");
   check("the target comes from the engine, not recomputed here", research?.targetMin, 960);
@@ -200,10 +200,10 @@ check(
 );
 
 // ------------------------------------- a shortfall that isn't about capacity
-// The engine rounds each commitment's share to whole blocks no shorter than its
-// minimum chunk, and those roundings don't cancel. A week can therefore report a
-// shortfall with hours to spare — which reads as a bug unless the two figures
-// are kept apart.
+// askedMin is a plain sum of what's declared (migration 0053 — no scaling),
+// so it can legitimately sit below targetMin: the label's commitments simply
+// weren't asked for enough to hit the benchmark. That's a different problem
+// from capacity, and the two figures need to stay apart to tell them apart.
 
 {
   const r = run({
@@ -216,7 +216,6 @@ check(
           targetMin: 888,
           plannedMin: 810,
           askedMin: 810,
-          belowFloor: ["NSF Smoke"],
         },
       ],
     ],
@@ -224,7 +223,6 @@ check(
   });
   const research = r.byLabel.find((l) => l.label === "Research");
   check("the share and what was asked for are both reported", [research?.targetMin, research?.askedMin], [888, 810]);
-  check("and so is the commitment that got nothing", research?.belowFloor, ["NSF Smoke"]);
   check("a shortfall can coexist with free time", r.freeMin > 0 && research.bookedMin < research.targetMin, true);
 }
 
@@ -233,7 +231,7 @@ check(
   run({
     offset: -1,
     labelTargetsByWeek: [
-      [{ label: "Research", pct: 40, capacityMin: 2400, targetMin: 960, plannedMin: 0, askedMin: 960, belowFloor: [] }],
+      [{ label: "Research", pct: 40, capacityMin: 2400, targetMin: 960, plannedMin: 0, askedMin: 960 }],
     ],
     logged: [{ occurredDate: day(-3), projectId: "p1", minutes: 90 }],
   }).byLabel[0].targetMin,

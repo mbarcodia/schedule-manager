@@ -13,7 +13,7 @@
 // prepare for it" is schedule_todo. Only the last one takes calendar time.
 
 import { betaTool } from "@anthropic-ai/sdk/helpers/beta/json-schema";
-import { findCategoryId, markMutated, type ToolContext } from "@/lib/assistant/tools";
+import { findCategoryId, listCategoryNames, markMutated, type ToolContext } from "@/lib/assistant/tools";
 import { parseDeadlineDate, parseTimeInText, findByTitle } from "@/lib/assistant/nlp-dates";
 import { allDayDueAt, formatDue } from "@/lib/scheduling/all-day-due";
 import { zonedTimeToUtc } from "@/lib/scheduling/time";
@@ -416,7 +416,11 @@ export function buildTodoReminderTools(ctx: ToolContext) {
         start: { type: "string", description: 'earliest the hours may be scheduled, natural language ("august 4", "monday"). A bare date means the start of that day. Omit to allow any time from now.' },
         due: { type: "string", description: 'when the hours must be finished. OMIT THIS when the hours should be finished by the to-do\'s own due date, which is the usual case and needs no restating — it is inherited. Pass it only to finish EARLIER than that (which is how preparation is expressed), or when the item has no due date of its own. A bare date ("august 11") means date-only; name a time only if the user did.' },
         priority: { type: "string", enum: ["high", "medium", "low"] },
-        category: { type: "string", description: "label name for the booked time" },
+        category: {
+          type: "string",
+          description:
+            "label name for the booked time. Required the first time a to-do is booked (its hours need somewhere to be logged) — omit only when re-booking an item that already has one, which keeps its existing label.",
+        },
         // The same two levers add_task carries. Without them this tool was the
         // one route to booked hours that could not say "all on one day", so the
         // answer depended on which tool the model happened to reach for.
@@ -449,7 +453,28 @@ export function buildTodoReminderTools(ctx: ToolContext) {
       if (!found.match) return `No to-do matching "${text}".`;
       const item = found.match;
 
+      // A label is required on anything that logs hours (migration 0050), and
+      // booking a to-do creates or updates exactly that — a real tasks row.
+      // Resolved against what the row will actually end up with: this call's
+      // own category where given, else whatever the task already has.
+      let existingCategoryId: string | null = null;
+      if (item.task_id) {
+        const { data: existingTask } = await supabase.from("tasks").select("category_id").eq("id", item.task_id).single();
+        existingCategoryId = existingTask?.category_id ?? null;
+      }
       const categoryId = category ? await findCategoryId(ctx, category) : null;
+      if (category && !categoryId) {
+        const names = await listCategoryNames(ctx);
+        return names.length
+          ? `Couldn't book "${item.text}": no label matches "${category}". Existing labels: ${names.join(", ")}.`
+          : `Couldn't book "${item.text}": no labels exist yet — add one in Settings first.`;
+      }
+      if (!categoryId && !existingCategoryId) {
+        const names = await listCategoryNames(ctx);
+        return names.length
+          ? `"${item.text}" needs a label before it can be booked — which of these: ${names.join(", ")}?`
+          : `"${item.text}" needs a label before it can be booked, and there are no labels yet — add one in Settings first.`;
+      }
       const patch: Database["public"]["Tables"]["todo_items"]["Update"] = {};
       const done: string[] = [];
       let undated = false;
@@ -482,7 +507,12 @@ export function buildTodoReminderTools(ctx: ToolContext) {
           floor_at: startAt ?? new Date().toISOString(),
           deadline_at: deadlineAt?.at ?? null,
           deadline_all_day: deadlineAt?.allDay ?? false,
-          category_id: categoryId,
+          // Never overwritten with null: an omitted `category` on a re-booking
+          // means "leave the label alone", not "clear it" — the row is NOT
+          // NULL (migration 0050) and clearing it here would either fail the
+          // write outright or, if it somehow didn't, strand the task
+          // uncategorized the same way the DOE Review task was.
+          category_id: categoryId ?? existingCategoryId!,
         };
         if (item.task_id) {
           // Previously unchecked, while the insert branch below it checked —

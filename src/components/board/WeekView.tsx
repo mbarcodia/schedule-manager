@@ -235,18 +235,14 @@ export function WeekView({ scheduleData }: { scheduleData: UseScheduleDataResult
           </div>
         )}
         {/* A shortfall has two quite different causes and they need opposite
-           fixes, so the line has to say WHICH. If the hours the engine set out to
-           place were themselves below the share, the week's room is irrelevant —
-           the per-commitment figures don't divide into usable blocks. Only when
-           it asked for the full share and still came up short is it capacity. */}
+           fixes, so the line has to say WHICH. If what was DECLARED for the
+           label is itself below the target, no amount of free time closes it —
+           the fix is raising a commitment's weekly hours. Only when the full
+           declared amount still didn't get placed is it a capacity problem. */}
         {!review.isPast && targeted?.targetMin != null && targeted.bookedMin < targeted.targetMin && (
           <div className="pt-2 text-[10px] leading-snug" style={{ color: "#e0a94e" }}>
             {targeted.askedMin != null && targeted.askedMin < targeted.targetMin
-              ? `${targeted.label}'s share of this week is ${hrs(targeted.targetMin)}, but its commitments' hours only divide into ${hrs(targeted.askedMin)} of whole blocks — each is rounded to a length no shorter than the label's minimum chunk, and those roundings don't cancel out. ${
-                  targeted.belowFloor.length
-                    ? `${targeted.belowFloor.join(" and ")} get${targeted.belowFloor.length > 1 ? "" : "s"} nothing this week: ${targeted.belowFloor.length > 1 ? "their shares are" : "its share is"} shorter than that minimum. Raise ${targeted.belowFloor.length > 1 ? "their" : "its"} weekly hours, or lower the label's minimum chunk.`
-                    : "Nudging one commitment's weekly hours up would close it."
-                } The week has ${hrs(review.freeMin)} unbooked, so this is not a room problem.`
+              ? `${targeted.label}'s target this week is ${hrs(targeted.targetMin)}, but its commitments only declare ${hrs(targeted.askedMin)} between them. The week has ${hrs(review.freeMin)} unbooked, so this is not a room problem — raise a commitment's weekly hours to close the gap.`
               : `${targeted.label} is ${hrs(targeted.targetMin - targeted.bookedMin)} short of its target and the week is full — the fix is a smaller ask or a clearer week, not more effort.`}
           </div>
         )}

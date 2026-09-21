@@ -150,8 +150,10 @@ function ambiguousMsg(kind: string, needle: string, candidates: { title: string 
 }
 
 /** Fuzzy-matches a category by name (case-insensitive substring, either
- * direction) — returns null silently if no match; callers just omit
- * category_id rather than failing the whole tool call over it. */
+ * direction) — returns null if no match. A label is now required on anything
+ * that logs hours (migration 0050), so unlike the project/task lookups above,
+ * callers here must NOT silently proceed on null — they need to ask which
+ * label rather than insert unlabelled. */
 export async function findCategoryId(ctx: ToolContext, needle: string): Promise<string | null> {
   const { data: categories } = await ctx.supabase.from("categories").select("id,name").eq("user_id", ctx.userId);
   const n = needle.toLowerCase().trim();
@@ -160,6 +162,14 @@ export async function findCategoryId(ctx: ToolContext, needle: string): Promise<
     return name.includes(n) || n.includes(name);
   });
   return match?.id ?? null;
+}
+
+/** Every label's name, for a "which one did you mean" message. Empty means
+ * the account has none yet — worth saying outright, since the fix is
+ * different (create one) from a typo (say the right name). */
+export async function listCategoryNames(ctx: ToolContext): Promise<string[]> {
+  const { data } = await ctx.supabase.from("categories").select("name").eq("user_id", ctx.userId).order("sort_order");
+  return (data ?? []).map((c) => c.name);
 }
 
 interface ResolvedPin {
@@ -333,7 +343,11 @@ export function buildTools(ctx: ToolContext) {
             'EARLIEST date this may be scheduled ("tomorrow", "monday", "november 9"). Use whenever the user says when the task should START, not when it is due — "tomorrow morning" means not_before="tomorrow" WITH time_of_day="morning". Omitting it lets the engine place it today.',
         },
         project: { type: "string", description: "title of the project to link this task to" },
-        category: { type: "string", description: "name of the label to mark this task with — omit to leave unlabelled. A label can carry its own minimum chunk length and time-of-day rule, so labelling something Deep focus may be all that is needed to keep it in the mornings." },
+        category: {
+          type: "string",
+          description:
+            "REQUIRED — name of the label to mark this task with (Research, Teaching, Service, etc). Every task's hours get logged against its label, so this can't be left out. If the user hasn't said which label, ASK rather than guessing; do not call add_task without it. A label can also carry its own minimum chunk length and time-of-day rule, so labelling something Deep focus may be all that is needed to keep it in the mornings.",
+        },
         pin_date: { type: "string", description: 'force part of this work onto an exact date, natural language, e.g. "monday", "july 24" — pairs with pin_time. Anything else scheduled there moves automatically; the rest of it (if any) is still auto-placed.' },
         pin_time: {
           type: "string",
@@ -356,7 +370,7 @@ export function buildTools(ctx: ToolContext) {
           },
         },
       },
-      required: ["title"],
+      required: ["title", "category"],
     },
     run: async (inp) => {
       const duration = inp.duration_min || 30;
@@ -373,7 +387,22 @@ export function buildTools(ctx: ToolContext) {
         link = { projectId: lookup.projectId, title: lookup.title };
       }
 
-      const categoryId = inp.category ? await findCategoryId(ctx, inp.category) : null;
+      // A label is required (migration 0050) — every task logs its hours
+      // against one, and an uncategorized task is exactly the DOE-Review-never-
+      // counted-as-Service bug this exists to prevent. Never insert on a miss.
+      if (!inp.category) {
+        const names = await listCategoryNames(ctx);
+        return names.length
+          ? `"${inp.title}" needs a label before it can be added — which of these: ${names.join(", ")}?`
+          : `"${inp.title}" needs a label before it can be added, and there are no labels yet — add one in Settings first (e.g. Research, Teaching, Service).`;
+      }
+      const categoryId = await findCategoryId(ctx, inp.category);
+      if (!categoryId) {
+        const names = await listCategoryNames(ctx);
+        return names.length
+          ? `Couldn't add "${inp.title}": no label matches "${inp.category}". Existing labels: ${names.join(", ")}. Say which one, or ask to create a new label called "${inp.category}" first.`
+          : `Couldn't add "${inp.title}": no labels exist yet — add one in Settings first (e.g. Research, Teaching, Service).`;
+      }
       const deadline = inp.due ? titleToDeadlineAt(ctx, inp.due.toLowerCase()) : null;
       const deadlineNotUnderstood = !!inp.due && !deadline;
       const notBeforeAt = inp.not_before ? titleToFloorAt(ctx, inp.not_before.toLowerCase()) : null;
@@ -852,7 +881,11 @@ export function buildTools(ctx: ToolContext) {
           type: "boolean",
           description: "Mark this project important — the importance axis of the Priorities board. Urgency is read from its dates; importance is only ever the user's call, so ask rather than inferring it.",
         },
-        category: { type: "string", description: "name of the label for this project's weekly-hours blocks" },
+        category: {
+          type: "string",
+          description:
+            "name of the label for this project's weekly-hours blocks. REQUIRED the moment weekly_research_hrs is set (on this call or already on the project) — those hours generate real calendar blocks and log real hours against a label, the same as a task. Ask which label rather than guessing if the user hasn't said.",
+        },
         on_hold: {
           type: "boolean",
           description:
@@ -957,9 +990,28 @@ export function buildTools(ctx: ToolContext) {
       // again, so it comes back rather than being updated while still invisible.
       const { data: existing } = await supabase
         .from("projects")
-        .select("id,title,archived_at,on_hold_at")
+        .select("id,title,archived_at,on_hold_at,category_id,weekly_min_min")
         .eq("user_id", userId);
       const dupe = (existing ?? []).find((p) => normTitle(p.title) === normTitle(inp.title));
+
+      // A label is required the moment weekly hours are in play (migration
+      // 0050) — those hours generate real calendar blocks and log real hours,
+      // the same as a task. Checked against what the row will actually end up
+      // with: this call's own value where it set one, else what's already there.
+      const willHaveWeeklyHours =
+        inp.weekly_research_hrs != null ? inp.weekly_research_hrs > 0 : !!dupe?.weekly_min_min;
+      const willHaveCategory = categoryId ? true : inp.category ? false : !!dupe?.category_id;
+      if (willHaveWeeklyHours && !willHaveCategory) {
+        const names = await listCategoryNames(ctx);
+        if (inp.category) {
+          return names.length
+            ? `Couldn't update "${inp.title}": no label matches "${inp.category}". Existing labels: ${names.join(", ")}.`
+            : `Couldn't update "${inp.title}": no labels exist yet — add one in Settings first.`;
+        }
+        return names.length
+          ? `"${inp.title}" needs a label before it can have weekly hours — which of these: ${names.join(", ")}?`
+          : `"${inp.title}" needs a label before it can have weekly hours, and there are no labels yet — add one in Settings first.`;
+      }
       if (dupe) {
         const wasArchived = dupe.archived_at != null;
         // Re-declaring one that is on hold takes it OFF hold, on the same

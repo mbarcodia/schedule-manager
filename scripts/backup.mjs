@@ -70,6 +70,7 @@ const TABLES = [
   "research_pins",
   "task_pins",
   "notes",
+  "checkin_slots",
   "todo_lists",
   "todo_items",
   "lists",

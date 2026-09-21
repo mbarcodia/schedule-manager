@@ -57,7 +57,22 @@ check("a clean form has nothing to say", validateCommitmentForm({
   weeklyText: "3",
   deadlineDate: "2026-10-30",
   targets: [],
+  categoryId: "cat-default",
 }), { errors: [], warnings: [] });
+
+// A label is required the moment weekly hours are set (migration 0050),
+// checked separately from every other case below — which all pass one, the
+// same way the round-trip fixtures above carry an hours figure by default.
+check(
+  "weekly hours with no label is blocked",
+  validateCommitmentForm({ estimateText: "", weeklyText: "3", deadlineDate: "", targets: [], categoryId: "" }).errors,
+  ["A commitment with weekly hours needs a label — those hours get logged to it."],
+);
+check(
+  "no weekly hours needs no label",
+  validateCommitmentForm({ estimateText: "", weeklyText: "", deadlineDate: "", targets: [], categoryId: "" }).errors,
+  [],
+);
 
 check(
   "a date with no name is blocked — the pace line reads the name out loud",
@@ -172,7 +187,14 @@ check(
 // its symptom is a commitment that quietly generates nothing at all.
 
 const win = (over) =>
-  validateCommitmentForm({ estimateText: "", weeklyText: "4", deadlineDate: "", targets: [], ...over });
+  validateCommitmentForm({
+    estimateText: "",
+    weeklyText: "4",
+    deadlineDate: "",
+    targets: [],
+    categoryId: "cat-default",
+    ...over,
+  });
 
 check("a window in the right order is fine", win({ activeFrom: "2026-09-01", activeUntil: "2026-12-15" }).errors, []);
 check("one open end is fine", win({ activeFrom: "2026-09-01" }).errors, []);

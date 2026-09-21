@@ -494,9 +494,30 @@ export default function SettingsPage() {
     await save("Couldn't change when that work belongs", supabase.from("categories").update({ time_pref: timePref }).eq("id", id));
   }
 
+  /** Every task, and every commitment with weekly hours, needs a label
+   * (migration 0050) — so deleting one that's still in use would either
+   * silently strip that requirement (were the FK allowed to null it out) or
+   * surface as a raw constraint violation. Checked before removing it from
+   * the list, so a blocked delete never makes the label disappear from view
+   * only to have the write underneath it fail. */
   async function deleteCategory(id: string) {
-    setCategories((prev) => prev.filter((c) => c.id !== id));
     const supabase = createClient();
+    const [{ count: taskCount }, { count: projectCount }] = await Promise.all([
+      supabase.from("tasks").select("id", { count: "exact", head: true }).eq("category_id", id),
+      supabase
+        .from("projects")
+        .select("id", { count: "exact", head: true })
+        .eq("category_id", id)
+        .not("weekly_min_min", "is", null),
+    ]);
+    const inUse = (taskCount ?? 0) + (projectCount ?? 0);
+    if (inUse > 0) {
+      setSaveError(
+        `Can't delete that label — ${taskCount ?? 0} task${taskCount === 1 ? "" : "s"} and ${projectCount ?? 0} commitment${projectCount === 1 ? "" : "s"} still wear it. Re-label ${inUse === 1 ? "it" : "them"} first.`,
+      );
+      return;
+    }
+    setCategories((prev) => prev.filter((c) => c.id !== id));
     await save("Couldn't delete that label", supabase.from("categories").delete().eq("id", id));
   }
 

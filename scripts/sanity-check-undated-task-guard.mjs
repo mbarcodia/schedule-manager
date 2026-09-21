@@ -79,6 +79,10 @@ try {
     })
     .eq("id", userId);
 
+  // A label is required on anything that logs hours (migration 0050) — this
+  // account needs one to exercise add_task/schedule_todo at all.
+  await admin.from("categories").insert({ user_id: userId, name: "Research", color: "#888888", sort_order: 0 });
+
   // The incident's exact shape: a dated to-do with no task attached to it.
   const { data: list } = await admin
     .from("todo_lists")
@@ -119,18 +123,19 @@ try {
     title: "AIES Lessons Learned",
     duration_min: 120,
     priority: "low",
+    category: "Research",
   });
   check("the incident's own case warns that it's undated", incident.includes(UNDATED), true);
   check("...and names the dated to-do it would silently shadow", incident.includes(TWIN), true);
   check("...quoting that to-do's real date", incident.includes("2026-08-27"), true);
 
-  const floating = await (await tool("add_task")).run({ title: "Some floating task", duration_min: 60 });
+  const floating = await (await tool("add_task")).run({ title: "Some floating task", duration_min: 60, category: "Research" });
   check("an undated task with no twin still warns", floating.includes(UNDATED), true);
   check("...without inventing a twin", floating.includes(TWIN), false);
 
   // The silence half. A guard that fires on protected work is a guard that
   // gets ignored, so these matter as much as the ones above.
-  const dated = await (await tool("add_task")).run({ title: "Dated task", duration_min: 60, due: "august 26" });
+  const dated = await (await tool("add_task")).run({ title: "Dated task", duration_min: 60, due: "august 26", category: "Research" });
   check("a task with a due date is silent", dated.includes(UNDATED), false);
 
   const pinned = await (await tool("add_task")).run({
@@ -138,18 +143,19 @@ try {
     duration_min: 60,
     pin_date: "august 25",
     pin_time: "10am",
+    category: "Research",
   });
   check("a pinned task is silent — a pin protects it as well as a date", pinned.includes(UNDATED), false);
 
   console.log("\n== schedule_todo ==");
   // Booking hours onto the dated to-do is the CORRECT fix for the incident:
   // the task inherits the item's date and stays linked to it.
-  const booked = await (await tool("schedule_todo")).run({ text: "AIES Lessons Learned", hours: 2 });
+  const booked = await (await tool("schedule_todo")).run({ text: "AIES Lessons Learned", hours: 2, category: "Research" });
   check("booking hours on a dated to-do inherits its date, so it's silent", booked.includes(UNDATED), false);
   check("...and says the date came from the item itself", booked.includes("its own due date"), true);
 
   await admin.from("todo_items").insert({ user_id: userId, list_id: list.id, text: "Undated item", sort_order: 1 });
-  const bookedUndated = await (await tool("schedule_todo")).run({ text: "Undated item", hours: 1 });
+  const bookedUndated = await (await tool("schedule_todo")).run({ text: "Undated item", hours: 1, category: "Research" });
   check("booking hours on an undated to-do warns", bookedUndated.includes(UNDATED), true);
 } finally {
   if (userId) {

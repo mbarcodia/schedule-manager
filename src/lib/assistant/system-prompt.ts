@@ -182,28 +182,22 @@ export function buildPromptContext(
       timeOfDay: c.time_pref ?? null,
       weeklyTargetPct: c.weekly_target_pct ?? null,
     })),
-    /** Where a label with a weekly share target actually stands this week.
+    /** Where a label with a weekly target BENCHMARK actually stands this week.
+     * Purely descriptive (migration 0053): the percentage does not shape what
+     * gets scheduled, it is only compared against what actually happened.
      * capacityHrs is the working time left after meetings, away days and
      * routines — the pool the percentage is a share of — so a travel week
-     * legitimately has a smaller target rather than a missed one. When planned
-     * falls short of target, the per-commitment hours wearing that label are
-     * the thing to change; they act as a ratio, not a total. */
+     * legitimately has a smaller target rather than a missed one. */
     labelTargetsThisWeek: schedule.labelTargets.map((t) => ({
       label: t.label,
       target: `${t.pct}% of ${(t.capacityMin / 60).toFixed(1)}h available = ${(t.targetMin / 60).toFixed(1)}h`,
       plannedHrs: +(t.plannedMin / 60).toFixed(1),
       shortfallHrs: +Math.max(0, (t.targetMin - t.plannedMin) / 60).toFixed(1),
-      // The two figures that turn "Research is 1.6h short" into something
-      // actionable, and which this mapping used to drop.
-      //
-      // askedMin vs targetMin separates a week with no room from hours that
-      // don't divide into usable blocks — opposite fixes: clear the week, or
-      // change a number. Without it the model can only guess which it is.
+      // askedMin vs targetMin separates "didn't ask for enough" from "asked
+      // for it but the week had no room" — opposite fixes: raise a
+      // commitment's weekly hours, or clear the week. Without it the model
+      // can only guess which it is.
       askedHrs: +(t.askedMin / 60).toFixed(1),
-      // ...and WHICH commitment went quiet. A project whose share came out
-      // below its own minimum chunk gets nothing at all rather than an unusable
-      // sliver, which is invisible in the label total it disappears from.
-      gotNothingThisWeek: t.belowFloor,
     })),
     /** Days whose whole label allocation was handed to one commitment. Present
      * only when the user has set one.

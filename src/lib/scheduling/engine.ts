@@ -133,6 +133,10 @@ interface TaskDef extends Task {
 /** The working minutes a label's percentage is a share OF, on one of two
  * readings the user picks per label (categories.target_basis, migration 0038).
  *
+ * Feeds only the TARGET benchmark reported in the weekly review (see
+ * targetsForWeek below) — as of migration 0053 this no longer shapes what
+ * gets placed. A commitment always books its own declared weeklyMinMin.
+ *
  * "week" — the week's whole working window. Days off and away days are out of
  * it, because those hours don't exist; MEETINGS ARE STILL IN. "40% of my
  * 40-hour week is 16 hours" is the stated meaning, and it stays 16 in a week
@@ -147,7 +151,8 @@ interface TaskDef extends Task {
  * NEITHER subtracts routines, on both readings. Some routines (a literature
  * scan, a proposal search) are the very work the target is about — taking them
  * off the top and then asking for 40% of the rest charges for them twice. A
- * labelled routine instead COUNTS TOWARD its share; see labelScaleForWeek.
+ * labelled routine instead counts toward its share in the benchmark; see
+ * labelledRoutineMinForWeek and targetsForWeek.
  *
  * `busy` must be a snapshot taken after events and pins are marked but BEFORE
  * anchors, and long before any auto-placed work.
@@ -198,82 +203,6 @@ function labelledRoutineMinForWeek(inputs: ScheduleInputs, w: number): Record<st
   return out;
 }
 
-/** How much a label's weekly hours should be multiplied by this week to hit its
- * percentage-of-capacity target, keyed by label id. 1 (or absent) = leave the
- * declared minutes alone.
- *
- * The declared per-commitment minutes become a RATIO under a target: 6h/4h/3h
- * stays 2:1.33:1 whatever the week holds. Scaling is per week, so a conference
- * week shrinks every project in step instead of the engine trying to force a
- * full week of research into it and reporting the remainder as not fitting. */
-function labelScaleForWeek(
-  inputs: ScheduleInputs,
-  busy: Set<AbsMinute>,
-  w: number,
-): Record<string, number> {
-  const targets = inputs.labelTargetPct ?? {};
-  if (!Object.keys(targets).length) return {};
-  const routineMin = labelledRoutineMinForWeek(inputs, w);
-  const scale: Record<string, number> = {};
-  for (const [labelId, pct] of Object.entries(targets)) {
-    const declared = inputs.projects
-      .filter((p) => p.weeklyMinMin && p.categoryId === labelId)
-      .reduce((sum, p) => sum + p.weeklyMinMin!, 0);
-    // Nothing wearing the label carries hours, so there is nothing to scale —
-    // a target can't invent a project to spend the time on.
-    if (!declared) continue;
-    const capacity = weekCapacityMin(inputs, busy, w, inputs.labelTargetBasis?.[labelId] ?? "week");
-    // Routines wearing this label have already met part of the share, so the
-    // commitments are asked for the rest. Floored at zero: routines alone can
-    // exceed a small target, and asking for negative hours is not a thing.
-    const remaining = Math.max(0, (capacity * pct) / 100 - (routineMin[labelId] ?? 0));
-    scale[labelId] = remaining / declared;
-  }
-  return scale;
-}
-
-/** The weekly minutes a commitment should get under a share target, chosen so it
- * decomposes into whole chunks with NO tail shorter than its minimum chunk.
- *
- * Rounding the scaled figure to 5 minutes was not enough: 6h scaled by 1.014
- * gives 365 minutes, and against a 120-minute chunk that lands as 120+120+120+5,
- * putting a 5-MINUTE research block on a Monday morning. The engine's
- * minimum-chunk floor doesn't catch it, because that floor governs shrinking a
- * block to fit a gap, not the leftover at the end of a duration.
- *
- * So the duration is snapped to a value that divides cleanly: a tail is either
- * zero, or at least one minimum chunk long. Where that means moving off the
- * exact target it moves to whichever clean value is nearer — a few minutes
- * either side of a percentage-derived goal is not meaningful, and a 5-minute
- * block is.
- *
- * Returns 0 when not even one placeable block fits the share, which is the
- * honest answer for a week mostly eaten by travel. */
-export function scaledWeeklyMin(
-  declaredMin: number,
-  scale: number,
-  chunkMin: number,
-  floorMin: number,
-): number {
-  if (scale === 1) return declaredMin;
-  const chunk = Math.max(1, chunkMin);
-  const raw = declaredMin * scale;
-  if (raw < floorMin) return 0;
-
-  const whole = Math.floor(raw / chunk) * chunk;
-  const tail = raw - whole;
-  if (tail === 0) return whole;
-  // A tail at or above the floor is a legitimate block in its own right, rounded
-  // to the 15-minute grid findSlot actually places on — rounding to 5 produced
-  // lengths like 65 minutes that can never start on a grid boundary and end on
-  // one, and read as oddly precise for a goal derived from a percentage.
-  if (tail >= floorMin) return whole + Math.round(tail / 15) * 15;
-  // Otherwise it cannot stand alone: drop it, or grow it to the floor.
-  const up = whole + floorMin;
-  if (whole === 0) return up;
-  return raw - whole <= up - raw ? whole : up;
-}
-
 /** Chunk lengths worth trying for a task's next block, longest first.
  *
  * Two rules, both about the minimum chunk:
@@ -315,10 +244,9 @@ export function chunkLengthsToTry(remaining: number, chunk: number, floorMin: nu
   return lens;
 }
 
-function taskDefs(inputs: ScheduleInputs, labelScaleByWeek: Record<string, number>[] = []): TaskDef[] {
+function taskDefs(inputs: ScheduleInputs): TaskDef[] {
   const research: TaskDef[] = [];
   for (let w = 0; w < inputs.horizonWeeks; w++) {
-    const labelScale = labelScaleByWeek[w] ?? {};
     // A week's chunk is fenced to Mon-Fri of that week. An active window
     // narrows that fence further, so a project that starts in December
     // simply generates nothing for the weeks before it and a partial chunk for
@@ -334,24 +262,14 @@ function taskDefs(inputs: ScheduleInputs, labelScaleByWeek: Record<string, numbe
         // The window closes this project out of this week entirely, or
         // leaves too little of it to be worth a block.
         if (ceilAbs - floor < (p.minChunk ?? 30)) return;
-        // `?? 1`, never `|| 1`: a scale of 0 is meaningful (a week with no
-        // capacity at all, e.g. one entirely inside a conference) and `||`
-        // silently promoted it to 1, so exactly the weeks that should generate
-        // nothing instead asked for the full declared hours and reported every
-        // project as not fitting.
-        const scale = (p.categoryId ? labelScale[p.categoryId] : undefined) ?? 1;
-        const scaled = scaledWeeklyMin(p.weeklyMinMin!, scale, p.chunk || 120, p.minChunk ?? 30);
-        // Nothing placeable this week — the honest outcome in a week eaten by
-        // travel, and the same "closed out of this week" case the active-window
-        // check above handles. Emphatically NOT rounded up to a minimum block:
-        // that forced one into a week with no room for it and reported every
-        // project as "didn't fit".
-        if (scaled <= 0) return;
+        // The commitment's own declared weekly minutes, taken as-is — a label's
+        // percentage no longer reshapes this (see the weekly_target_pct history
+        // in migration 0053: it is a benchmark now, not an input to placement).
         research.push({
           id: `research-${p.id}-w${w}`,
           title: p.title,
           priority: "high",
-          duration: scaled,
+          duration: p.weeklyMinMin!,
           chunk: p.chunk || 120,
           minChunk: p.minChunk,
           dependsOn: null,
@@ -1173,11 +1091,9 @@ export function computeSchedule(
     });
   });
 
-  const labelScaleByWeek = Array.from({ length: inputs.horizonWeeks }, (_, w) =>
-    labelScaleForWeek(inputs, busyBeforeAnchors, w),
-  );
   // Two capacities per week, since a label's percentage is a share of whichever
   // its basis names. Both are cheap and reporting needs the one that matches.
+  // Feeds only the TARGET benchmark below — nothing here shapes placement.
   const weekCapacity = Array.from({ length: inputs.horizonWeeks }, (_, w) =>
     weekCapacityMin(inputs, busyBeforeAnchors, w, "week"),
   );
@@ -1185,7 +1101,7 @@ export function computeSchedule(
     weekCapacityMin(inputs, busyBeforeAnchors, w, "after_meetings"),
   );
 
-  const defs = taskDefs(inputs, labelScaleByWeek).map((t) =>
+  const defs = taskDefs(inputs).map((t) =>
     pinReduction[t.id] ? { ...t, duration: Math.max(0, t.duration - pinReduction[t.id]) } : t,
   );
   // Hours that were WORKED but whose def no longer exists — the task was
@@ -1440,14 +1356,15 @@ export function computeSchedule(
   // and the board can state it instead of the user working out from five
   // per-project numbers whether a rule they gave in percentages is being met.
   //
-  // Reported per week, not just this one. The scaling that produces it already
-  // runs for every week in the horizon (labelScaleForWeek), so a week broken up
-  // by travel has a smaller target and always did — only the reporting stopped
-  // at week 0. Next week's figure is what makes it a plan rather than a
-  // scorecard. Nothing here affects placement; it reads what was placed.
-  // `?? {}` for the same reason labelScaleForWeek has it: an account with no
-  // share target set has no such field, and reading it unguarded threw for every
-  // caller that builds ScheduleInputs by hand. That crashed seven sanity checks
+  // Purely a benchmark now (migration 0053): weekly_target_pct does not shape
+  // placement — a commitment always places what it declares in weeklyMinMin.
+  // This function only compares that reality (askedMin/plannedMin, read from
+  // what was actually placed) against the capacity-derived targetMin, so the
+  // weekly review can say whether the split came out the way it was meant to.
+  // Reported per week, not just this one, so next week's figure is a plan
+  // rather than a scorecard. `?? {}` guards an account with no share target
+  // set, which has no such field — reading it unguarded threw for every
+  // caller that builds ScheduleInputs by hand, crashing seven sanity checks
   // silently from the commit that introduced share targets until this one.
   const targetsForWeek = (w: number) =>
     Object.entries(inputs.labelTargetPct ?? {}).map(([labelId, pct]) => {
@@ -1456,19 +1373,11 @@ export function computeSchedule(
         .reduce((sum, b) => sum + (b.end - b.start), 0);
 
       // What was actually asked for, alongside what the percentage comes to.
-      // These differ by the rounding each commitment's share goes through, and
-      // without both figures a week with hours to spare still reports a
-      // shortfall with nothing to explain it.
-      const scale = labelScaleByWeek[w]?.[labelId];
+      // What was actually declared for this label — no longer scaled, so this
+      // is a plain sum, and it agrees with what got placed except where
+      // something genuinely didn't fit (a conflict, an active window, travel).
       const mine = inputs.projects.filter((p) => p.categoryId === labelId && p.weeklyMinMin);
-      let askedMin = 0;
-      const belowFloor: string[] = [];
-      for (const p of mine) {
-        const asked =
-          scale == null ? p.weeklyMinMin! : scaledWeeklyMin(p.weeklyMinMin!, scale, p.chunk || 120, p.minChunk ?? 30);
-        askedMin += asked;
-        if (asked === 0) belowFloor.push(p.title);
-      }
+      const askedMin = mine.reduce((sum, p) => sum + p.weeklyMinMin!, 0);
 
       // Routines wearing this label are part of the share, so they belong in
       // both figures — otherwise a week met entirely by a literature scan reads
@@ -1487,25 +1396,16 @@ export function computeSchedule(
         plannedMin: plannedMin + routineMin,
         askedMin: askedMin + routineMin,
         routineMin,
-        belowFloor,
       };
     });
   const labelTargetsByWeek = Array.from({ length: inputs.horizonWeeks }, (_, w) => targetsForWeek(w));
   const labelTargets = labelTargetsByWeek[0] ?? [];
 
-  // This week's scaled goal per commitment, for anything under a share target.
-  // The chips used to print the DECLARED weekly minimum, which stopped being a
-  // weekly total the moment a label target turned those numbers into a ratio —
-  // so a commitment showing "3h wk" could correctly be given 3.08h in a normal
-  // week and nothing at all in a conference week, and the chip called both wrong.
+  // A label's percentage no longer reshapes a commitment's minutes (see
+  // migration 0053), so there is no scaled figure distinct from what each
+  // commitment already declares — every reader of this map already falls
+  // back to the commitment's own weeklyMinMin when it has no entry here.
   const weeklyTargetMinByProject: Record<string, number> = {};
-  const scale0 = labelScaleByWeek[0] ?? {};
-  inputs.projects.forEach((p) => {
-    if (!p.weeklyMinMin || !p.categoryId) return;
-    const scale = scale0[p.categoryId];
-    if (scale == null) return; // no share target — the declared figure still stands
-    weeklyTargetMinByProject[p.id] = scaledWeeklyMin(p.weeklyMinMin, scale, p.chunk || 120, p.minChunk ?? 30);
-  });
 
   // Past days, exactly as they happened. Appended rather than computed: nothing
   // in the scheduler ever looks at a gday below 0, which is what keeps a past

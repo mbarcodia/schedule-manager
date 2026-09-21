@@ -12,11 +12,10 @@
 //   engine really could not place, so an option that claims four hours has
 //   four hours really sitting unplaced behind it.
 //
-//   A PROPOSED RATE IS A NUMBER YOU CAN TYPE IN. With a label share target
-//   set, per-commitment weekly hours are a RATIO the engine scales — a 6h/wk
-//   commitment gets asked for 7.5h. A trim proposed from the scaled figures
-//   would name a rate that means nothing in the field the user edits, so it is
-//   divided back out. This is the check that catches that regressing.
+//   A PROPOSED RATE IS A NUMBER YOU CAN TYPE IN. A label's weekly_target_pct
+//   is a benchmark, not an input to placement (migration 0053) — a trim always
+//   proposes a rate below the commitment's own declared weeklyMinMin, in the
+//   same field the user would actually edit.
 //
 //   IT NEVER PROPOSES DEFERRING INTO A WEEK WITH NO ROOM, which is how a
 //   shortfall gets moved around instead of resolved.
@@ -83,10 +82,8 @@ const runShortfall = (over) => {
 };
 
 /** Meetings filling 10:00-17:00 every weekday across the horizon, leaving one
- * hour a day. Label-scaled work needs this to be short of anything: a share
- * target is a fraction of the week, so on an EMPTY week it always fits by
- * construction, and the interesting cases only appear once the week is
- * already eaten. */
+ * hour a day — enough to make two 20h/wk commitments genuinely not fit,
+ * without needing declared hours so large they'd overflow on their own. */
 const busyWeeks = () => {
   const ev = [];
   for (let g = 0; g < 28; g++) {
@@ -138,17 +135,14 @@ check("the total is the sum of its parts", w0.totalOwedMin, w0.owed.reduce((n, o
 // ------------------------------- a trim names a rate you could actually type
 
 console.log("\n== a proposed rate is in the units the user edits ==");
-// With a 40% share target on a 40h week the label is asked for 16h, and the
-// three 20h/wk commitments are scaled DOWN to fit that. A trim proposed from
-// the scaled numbers would name a rate that does not match the field.
-const SCALED = {
+// Two 20h/wk commitments into a week mostly eaten by meetings: genuinely more
+// than fits, with no label target involved at all.
+const TIGHT = {
   events: busyWeeks(),
   projects: [project("A", { weeklyMinMin: 1200 }), project("B", { weeklyMinMin: 1200 })],
-  labelTargetPct: { [RESEARCH]: 40 },
-  labelTargetBasis: { [RESEARCH]: "week" },
 };
-const scaled = runShortfall(SCALED);
-const trims = scaled.weeks[0].options.filter((o) => o.kind === "trim_weekly");
+const tight = runShortfall(TIGHT);
+const trims = tight.weeks[0].options.filter((o) => o.kind === "trim_weekly");
 check("a trim is offered", trims.length > 0, true);
 check(
   "and never proposes a rate at or above the one already set",
@@ -170,21 +164,6 @@ const nextFree = freeMinutesInWeek(full.inp, computeSchedule(full.inp, NOW), 1);
 check(
   "no defer proposes more than the next week's free time",
   defers.every((o) => o.freesMin <= nextFree),
-  true,
-);
-
-// ------------------------------------------ the label target as a root cause
-
-console.log("\n== the share target is offered as a root cause ==");
-const lower = scaled.weeks[0].options.filter((o) => o.kind === "lower_label_target");
-check("lowering the label target is offered when its share cannot be met", lower.length > 0, true);
-check("it names the label by id, so it can be acted on", lower.every((o) => !!o.target.labelId), true);
-check(
-  "and proposes a percentage below the current one",
-  lower.every((o) => {
-    const m = /from (\d+)% to about (\d+)%/.exec(o.label);
-    return m && Number(m[2]) < Number(m[1]);
-  }),
   true,
 );
 

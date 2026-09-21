@@ -116,6 +116,7 @@ export function CommitmentPanel({
     activeFrom,
     activeUntil,
     targets: drafts,
+    categoryId,
   });
   const errors = title.trim() ? fieldErrors : ["A commitment needs a name.", ...fieldErrors];
 
@@ -308,13 +309,16 @@ export function CommitmentPanel({
             </select>
             <span className="text-[11px] text-muted">label</span>
           </div>
-          {/* Not decoration. The share target is the part that can't be guessed
-             from a colour swatch, and an unlabelled commitment is outside every
-             share — which is invisible until a weekly total comes up short. */}
+          {/* Not decoration. Weekly hours generate real calendar blocks and log
+             real hours (progress_log), and a label is how those hours get
+             attributed — required the moment weekly hours are set, the same as
+             on a task (migration 0050). */}
           <div className={hint}>
             {categoryId
-              ? "Colours its blocks, and applies that label's minimum chunk, time-of-day rule and share of the week."
-              : "Unlabelled: its hours count toward no weekly share, and no label's minimum chunk or time-of-day rule applies."}
+              ? "Colours its blocks, applies that label's minimum chunk and time-of-day rule, and its hours count toward the label's weekly benchmark in the review."
+              : weeklyText.trim()
+                ? "A label is required once weekly hours are set — those hours need somewhere to be logged."
+                : "Unlabelled is fine with no weekly hours set — nothing here books time on its own."}
           </div>
 
           <div className="flex items-center gap-1.5 pt-1">

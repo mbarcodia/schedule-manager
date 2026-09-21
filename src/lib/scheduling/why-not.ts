@@ -274,7 +274,7 @@ export function whyNotTask(
  * did, or when it carries no weekly hours to begin with. */
 export function whyNotCommitment(
   project: Project,
-  { inputs, schedule, categories, weekStart, nowAbs }: WhyNotInputs,
+  { inputs, schedule, weekStart, nowAbs }: WhyNotInputs,
   weekOffset = 0,
 ): Reason | null {
   if (!project.weeklyMinMin) return null;
@@ -290,13 +290,8 @@ export function whyNotCommitment(
     )
     .reduce((sum, b) => sum + (b.end - b.start), 0);
 
-  // What it was actually asked for this week, which a share target may have
-  // scaled down — comparing against the declared figure would report a shortfall
-  // that was never asked for.
-  const asked = schedule.weeklyTargetMinByProject[project.id] ?? project.weeklyMinMin;
+  const asked = project.weeklyMinMin!;
   if (placed >= asked) return null;
-
-  const label = project.categoryId ? categories.find((c) => c.id === project.categoryId) : null;
 
   // An active window that doesn't cover this week is the whole answer, and the
   // most common one for a project that starts next term.
@@ -314,16 +309,6 @@ export function whyNotCommitment(
       text: `Its weekly hours stopped applying on ${fmt(dateOf(project.activeUntilAbs, weekStart))}.`,
       fix: null,
       benign: true,
-    };
-  }
-
-  // Scaled to nothing by its label's share: a real and confusing outcome, since
-  // the commitment looks configured and simply never appears.
-  if (asked === 0 && label?.weeklyTargetPct) {
-    return {
-      text: `Its share of this week came out shorter than the ${label.name} label's minimum chunk, so it gets nothing rather than an unusable sliver.`,
-      fix: `Raise its weekly hours, or lower ${label.name}'s minimum chunk.`,
-      benign: false,
     };
   }
 

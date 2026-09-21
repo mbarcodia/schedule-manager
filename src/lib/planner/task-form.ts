@@ -134,6 +134,7 @@ export const chunkFor = (durationMin: number): number => (durationMin > 90 ? 60 
 export function validateTask(draft: TaskDraft): string[] {
   const errors: string[] = [];
   if (!draft.title.trim()) errors.push("A task needs a name — it's what appears on the calendar block.");
+  if (!draft.categoryId) errors.push("A task needs a label — every scheduled block has to count toward one.");
 
   const hours = Number(draft.hoursText.trim());
   if (!draft.hoursText.trim() || !Number.isFinite(hours) || hours <= 0) {
@@ -199,7 +200,9 @@ export interface TaskRowFields {
   deadline_all_day: boolean;
   floor_at: string;
   project_id: string | null;
-  category_id: string | null;
+  /** Never null here — validateTask refuses a draft with no label before this
+   * function returns anything. */
+  category_id: string;
   important: boolean;
   time_of_day: "morning" | "afternoon" | null;
   max_per_day_min: number | null;
@@ -246,7 +249,7 @@ export function taskRowFields(draft: TaskDraft, now: Date): TaskRowFields | null
     deadline_all_day,
     floor_at,
     project_id: draft.projectId || null,
-    category_id: draft.categoryId || null,
+    category_id: draft.categoryId,
     important: draft.important,
     time_of_day: draft.timeOfDay || null,
     max_per_day_min: draft.maxPerDayText.trim() ? Math.round(Number(draft.maxPerDayText.trim())) : null,

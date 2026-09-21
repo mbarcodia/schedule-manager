@@ -31,7 +31,6 @@ import type { ComputeScheduleResult, ScheduleInputs } from "@/lib/scheduling/typ
 const KIND_LABEL: Record<ShortfallOption["kind"], string> = {
   defer: "Do it later",
   trim_weekly: "Ask for less each week",
-  lower_label_target: "Expect less of the week",
   move_deadline: "Push back a deadline",
 };
 
@@ -40,13 +39,12 @@ const KIND_LABEL: Record<ShortfallOption["kind"], string> = {
 const KIND_BLURB: Record<ShortfallOption["kind"], string> = {
   defer: "Keep the hours — move them to a week with room.",
   trim_weekly: "Lower how many hours this commitment asks for every week.",
-  lower_label_target: "Lower the share of the week this whole area is meant to get.",
   move_deadline: "Move dated work aside — the one thing weekly hours can never outrank.",
 };
 
-/** Grouped so the four kinds read as four kinds of answer, rather than one
+/** Grouped so the three kinds read as three kinds of answer, rather than one
  * ranked list in which every row looks like a variation of the row above. */
-const KIND_ORDER: ShortfallOption["kind"][] = ["defer", "trim_weekly", "lower_label_target", "move_deadline"];
+const KIND_ORDER: ShortfallOption["kind"][] = ["defer", "trim_weekly", "move_deadline"];
 
 function WeekSection({ week }: { week: WeekShortfall }) {
   if (week.totalOwedMin <= 0) return null;

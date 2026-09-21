@@ -38,12 +38,10 @@ export interface LabelWeek {
   color: string | null;
   /** Null when this label carries no share target — most of them. */
   targetMin: number | null;
-  /** What the engine set out to place, which is below the target whenever the
-   * per-commitment roundings don't cancel. Null without a target. */
+  /** What was actually declared for this label (sum of weeklyMinMin across its
+   * commitments) — a benchmark to compare against targetMin, not what the
+   * engine forced. Null without a target. */
   askedMin: number | null;
-  /** Commitments that got nothing this week because their share fell below their
-   * own minimum chunk. */
-  belowFloor: string[];
   bookedMin: number;
   doneMin: number;
 }
@@ -250,7 +248,6 @@ export function buildWeekReview(inputs: WeekReviewInputs): WeekReview {
         color: labelId ? (colorOf.get(labelId) ?? null) : null,
         targetMin: report?.targetMin ?? null,
         askedMin: report?.askedMin ?? null,
-        belowFloor: report?.belowFloor ?? [],
         bookedMin: bookedByLabel.get(labelId) ?? 0,
         doneMin: doneByLabel.get(labelId) ?? 0,
       };

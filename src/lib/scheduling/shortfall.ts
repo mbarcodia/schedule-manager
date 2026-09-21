@@ -22,16 +22,15 @@
 //
 // A shortfall here means the week was asked for more than it can hold. That is
 // not automatically a failure: a week broken up by travel legitimately holds
-// less, and the label share target already scales for it. It becomes worth
-// reporting when work is left OWED — the hours are still on the books and have
-// to land somewhere or be given up on purpose.
+// less. It becomes worth reporting when work is left OWED — the hours are
+// still on the books and have to land somewhere or be given up on purpose.
 
 import { resolveDayWindow } from "./day-window";
 import type { ComputeScheduleResult, ScheduleInputs } from "./types";
 
 /** One thing the user could change, and what it would buy. */
 export interface ShortfallOption {
-  kind: "defer" | "trim_weekly" | "lower_label_target" | "move_deadline";
+  kind: "defer" | "trim_weekly" | "move_deadline";
   /** One sentence, already carrying its own numbers — quote it rather than
    * rephrasing, the way the day-focus outcomes are quoted. */
   label: string;
@@ -41,7 +40,7 @@ export interface ShortfallOption {
    * presented without one reads as free and gets taken by default. */
   cost: string;
   /** Enough to act on without re-resolving anything by title. */
-  target: { projectId?: string; taskId?: string; labelId?: string };
+  target: { projectId?: string; taskId?: string };
 }
 
 export interface WeekShortfall {
@@ -53,8 +52,6 @@ export interface WeekShortfall {
   freeMin: number;
   /** Hours still owed per commitment, after the engine did its best. */
   owed: { projectId: string; title: string; owedMin: number }[];
-  /** Label share targets that came up short, with what was asked vs placed. */
-  labels: { labelId: string; label: string; targetMin: number; plannedMin: number; shortfallMin: number }[];
   totalOwedMin: number;
   /** Ranked, biggest saving first. Empty when the week holds everything. */
   options: ShortfallOption[];
@@ -116,19 +113,6 @@ export function computeShortfall(
     owed.sort((a, b) => b.owedMin - a.owedMin);
     const totalOwedMin = owed.reduce((n, o) => n + o.owedMin, 0);
 
-    // Label targets for this week. labelTargetsByWeek is per-week where the
-    // engine computed it; labelTargets is week 0 only.
-    const perWeek = schedule.labelTargetsByWeek?.[week] ?? (week === 0 ? schedule.labelTargets : []);
-    const labels = (perWeek ?? [])
-      .map((t) => ({
-        labelId: t.labelId,
-        label: t.label,
-        targetMin: t.targetMin,
-        plannedMin: t.plannedMin,
-        shortfallMin: Math.max(0, t.targetMin - t.plannedMin),
-      }))
-      .filter((l) => l.shortfallMin > 0);
-
     const freeMin = freeMinutesInWeek(inputs, schedule, week);
 
     // Nothing owed means the week held what it was asked for. Say nothing —
@@ -139,7 +123,6 @@ export function computeShortfall(
         weekLabel: week === 0 ? "This week" : "Next week",
         freeMin,
         owed,
-        labels,
         totalOwedMin,
         options: [],
       });
@@ -166,23 +149,16 @@ export function computeShortfall(
 
     // 2. TRIM A WEEKLY MINIMUM — permanently ask for less, rather than going
     // short every week and reporting it every week. The honest option when a
-    // rate was set against a week the user does not actually have.
-    //
-    // THE RATE HAS TO BE CONVERTED BACK THROUGH THE LABEL SCALE. The number on
-    // the commitment is a RATIO, not a total: with a label share target set,
-    // the engine scales every rate under that label to hit the target, so a
-    // 6h/wk commitment can be asked for 7.5h. Proposing a new rate from the
-    // scaled figures gives a number that means nothing in the field the user
-    // would actually edit — this divides back out, so "cut to 2.8h/wk" is the
-    // number to type into the panel.
+    // rate was set against a week the user does not actually have. A label's
+    // weekly_target_pct is a benchmark only (migration 0053), so the rate
+    // proposed here is always the commitment's own declared weeklyMinMin —
+    // exactly what the field the user edits already holds.
     for (const o of owed) {
       const project = projectById.get(o.projectId);
       const rate = project?.weeklyMinMin ?? project?.weeklyMinMinOnHold;
       if (!rate) continue;
-      const scaledTarget = schedule.weeklyTargetMinByProject?.[o.projectId] ?? rate;
-      const placedMin = Math.max(0, scaledTarget - o.owedMin);
-      // Back through the scale: placed is a scaled figure, the rate is not.
-      const achievable = Math.round(((placedMin * rate) / (scaledTarget || rate)) / 15) * 15;
+      const placedMin = Math.max(0, rate - o.owedMin);
+      const achievable = Math.round(placedMin / 15) * 15;
       if (achievable >= rate) continue;
       options.push({
         kind: "trim_weekly",
@@ -191,30 +167,12 @@ export function computeShortfall(
         cost:
           achievable === 0
             ? `Only ${fmtH(placedMin)} of it fits, so this parks it entirely — putting it on hold instead keeps the rate for when it resumes.`
-            : `${fmtH(placedMin)} of its ${fmtH(scaledTarget)} ask fits this week. Its own dates get further away at the lower rate; check its pace first.`,
+            : `${fmtH(placedMin)} of its ${fmtH(rate)}/wk fits this week. Its own dates get further away at the lower rate; check its pace first.`,
         target: { projectId: o.projectId },
       });
     }
 
-    // 3. LOWER A LABEL'S SHARE TARGET — the root-cause option. A percentage is
-    // a share of the week's AVAILABLE time, so a target set against a notional
-    // 40-hour week asks for hours a meeting-heavy week never had.
-    for (const l of labels) {
-      const capacityMin = (perWeek ?? []).find((t) => t.label === l.label)?.capacityMin ?? 0;
-      if (!capacityMin) continue;
-      const fittablePct = Math.floor((l.plannedMin / capacityMin) * 100);
-      const currentPct = (perWeek ?? []).find((t) => t.label === l.label)?.pct;
-      if (currentPct == null || fittablePct >= currentPct) continue;
-      options.push({
-        kind: "lower_label_target",
-        label: `Lower the ${l.label} target from ${currentPct}% to about ${fittablePct}% of the week`,
-        freesMin: l.shortfallMin,
-        cost: `${currentPct}% of ${fmtH(capacityMin)} available asks ${fmtH(l.targetMin)}; only ${fmtH(l.plannedMin)} fits. This makes the target honest rather than making the week bigger.`,
-        target: { labelId: l.labelId },
-      });
-    }
-
-    // 4. MOVE A DEADLINE — dated work is the one thing weekly minimums can
+    // 3. MOVE A DEADLINE — dated work is the one thing weekly minimums can
     // never outrank, so it is also the only thing whose removal reliably frees
     // the contested slots. Offered last and always as a question: a deadline
     // is the user's commitment to someone else, not a scheduling parameter.
@@ -251,7 +209,6 @@ export function computeShortfall(
       weekLabel: week === 0 ? "This week" : "Next week",
       freeMin,
       owed,
-      labels,
       totalOwedMin,
       options,
     });

@@ -67,6 +67,7 @@ export function validateCommitmentForm(input: {
   activeFrom?: string;
   activeUntil?: string;
   targets: TargetDraft[];
+  categoryId: string;
 }): FormProblems {
   const errors: string[] = [];
   const warnings: string[] = [];
@@ -75,6 +76,12 @@ export function validateCommitmentForm(input: {
   if (estimate.error) errors.push(`Total work: ${estimate.error}`);
   const weekly = parseHours(input.weeklyText);
   if (weekly.error) errors.push(`Hours a week: ${weekly.error}`);
+  // A commitment with no weekly hours books nothing itself, so it needs no
+  // label of its own — the moment it declares hours it generates real
+  // calendar blocks and logs real hours, the same as a task does.
+  if (weekly.minutes && !input.categoryId) {
+    errors.push("A commitment with weekly hours needs a label — those hours get logged to it.");
+  }
 
   // An inverted window is silently nothing: the engine asks for hours inside it
   // and no day qualifies, so the commitment simply stops generating time with no

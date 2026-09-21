@@ -270,7 +270,9 @@ export function TaskPanel({
             ))}
           </select>
           <select value={draft.categoryId} onChange={(e) => patch({ categoryId: e.target.value })} className={field}>
-            <option value="">no label</option>
+            <option value="" disabled>
+              choose a label
+            </option>
             {categories.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
@@ -289,8 +291,9 @@ export function TaskPanel({
             ))}
           </select>
           <div className={hint}>
-            Priority decides what gets the good slots when the week is full; the label decides how its time is
-            scheduled.
+            {categories.length === 0
+              ? "No labels yet — add one in Settings before saving. Every task needs one so its hours can be logged."
+              : "Priority decides what gets the good slots when the week is full; the label decides how its time is scheduled and where its hours get logged."}
           </div>
         </section>
 

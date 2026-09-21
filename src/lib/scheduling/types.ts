@@ -428,23 +428,17 @@ export interface LabelTargetReport {
   capacityMin: number;
   targetMin: number;
   plannedMin: number;
-  /** What the engine actually SET OUT to place: each commitment's share of the
-   * target, rounded to whole blocks no shorter than its minimum chunk, summed.
-   *
-   * Below targetMin whenever those roundings don't cancel out, which is most
-   * weeks. Reported because the difference between "the week had no room" and
-   * "the hours don't divide into usable blocks" is the difference between a
-   * problem you fix by clearing the week and one you fix by changing a number —
-   * and a shortfall with hours still free otherwise looks like a bug. */
+  /** What was actually DECLARED for this label: the sum of every commitment's
+   * own weeklyMinMin, wearing this label. A label's percentage no longer
+   * reshapes this (migration 0053) — it is what she asked for, not a rounded
+   * share of a target. Compared against targetMin so a week with the target
+   * unmet reads as "I didn't ask for enough" rather than "the engine failed
+   * to place it" — those are different problems with different fixes. */
   askedMin: number;
   /** Of the above, the part met by ROUTINES wearing this label — a weekly
    * literature scan is research. Included in both targetMin's competitors, so
    * the commitments are asked only for the remainder. */
   routineMin: number;
-  /** Commitments whose share came out below their own minimum chunk, so they get
-   * NOTHING this week rather than an unusably short block. Titles, because the
-   * only useful form of this news is which project went quiet. */
-  belowFloor: string[];
 }
 
 export interface ScheduleInputs {
@@ -527,8 +521,9 @@ export interface ScheduleInputs {
   currentWeekFallback: ScheduleBlock[];
   /** Label id -> its weekly share target as a percentage of that week's
    * available working time (categories.weekly_target_pct). Absent = no target.
-   * See labelScaleForWeek in engine.ts for what it does to the commitments
-   * wearing that label. */
+   * Purely a benchmark reported in the weekly review (see targetsForWeek in
+   * engine.ts) — does not shape what gets placed for commitments wearing
+   * that label; each one always books its own declared weeklyMinMin. */
   labelTargetPct: Record<string, number>;
   /** Label id -> what its percentage is a share OF. Absent behaves as "week".
    * See migration 0038: "after_meetings" shrinks the goal in a busy week so it

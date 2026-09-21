@@ -17,6 +17,7 @@ import { BoardViewIntro } from "@/components/board/BoardViewIntro";
 import { TodoView } from "@/components/board/TodoView";
 import { ListsView } from "@/components/board/ListsView";
 import { WeekView } from "@/components/board/WeekView";
+import { WeeklyCheckinPanel } from "@/components/board/WeeklyCheckinPanel";
 import { PlannerSidebar } from "@/components/planner/PlannerSidebar";
 import { useScheduleData } from "@/hooks/useScheduleData";
 
@@ -50,6 +51,11 @@ export default function PlannerPage() {
   // sidebar can refetch if a linked trackable changes.
   const [refreshKey, setRefreshKey] = useState(0);
   const onMutated = () => setRefreshKey((k) => k + 1);
+  /** /planner?checkin=1 — a check-in push landed. A dedicated screen, not a
+   * chat prompt seed (contrast ?review=1 / ?plan=1, handled in
+   * PlannerChatPanel on the calendar page): the guided review lets you act
+   * on what changed, which a pre-filled chat box doesn't. */
+  const [showCheckin, setShowCheckin] = useState(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -59,6 +65,7 @@ export default function PlannerPage() {
     setFocusItem(params.get("item"));
     setFocusTask(params.get("task"));
     setFocusCommitment(params.get("commitment"));
+    if (params.get("checkin")) setShowCheckin(true);
   }, []);
 
   return (
@@ -130,6 +137,13 @@ export default function PlannerPage() {
         )}
         <PlannerSidebar refreshKey={refreshKey} />
       </div>
+      {showCheckin && (
+        <WeeklyCheckinPanel
+          scheduleData={scheduleData}
+          onClose={() => setShowCheckin(false)}
+          onMutated={onMutated}
+        />
+      )}
     </div>
   );
 }

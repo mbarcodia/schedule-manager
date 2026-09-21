@@ -33,6 +33,7 @@ import {
 
 type CategoryRow = Database["public"]["Tables"]["categories"]["Row"];
 type ConnectionRow = Database["public"]["Tables"]["calendar_connections"]["Row"];
+type CheckinSlotRow = Database["public"]["Tables"]["checkin_slots"]["Row"];
 /** A commitment with no commitment_kind set yet (migration 0051) — never
  * guessed by the migration, so this is where a person sorts them out. */
 type UnclassifiedCommitment = { id: string; title: string };
@@ -281,6 +282,7 @@ export default function SettingsPage() {
   const [plannerCredBusy, setPlannerCredBusy] = useState(false);
   const [plannerCredError, setPlannerCredError] = useState<string | null>(null);
   const [unclassified, setUnclassified] = useState<UnclassifiedCommitment[]>([]);
+  const [checkinSlots, setCheckinSlots] = useState<CheckinSlotRow[]>([]);
 
   useEffect(() => {
     let ignore = false;
@@ -290,7 +292,7 @@ export default function SettingsPage() {
         data: { user },
       } = await supabase.auth.getUser();
       if (!user) return;
-      const [{ data }, { data: cats }, { data: rules }, { data: conns }, pushOn, { data: unclass }] = await Promise.all([
+      const [{ data }, { data: cats }, { data: rules }, { data: conns }, pushOn, { data: unclass }, { data: checkins }] = await Promise.all([
         supabase
           .from("profiles")
           .select(
@@ -309,6 +311,7 @@ export default function SettingsPage() {
           .is("archived_at", null)
           .is("commitment_kind", null)
           .order("title"),
+        supabase.from("checkin_slots").select("*").eq("user_id", user.id).order("dow").order("time_min"),
       ]);
       if (ignore) return;
       if (data) {
@@ -332,6 +335,7 @@ export default function SettingsPage() {
       setConnections(conns ?? []);
       setPushEnabled(pushOn);
       setUnclassified(unclass ?? []);
+      setCheckinSlots(checkins ?? []);
       setLoading(false);
     }
     void load();
@@ -662,6 +666,56 @@ export default function SettingsPage() {
   function setWeeklySummaryTime(minutes: number) {
     if (!notif) return;
     void saveNotif({ ...notif, weeklyTime: minutes });
+  }
+
+  /** A flexible list, not a fixed count (migration 0052) — a plain default
+   * that's obviously meant to be edited, the same spirit as an empty label
+   * list offering suggestions rather than seeding one. */
+  async function addCheckinSlot() {
+    const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return;
+    const { data, error } = await supabase
+      .from("checkin_slots")
+      .insert({ user_id: user.id, label: "Check-in", dow: 0, time_min: 540 })
+      .select()
+      .single();
+    if (error) return setSaveError(`Couldn't add that check-in: ${error.message}`);
+    if (data) setCheckinSlots((prev) => [...prev, data]);
+  }
+
+  const SUGGESTED_CHECKINS = [
+    { label: "Monday kickoff", dow: 0, time_min: 540 },
+    { label: "Wednesday midweek", dow: 2, time_min: 720 },
+    { label: "Friday wrap-up", dow: 4, time_min: 960 },
+  ];
+
+  async function addSuggestedCheckins() {
+    const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return;
+    const { data, error } = await supabase
+      .from("checkin_slots")
+      .insert(SUGGESTED_CHECKINS.map((s) => ({ user_id: user.id, ...s })))
+      .select();
+    if (error) return setSaveError(`Couldn't add those check-ins: ${error.message}`);
+    if (data) setCheckinSlots((prev) => [...prev, ...data]);
+  }
+
+  async function updateCheckinSlot(id: string, patch: Partial<Pick<CheckinSlotRow, "label" | "dow" | "time_min" | "enabled">>) {
+    setCheckinSlots((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)));
+    const supabase = createClient();
+    await save("Couldn't change that check-in", supabase.from("checkin_slots").update(patch).eq("id", id));
+  }
+
+  async function removeCheckinSlot(id: string) {
+    setCheckinSlots((prev) => prev.filter((s) => s.id !== id));
+    const supabase = createClient();
+    await save("Couldn't remove that check-in", supabase.from("checkin_slots").delete().eq("id", id));
   }
 
   async function choosePlannerModel(model: PlannerModel) {
@@ -1698,6 +1752,87 @@ export default function SettingsPage() {
                     </option>
                   ))}
                 </select>
+              </div>
+
+              <div className={`rounded-md border border-border bg-panel px-3 py-2.5 ${pushEnabled ? "" : "opacity-50"}`}>
+                <div className="flex items-center justify-between gap-2 mb-1.5">
+                  <span className="text-xs font-medium">Week check-in</span>
+                  <button
+                    onClick={() => void addCheckinSlot()}
+                    disabled={!pushEnabled}
+                    className="text-[11px] text-accent-text hover:underline"
+                  >
+                    + add a check-in
+                  </button>
+                </div>
+                <p className="text-[10.5px] text-muted mb-2">
+                  Prompts to reassess what changed — as many points in the week as you want, each its own day and
+                  time. Opens a guided review, not just a summary.
+                </p>
+                <div className="flex flex-col gap-1.5">
+                  {checkinSlots.map((s) => (
+                    <div key={s.id} className="flex items-center gap-1.5 flex-wrap">
+                      <input
+                        type="checkbox"
+                        checked={s.enabled}
+                        disabled={!pushEnabled}
+                        onChange={(e) => void updateCheckinSlot(s.id, { enabled: e.target.checked })}
+                        className="accent-accent flex-none"
+                      />
+                      <input
+                        defaultValue={s.label}
+                        disabled={!pushEnabled}
+                        onBlur={(e) => {
+                          if (e.target.value.trim() && e.target.value !== s.label) {
+                            void updateCheckinSlot(s.id, { label: e.target.value.trim() });
+                          }
+                        }}
+                        className="w-32 min-w-0 bg-transparent text-xs text-text outline-none border-b border-transparent focus-visible:border-accent"
+                      />
+                      <select
+                        value={s.dow}
+                        disabled={!pushEnabled}
+                        onChange={(e) => void updateCheckinSlot(s.id, { dow: Number(e.target.value) })}
+                        className="rounded border border-border bg-surface px-1.5 py-1 text-text text-xs outline-none focus-visible:border-accent"
+                      >
+                        {DAY_LABELS.map((label, dow) => (
+                          <option key={dow} value={dow}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        value={s.time_min}
+                        disabled={!pushEnabled}
+                        onChange={(e) => void updateCheckinSlot(s.id, { time_min: Number(e.target.value) })}
+                        className="rounded border border-border bg-surface px-1.5 py-1 text-text text-xs outline-none focus-visible:border-accent"
+                      >
+                        {HOUR_OPTIONS.map((o) => (
+                          <option key={o.value} value={o.value}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        onClick={() => void removeCheckinSlot(s.id)}
+                        title="Remove"
+                        disabled={!pushEnabled}
+                        className="text-muted hover:text-red-300 text-xs"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                  {checkinSlots.length === 0 && (
+                    <button
+                      onClick={() => void addSuggestedCheckins()}
+                      disabled={!pushEnabled}
+                      className="self-start text-[11px] text-muted hover:text-text border border-border rounded-md px-2 py-1"
+                    >
+                      + add the usual three (Monday kickoff, Wednesday midweek, Friday wrap-up)
+                    </button>
+                  )}
+                </div>
               </div>
 
               {!pushEnabled && <p className="text-[11px] text-muted">Turn on push notifications above first.</p>}

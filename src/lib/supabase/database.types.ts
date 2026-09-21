@@ -407,6 +407,34 @@ export interface Database {
         { id?: string; user_id: string; role: ChatRole; content: string },
         Partial<{ content: string }>
       >;
+      /** A weekly check-in prompt slot (migration 0052) — a flexible list, not
+       * a fixed count: as many or as few points in the week as the user wants,
+       * each with its own day/time. */
+      checkin_slots: Table<
+        {
+          id: string;
+          user_id: string;
+          label: string;
+          dow: number;
+          time_min: number;
+          enabled: boolean;
+          created_at: string;
+        },
+        {
+          id?: string;
+          user_id: string;
+          label: string;
+          dow: number;
+          time_min: number;
+          enabled?: boolean;
+        },
+        Partial<{
+          label: string;
+          dow: number;
+          time_min: number;
+          enabled: boolean;
+        }>
+      >;
       // RLS-locked to the service role only (see 0011 migration) — never
       // queried from a browser/user-scoped client, only createAdminClient().
       planner_credentials: Table<

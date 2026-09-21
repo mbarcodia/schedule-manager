@@ -24,7 +24,7 @@ jobs:
           # Only the digest routes read ?hour=; the rest compare their own
           # moments against the clock. The extra param is harmless, so one loop
           # covers all five routes.
-          for route in eod-checkin weekly-summary reminders grace-reminders list-chase; do
+          for route in eod-checkin weekly-summary weekly-checkin reminders grace-reminders list-chase; do
             status=$(curl -s -o /tmp/resp.json -w "%{http_code}" --max-time 120 \
               "$BASE_URL/api/cron/$route?hour=$H" \
               -H "Authorization: Bearer $CRON_SECRET")

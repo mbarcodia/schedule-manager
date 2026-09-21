@@ -10,6 +10,7 @@ import { CaretDownIcon, CaretRightIcon, TrashIcon } from "@phosphor-icons/react"
 import { createClient } from "@/lib/supabase/client";
 import { softDelete } from "@/lib/db/soft-delete";
 import { writeError } from "@/lib/planner/write";
+import { appendChecklistItem, parseChecklist, toggleChecklistLine } from "@/lib/planner/checklist";
 import type { Database, NoteKind } from "@/lib/supabase/database.types";
 
 type NoteRow = Database["public"]["Tables"]["notes"]["Row"];
@@ -37,6 +38,11 @@ export function PlannerSidebar({ refreshKey }: PlannerSidebarProps) {
   const [notes, setNotes] = useState<NoteRow[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
+  /** A todo note open as a checklist by default; set to view its raw
+   * markdown instead — for renaming/reordering/deleting lines, which a
+   * checkbox row can't do. Cleared whenever a different note is opened. */
+  const [textEditId, setTextEditId] = useState<string | null>(null);
+  const [newItemText, setNewItemText] = useState<Record<string, string>>({});
   /** A note that didn't save. Shown rather than swallowed: this editor used to
    * close on failure, which is the "Save does nothing" shape exactly. */
   const [error, setError] = useState<string | null>(null);
@@ -80,6 +86,31 @@ export function PlannerSidebar({ refreshKey }: PlannerSidebarProps) {
     void load();
   }
 
+  /** Writes immediately — a checkbox is a click, not a form, and waiting for
+   * a separate Save would mean the check visibly un-does itself until you
+   * remember to press it. */
+  async function writeChecklistContent(note: NoteRow, content: string) {
+    const supabase = createClient();
+    const message = await writeError(
+      "Couldn't update that checklist",
+      supabase.from("notes").update({ content, updated_at: new Date().toISOString() }).eq("id", note.id),
+    );
+    if (message) return setError(message);
+    setError(null);
+    void load();
+  }
+
+  async function toggleItem(note: NoteRow, line: number, checked: boolean) {
+    await writeChecklistContent(note, toggleChecklistLine(note.content, line, checked));
+  }
+
+  async function addItem(note: NoteRow) {
+    const text = (newItemText[note.id] ?? "").trim();
+    if (!text) return;
+    setNewItemText((prev) => ({ ...prev, [note.id]: "" }));
+    await writeChecklistContent(note, appendChecklistItem(note.content, text));
+  }
+
   async function deleteNote(note: NoteRow) {
     const supabase = createClient();
     const message = await softDelete(supabase, "notes", note.id, "Couldn't move that note to Trash");
@@ -91,12 +122,18 @@ export function PlannerSidebar({ refreshKey }: PlannerSidebarProps) {
 
   function renderNote(n: NoteRow) {
     const open = openId === n.id;
+    const items = n.kind === "todo" ? parseChecklist(n.content) : [];
+    // A checklist opens AS a checklist — raw markdown is what "edit as text"
+    // is for, not the default view of something meant to be ticked off.
+    const asText = textEditId === n.id || n.kind !== "todo";
     return (
       <div key={n.id} className="rounded-md border border-border bg-surface">
         <button
           onClick={() => {
-            setOpenId(open ? null : n.id);
+            const next = open ? null : n.id;
+            setOpenId(next);
             setDraft(n.content);
+            setTextEditId(null);
           }}
           className="w-full flex items-center gap-1.5 px-2 py-1.5 text-left"
         >
@@ -107,8 +144,58 @@ export function PlannerSidebar({ refreshKey }: PlannerSidebarProps) {
           )}
           <span className="text-[9px] tracking-wide uppercase text-muted-2 flex-none">{KIND_LABEL[n.kind]}</span>
           <span className="text-[11.5px] text-text truncate">{n.title}</span>
+          {items.length > 0 && (
+            <span className="flex-none text-[9.5px] text-muted-2">
+              {items.filter((i) => i.checked).length}/{items.length}
+            </span>
+          )}
         </button>
-        {open && (
+        {open && !asText && (
+          <div className="px-2 pb-2 flex flex-col gap-1.5">
+            {items.length === 0 && <div className="px-1 text-[10.5px] text-muted-2">no steps yet</div>}
+            {items.map((it) => (
+              <label key={it.line} className="flex items-start gap-1.5 px-1 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={it.checked}
+                  onChange={(e) => void toggleItem(n, it.line, e.target.checked)}
+                  className="mt-0.5 flex-none"
+                />
+                <span className={`text-[11.5px] leading-snug ${it.checked ? "text-muted-2 line-through" : "text-text"}`}>
+                  {it.text}
+                </span>
+              </label>
+            ))}
+            <div className="flex items-center gap-1.5 px-1 pt-0.5">
+              <input
+                value={newItemText[n.id] ?? ""}
+                onChange={(e) => setNewItemText((prev) => ({ ...prev, [n.id]: e.target.value }))}
+                onKeyDown={(e) => e.key === "Enter" && void addItem(n)}
+                placeholder="add a step"
+                className="flex-1 min-w-0 bg-transparent text-[11.5px] text-text outline-none placeholder:text-muted border-b border-transparent focus-visible:border-accent"
+              />
+              <button onClick={() => void addItem(n)} className="flex-none text-[11px] text-accent-text hover:underline">
+                Add
+              </button>
+            </div>
+            <div className="flex items-center gap-2 pt-0.5">
+              <button
+                onClick={() => setTextEditId(n.id)}
+                className="text-[10.5px] text-muted-2 hover:text-text"
+              >
+                edit as text ▸
+              </button>
+              <button
+                onClick={() => void deleteNote(n)}
+                title="Delete note"
+                className="ml-auto inline-flex items-center gap-1 text-[11px] text-muted hover:text-red-300"
+              >
+                <TrashIcon size={12} /> Delete
+              </button>
+            </div>
+          </div>
+        )}
+        {open && asText && (
           <div className="px-2 pb-2 flex flex-col gap-1.5">
             <textarea
               value={draft}
@@ -116,6 +203,11 @@ export function PlannerSidebar({ refreshKey }: PlannerSidebarProps) {
               rows={6}
               className="w-full rounded-md border border-border bg-bg px-2 py-1.5 text-[11.5px] text-text outline-none focus-visible:border-accent resize-y"
             />
+            {n.kind === "todo" && (
+              <div className="text-[10px] text-muted-2">
+                One <code>- [ ] step</code> or <code>- [x] step</code> per line.
+              </div>
+            )}
             <div className="flex items-center gap-2">
               <button
                 onClick={() => void saveNote(n)}
@@ -123,6 +215,14 @@ export function PlannerSidebar({ refreshKey }: PlannerSidebarProps) {
               >
                 Save
               </button>
+              {n.kind === "todo" && (
+                <button
+                  onClick={() => setTextEditId(null)}
+                  className="text-[10.5px] text-muted-2 hover:text-text"
+                >
+                  back to checklist ▸
+                </button>
+              )}
               <button
                 onClick={() => void deleteNote(n)}
                 title="Delete note"

@@ -12,6 +12,7 @@ import { buildTodoReminderTools } from "./todo-reminder-tools";
 import type { Database } from "@/lib/supabase/database.types";
 import { writeError } from "./write";
 import { syncTodoOnTaskArchive } from "./task-completion-sync";
+import { findChecklistItem, parseChecklist, toggleChecklistLine } from "./checklist";
 
 type NoteRow = Database["public"]["Tables"]["notes"]["Row"];
 type NoteUpdate = Database["public"]["Tables"]["notes"]["Update"];
@@ -187,6 +188,63 @@ function notesTools(ctx: ToolContext) {
       }),
   });
 
+  const toggle_checklist_item = betaTool({
+    name: "toggle_checklist_item",
+    description:
+      "Check or uncheck one item in a project's step-by-step checklist — the todo-kind note that holds a project's breakdown instead of separate scheduled tasks. Flips one line only; the rest of the checklist is untouched. To ADD a new item instead, use update_note with mode 'append' and content like \"- [ ] the new step\" — that already works without this tool.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: { type: "string", description: "fuzzy title of the project whose checklist this is" },
+        item: { type: "string", description: "fuzzy text of the checklist item to flip" },
+        checked: { type: "boolean", description: "true to check it off (default), false to uncheck it" },
+      },
+      required: ["project", "item"],
+    },
+    run: async ({ project, item, checked }) =>
+      serialize(async () => {
+        const link = await findTrackableId(ctx, project);
+        if (link.status === "ambiguous") {
+          return `"${project}" matches more than one project: ${link.candidates.join(", ")}. Say which one (use its exact title).`;
+        }
+        if (link.status === "none") return `No project matching "${project}".`;
+
+        const { data: candidates } = await supabase
+          .from("notes")
+          .select("id,title,content,updated_at")
+          .is("deleted_at", null)
+          .eq("user_id", userId)
+          .eq("project_id", link.projectId)
+          .eq("kind", "todo")
+          .order("updated_at", { ascending: false });
+        if (!candidates?.length) {
+          return `"${link.title}" has no checklist note yet — create one with create_note (kind: "todo", link_to: "${link.title}") and list the steps as "- [ ] ..." lines.`;
+        }
+        // More than one todo-kind note under the same project is off the
+        // intended shape (one checklist per project) but not impossible —
+        // the newest one is the working checklist, the rest are presumably
+        // stale or something else entirely.
+        const note = candidates[0];
+
+        const items = parseChecklist(note.content);
+        const { match, ambiguous } = findChecklistItem(items, item);
+        if (ambiguous.length) {
+          return `"${item}" matches more than one item on "${link.title}"'s checklist: ${ambiguous.map((i) => i.text).join(", ")}. Say which one.`;
+        }
+        if (!match) return `No item matching "${item}" on "${link.title}"'s checklist.`;
+
+        const next = checked !== false;
+        const newContent = toggleChecklistLine(note.content, match.line, next);
+        const { error } = await supabase
+          .from("notes")
+          .update({ content: newContent, updated_at: new Date().toISOString() })
+          .eq("id", note.id);
+        if (error) return `Couldn't update the checklist: ${error.message}`;
+        markMutated(ctx);
+        return `${next ? "Checked off" : "Unchecked"} "${match.text}" on "${link.title}"'s checklist.`;
+      }),
+  });
+
   const read_note = betaTool({
     name: "read_note",
     description:
@@ -232,7 +290,7 @@ function notesTools(ctx: ToolContext) {
       serialize(async () => {
         let query = supabase
           .from("notes")
-          .select("title,kind,updated_at,project_id,task_id")
+          .select("title,kind,content,updated_at,project_id,task_id")
           .is("deleted_at", null)
           .eq("user_id", userId)
           .order("updated_at", { ascending: false });
@@ -247,11 +305,24 @@ function notesTools(ctx: ToolContext) {
         }
         const { data: notes } = await query;
         if (!notes?.length) return "No notes yet.";
-        return notes.map((n) => `- [${n.kind}] ${n.title} (updated ${n.updated_at.slice(0, 10)})`).join("\n");
+        return notes
+          .map((n) => {
+            // A checklist's own state is more useful here than its edit
+            // date alone — "3/5 done" says what's actually left, at a glance.
+            const progress =
+              n.kind === "todo"
+                ? (() => {
+                    const items = parseChecklist(n.content);
+                    return items.length ? ` (${items.filter((i) => i.checked).length}/${items.length} done)` : "";
+                  })()
+                : "";
+            return `- [${n.kind}] ${n.title}${progress} (updated ${n.updated_at.slice(0, 10)})`;
+          })
+          .join("\n");
       }),
   });
 
-  return [create_note, update_note, read_note, delete_note, list_notes];
+  return [create_note, update_note, toggle_checklist_item, read_note, delete_note, list_notes];
 }
 
 function archiveTools(ctx: ToolContext) {

@@ -314,7 +314,7 @@ export function CommitmentPanel({
           <div className={hint}>
             {onHold
               ? "On hold: nothing is being scheduled — not these hours and not its tasks. The rate above is the one it resumes at; change it here to change that."
-              : "These get found and protected on the calendar. Empty books nothing."}
+              : "These get found and protected on the calendar, as one block under this commitment's own name — not as separate tasks. For a step-by-step breakdown, use a checklist in this commitment's notes instead of scheduling each step on its own."}
           </div>
 
           <div className="flex items-center gap-1.5 pt-1">
